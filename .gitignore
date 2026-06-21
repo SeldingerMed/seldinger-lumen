@@ -11,3 +11,6 @@ venv/
 examples/assets/
 *.so
 .DS_Store
+
+# proprietary design bible — local reference only, not for the open release
+plan.md
