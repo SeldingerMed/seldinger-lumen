@@ -72,3 +72,5 @@ def test_two_way_flow_occlusion_and_aspiration():
     assert downstream_flow(4.0, clot_present=True) < 0.5            # clot occludes
     partial = downstream_flow(4.0, clot_present=True, aspiration_fraction=0.5)
     assert downstream_flow(4.0, True) < partial < 4.0              # aspiration recovers flow
+    # #17 — aspiration_fraction is bounded to [0,1]: cannot exceed base flow
+    assert downstream_flow(4.0, True, aspiration_fraction=2.0) <= 4.0 + 1e-9

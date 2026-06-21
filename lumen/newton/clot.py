@@ -119,4 +119,6 @@ def downstream_flow(base_flow: float, clot_present: bool, occlusion: float = 0.9
     """
     if not clot_present:
         return base_flow
-    return base_flow * (1.0 - occlusion * (1.0 - aspiration_fraction))
+    occ = min(max(occlusion, 0.0), 1.0)
+    asp = min(max(aspiration_fraction, 0.0), 1.0)        # #17 — bound to [0,1]
+    return base_flow * (1.0 - occ * (1.0 - asp))

@@ -22,15 +22,13 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BANNED = ("cathsim",)
-# directories that may contain example/test asset JSON we must vet for provenance
-ASSET_GLOBS = ("examples/**/*.json", "tests/**/*.json", "lumen/**/*.json")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".github"}
 
 
-# banned tokens are checked only in code + packaging (the real contamination
-# surface: imports and dependencies). Markdown/NOTICE may name CathSim to
-# *document* the boundary.
-CODE_SUFFIXES = (".py", ".toml", ".cfg")
+# banned tokens are checked in code + packaging + scripts/configs (the real
+# contamination surface: imports, deps, build/run scripts). Markdown/NOTICE may
+# name CathSim to *document* the boundary, so .md is excluded.
+CODE_SUFFIXES = (".py", ".toml", ".cfg", ".txt", ".sh", ".yaml", ".yml", ".ipynb")
 
 
 def _iter_source():
@@ -56,14 +54,15 @@ def check_no_banned() -> list[str]:
 
 def check_provenance() -> list[str]:
     bad = []
-    for pattern in ASSET_GLOBS:
-        for p in ROOT.glob(pattern):
-            try:
-                d = json.loads(p.read_text())
-            except (ValueError, OSError):
-                continue
-            if not isinstance(d, dict) or "provenance" not in d:
-                continue  # not a lumen asset
+    # scan EVERY .json anywhere in the repo (not a fixed allow-list of dirs)
+    for p in ROOT.rglob("*.json"):
+        if any(part in SKIP_DIRS for part in p.parts):
+            continue
+        try:
+            d = json.loads(p.read_text())
+        except (ValueError, OSError):
+            continue
+        if isinstance(d, dict) and "provenance" in d:
             if d.get("provenance") != "procedural":
                 bad.append(f"  non-procedural asset committed: {p.relative_to(ROOT)} "
                            f"(provenance={d.get('provenance')!r})")

@@ -78,13 +78,21 @@ class NavEnv:
         self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps, insertion=a * self.max_insertion)
         self.steps += 1
         s, r, th, rmax = self._tip()
+        obs = self._obs()
+        # #14 — NaN guard: a diverged sim must not emit NaN obs/reward (invalid JSON,
+        # broken comparisons). End the episode with a finite penalty instead.
+        if not (np.isfinite(obs).all() and np.isfinite([s, rmax]).all()):
+            zeros = np.zeros(5, dtype=np.float32)
+            return zeros, -100.0, True, False, {
+                "tip_s": 0.0, "dist": float("inf"), "max_r": 0.0,
+                "success": False, "diverged": True}
         dist = abs(s - self.target_s)
         contact_pen = max(0.0, rmax - self.R)
         reward = (self._prev_dist - dist) - 0.5 * contact_pen - 0.01
         self._prev_dist = dist
-        terminated = dist < self.success_tol
+        terminated = bool(dist < self.success_tol)
         truncated = self.steps >= self.max_steps
         if terminated:
             reward += 10.0
         info = {"tip_s": s, "dist": dist, "max_r": rmax, "success": terminated}
-        return self._obs(), float(reward), terminated, truncated, info
+        return obs, float(reward), terminated, truncated, info

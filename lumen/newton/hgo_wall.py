@@ -149,9 +149,15 @@ class WallField:
         p_contact = load / self.cell_area                        # pressure [Pa]
         w_eq = self._solve_cell(p_contact, self.w)
         W = w_eq.reshape(self.n_s, self.n_th)
-        lap = (np.roll(W, 1, 0) + np.roll(W, -1, 0)
-               + np.roll(W, 1, 1) + np.roll(W, -1, 1) - 4 * W)
-        self.w = (W + self.smooth * lap).ravel()
+        # shell smoothing: periodic in θ (circumferential) but zero-flux in s
+        # (#6 — vessel ends are NOT connected; edge.repeat gives a clamped boundary)
+        Wp = np.pad(W, ((1, 1), (0, 0)), mode="edge")            # clamp s ends
+        lap_s = Wp[2:, :] + Wp[:-2, :] - 2 * W                   # zero-flux at ends
+        lap_th = np.roll(W, 1, 1) + np.roll(W, -1, 1) - 2 * W    # periodic in θ
+        W = W + self.smooth * (lap_s + lap_th)
+        # #7 — re-clamp after smoothing (the Laplacian can drive neighbours
+        # negative, which the HGO model (w>=0, outward expansion) does not handle)
+        self.w = np.clip(W.ravel(), 0.0, 0.9 * self.R0_grid)
         self.w_field.assign(self.w.astype(np.float32))
 
     def max_deflection(self) -> float:
