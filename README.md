@@ -75,7 +75,15 @@ tools/            firewall check (no CathSim, no patient data)
   a mechanical parameter from the fluoro image alone (`lumen.physics.imaging`)
 - **P4 ✅** one-way Windkessel flow drag + generic clot/occlusion interface
   (R-collapse + adhesive capture; real INSIST/Luraghi model plugs in privately)
-- **P5** rod-primitive bake-off; benchmark suite + leaderboard; Isaac Lab/Gym
+- **P5 ✅** Gym nav env (`lumen.envs.NavEnv`); benchmark suite + JSON leaderboard;
+  narrowphase throughput benchmark; rod-primitive bake-off harness (`benchmarks/`)
+
+```bash
+python -m lumen.physics.sysid       # M0: recover friction by gradient
+python -m lumen.physics.imaging     # M2: device-as-sensor (param from fluoro image)
+python -m benchmarks.throughput     # narrowphase: flat in wall resolution T
+python -m benchmarks.leaderboard    # navigation leaderboard (JSON)
+```
 
 > The physics tier is PyTorch (differentiable, batched, CPU/MPS/CUDA). A Warp
 > kernel port is the documented GPU-throughput upgrade; the *formulation* is
