@@ -15,7 +15,7 @@ open repository; the firewall check enforces provenance == "procedural" here.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 import numpy as np
 
@@ -45,22 +45,16 @@ class Edge:
     s_grid: list
     theta_grid: list
     R: list                                # shape (len(s_grid), len(theta_grid))
-    fiber_dir: list = field(default_factory=list)   # optional HGO fiber dirs
 
 
-@dataclass
-class WallParams:
-    # generic anisotropic-shell defaults; real calibration stays private
-    C10: float = 1.0e4
-    k1: float = 1.0e4
-    k2: float = 1.0
-    thickness_mm: float = 0.3
+# NOTE: wall mechanics (HGO) are a CALIBRATION concern that stays private (§8), so
+# they are intentionally NOT in the open asset schema. The solver takes HGOParams
+# (lumen.newton.hgo_wall) directly; the asset carries only geometry.
 
 
 @dataclass
 class DeviceSpawn:
     node_id: str
-    insertion_mm: float = 0.0
 
 
 @dataclass
@@ -69,7 +63,6 @@ class Asset:
     nodes: list                            # list[Node]
     edges: list                            # list[Edge]
     device_spawn: DeviceSpawn
-    wall: WallParams = field(default_factory=WallParams)
     provenance: str = "procedural"         # "procedural" | "patient(private)"
     version: str = SCHEMA_VERSION
 
@@ -94,7 +87,6 @@ class Asset:
             nodes=[Node(**n) for n in d["nodes"]],
             edges=[Edge(**e) for e in d["edges"]],
             device_spawn=DeviceSpawn(**d["device_spawn"]),
-            wall=WallParams(**d.get("wall", {})),
             provenance=d.get("provenance", "procedural"),
             version=d.get("version", SCHEMA_VERSION),
         )

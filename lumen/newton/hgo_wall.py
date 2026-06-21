@@ -39,12 +39,16 @@ except Exception:  # pragma: no cover
 
 @dataclass
 class HGOParams:
-    C10: float = 8.0e3       # neo-Hookean ground matrix [Pa]
-    k1: float = 5.0e3        # fiber stiffness [Pa]
+    # Units are the solver's CONSISTENT non-dimensional system (#12): geometry
+    # (R0, thickness) and stiffnesses (C10, k1) share one scale so HGO pressure
+    # ~ contact load. Absolute SI calibration against real vessel data is the
+    # private layer (§8). Defaults below are sim-consistent (not SI).
+    C10: float = 8.0e3       # neo-Hookean ground matrix
+    k1: float = 5.0e3        # fiber stiffness
     k2: float = 1.0          # fiber exponential stiffening [-]
     kappa_d: float = 0.1     # Gasser fiber dispersion [0=aligned, 1/3=isotropic]
     gamma_deg: float = 40.0  # fiber angle from circumferential direction [deg]
-    thickness: float = 0.5e-3  # wall thickness [m]
+    thickness: float = 0.3   # wall thickness (sim units, consistent with R0)
 
 
 def _invariants(lam_theta, p: HGOParams):
@@ -98,6 +102,58 @@ def hgo_wall_pressure(w, R0, p: HGOParams):
     return hgo_radial_stress(lam, p) * p.thickness / R0
 
 
+if wp is not None:
+    @wp.func
+    def _hgo_pressure_wp(w: float, R0: float, C10: float, k1: float, k2: float,
+                         kd: float, cg2: float, sg2: float, thickness: float):
+        """HGO inward shell pressure at radial displacement w (device-side)."""
+        lam = 1.0 + w / R0
+        I1 = 1.0 / (lam * lam) + lam * lam + 1.0
+        I4 = lam * lam * cg2 + sg2
+        dI1 = 2.0 * lam - 2.0 / (lam * lam * lam)
+        dI4 = 2.0 * lam * cg2
+        E = kd * (I1 - 3.0) + (1.0 - 3.0 * kd) * (I4 - 1.0)
+        dpsi = C10 * dI1
+        if E > 0.0:
+            dE = kd * dI1 + (1.0 - 3.0 * kd) * dI4
+            dpsi = dpsi + 2.0 * k1 * E * wp.exp(k2 * E * E) * dE
+        return dpsi * thickness / R0
+
+    @wp.kernel
+    def _wall_solve_kernel(
+        wall_load: wp.array(dtype=wp.float32), cell_area: wp.array(dtype=wp.float32),
+        r0_grid: wp.array(dtype=wp.float32), w_in: wp.array(dtype=wp.float32),
+        C10: float, k1: float, k2: float, kd: float, cg2: float, sg2: float,
+        thickness: float, w_eq: wp.array(dtype=wp.float32)):
+        c = wp.tid()
+        pc = wall_load[c] / cell_area[c]
+        R0 = r0_grid[c]
+        w = wp.max(w_in[c], 0.0)
+        for _ in range(8):                         # per-cell Newton solve hgo_p(w)=pc
+            f = _hgo_pressure_wp(w, R0, C10, k1, k2, kd, cg2, sg2, thickness) - pc
+            h = 1.0e-5
+            df = (_hgo_pressure_wp(w + h, R0, C10, k1, k2, kd, cg2, sg2, thickness)
+                  - _hgo_pressure_wp(w - h, R0, C10, k1, k2, kd, cg2, sg2, thickness)) / (2.0 * h)
+            w = wp.clamp(w - f / wp.max(df, 1.0e-3), 0.0, 0.9 * R0)
+        w_eq[c] = w
+
+    @wp.kernel
+    def _wall_smooth_kernel(
+        w_eq: wp.array(dtype=wp.float32), r0_grid: wp.array(dtype=wp.float32),
+        n_s: int, n_th: int, smooth: float, w_out: wp.array(dtype=wp.float32)):
+        c = wp.tid()
+        i_s = c // n_th
+        i_th = c % n_th
+        sm = wp.max(i_s - 1, 0)                    # zero-flux at s ends (not connected)
+        sp = wp.min(i_s + 1, n_s - 1)
+        lap_s = w_eq[sm * n_th + i_th] + w_eq[sp * n_th + i_th] - 2.0 * w_eq[c]
+        tm = (i_th - 1 + n_th) % n_th             # periodic in theta
+        tp = (i_th + 1) % n_th
+        lap_th = w_eq[i_s * n_th + tm] + w_eq[i_s * n_th + tp] - 2.0 * w_eq[c]
+        val = w_eq[c] + smooth * (lap_s + lap_th)
+        w_out[c] = wp.clamp(val, 0.0, 0.9 * r0_grid[c])
+
+
 class WallField:
     """Deformable lumen radius field w(s,θ) with HGO mechanics, sharing R (§3.5.6).
 
@@ -123,13 +179,16 @@ class WallField:
         else:
             self.R0_grid = np.asarray(R0, dtype=float).ravel()
             assert self.R0_grid.size == n, "R0 grid must be length n_s*n_th"
-        self.cell_area = (s_max / n_s) * (self.R0_grid * 2.0 * np.pi / n_th)  # [m²] per cell
+        self.cell_area = (s_max / n_s) * (self.R0_grid * 2.0 * np.pi / n_th)  # per cell
         self.w = np.zeros(n, dtype=np.float64)
         if wp is not None:
             self.w_field = wp.zeros(n, dtype=wp.float32, device=device)
             self.wall_load = wp.zeros(n, dtype=wp.float32, device=device)
             self.r0_field = wp.array(self.R0_grid.astype(np.float32), dtype=wp.float32,
                                      device=device)   # base R0(s,θ) for the contact kernel
+            self.cell_area_field = wp.array(self.cell_area.astype(np.float32),
+                                            dtype=wp.float32, device=device)
+            self.w_eq_field = wp.zeros(n, dtype=wp.float32, device=device)  # solve scratch
 
     def _solve_cell(self, p_contact, w0, iters=8):
         """1-D Newton solve of hgo_wall_pressure(w)=p_contact per cell (vectorised, per-cell R0)."""
@@ -144,21 +203,25 @@ class WallField:
         return w
 
     def update_from_load(self):
-        """Read accumulated contact load, solve HGO equilibrium, smooth, upload."""
-        load = self.wall_load.numpy().astype(np.float64)         # normal force per cell [N]
-        p_contact = load / self.cell_area                        # pressure [Pa]
-        w_eq = self._solve_cell(p_contact, self.w)
-        W = w_eq.reshape(self.n_s, self.n_th)
-        # shell smoothing: periodic in θ (circumferential) but zero-flux in s
-        # (#6 — vessel ends are NOT connected; edge.repeat gives a clamped boundary)
-        Wp = np.pad(W, ((1, 1), (0, 0)), mode="edge")            # clamp s ends
-        lap_s = Wp[2:, :] + Wp[:-2, :] - 2 * W                   # zero-flux at ends
-        lap_th = np.roll(W, 1, 1) + np.roll(W, -1, 1) - 2 * W    # periodic in θ
-        W = W + self.smooth * (lap_s + lap_th)
-        # #7 — re-clamp after smoothing (the Laplacian can drive neighbours
-        # negative, which the HGO model (w>=0, outward expansion) does not handle)
-        self.w = np.clip(W.ravel(), 0.0, 0.9 * self.R0_grid)
-        self.w_field.assign(self.w.astype(np.float32))
+        """Solve HGO equilibrium + shell smoothing ON THE DEVICE (no host roundtrip).
+
+        #8 — two Warp kernels (per-cell Newton solve, then zero-flux-s / periodic-θ
+        smoothing with re-clamp) run on the same device as the sim, so the wall
+        co-sim does not break GPU batching with a per-step D2H/H2D copy.
+        """
+        g = np.radians(self.p.gamma_deg)
+        cg2, sg2 = float(np.cos(g) ** 2), float(np.sin(g) ** 2)
+        wp.launch(_wall_solve_kernel, dim=self.n_s * self.n_th,
+                  inputs=[self.wall_load, self.cell_area_field, self.r0_field,
+                          self.w_field, float(self.p.C10), float(self.p.k1),
+                          float(self.p.k2), float(self.p.kappa_d), cg2, sg2,
+                          float(self.p.thickness)],
+                  outputs=[self.w_eq_field], device=self.device)
+        wp.launch(_wall_smooth_kernel, dim=self.n_s * self.n_th,
+                  inputs=[self.w_eq_field, self.r0_field, self.n_s, self.n_th,
+                          float(self.smooth)],
+                  outputs=[self.w_field], device=self.device)
 
     def max_deflection(self) -> float:
-        return float(self.w.max())
+        # read the device field on demand (diagnostics only, not per-step)
+        return float(self.w_field.numpy().max())

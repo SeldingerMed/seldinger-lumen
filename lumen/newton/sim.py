@@ -70,6 +70,22 @@ class NewtonGuidewireSim:
         self.contacts = self.model.contacts()
         self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
+        # snapshot for fast reset (avoid rebuilding the model/solver each episode)
+        self._init_body_q = self.state_0.body_q.numpy().copy()
+
+    def reset(self):
+        """Restore the initial state cheaply (no model/solver rebuild) — for RL."""
+        dev = self.device
+        self.state_0.body_q = wp.array(self._init_body_q.copy(), dtype=wp.transform, device=dev)
+        self.state_1.body_q = wp.array(self._init_body_q.copy(), dtype=wp.transform, device=dev)
+        self.state_0.body_qd.zero_()
+        self.state_1.body_qd.zero_()
+        self.solver.body_q_prev = wp.array(self._init_body_q.copy(), dtype=wp.transform, device=dev)
+        w = getattr(self.solver, "_wall", None)
+        if w is not None:
+            w.w[:] = 0.0
+            w.w_field.zero_()
+            w.wall_load.zero_()
 
     def _actuate_base(self, insertion: float, twist: float):
         if insertion == 0.0 and twist == 0.0:

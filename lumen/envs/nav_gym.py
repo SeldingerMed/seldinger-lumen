@@ -65,10 +65,13 @@ class NavEnv:
 
     def reset(self, *, seed=None, options=None):
         from lumen.newton.sim import NewtonGuidewireSim
-        self.sim = NewtonGuidewireSim(self.vessel, self.R, self._device_points(),
-                                      radius=0.2, kappa=3e3, d_hat=0.3,
-                                      lumen_field=self.lumen,
-                                      vbd_iterations=8, device=self.device)
+        if getattr(self, "sim", None) is None:
+            self.sim = NewtonGuidewireSim(self.vessel, self.R, self._device_points(),
+                                          radius=0.2, kappa=3e3, d_hat=0.3,
+                                          lumen_field=self.lumen,
+                                          vbd_iterations=8, device=self.device)
+        else:
+            self.sim.reset()                 # cheap state restore, no rebuild
         self.steps = 0
         self._prev_dist = abs(self._tip()[0] - self.target_s)
         return self._obs(), {}
