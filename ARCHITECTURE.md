@@ -33,24 +33,24 @@ Wall mechanics and contact geometry are the **same object** `R(s,θ,t)` (doc
 `R`; pulsatility = a temporal modulation of `R`. Do not introduce a separate
 collision mesh that can drift out of sync with the wall state.
 
-## Invariant 3b — Warp/Newton is primary; PyTorch is the fallback
+## Invariant 3b — one engine (Newton), CPU and GPU; no parallel engine
 
-The contact narrowphase + barrier are Warp kernels (`physics/warp_contact.py`),
-differentiable via Warp's tape, batched, running on CUDA or the Warp CPU device.
-`physics/backend.py` selects `warp-cuda → warp-cpu → torch`, favouring Warp/Newton
-(the doc's substrate). The PyTorch solver (`physics/contact.py`, `solver.py`) is
-the portable fallback AND the reference the Warp path is kept in parity with
-(`tests/test_warp_parity.py`: gap/energy/force match, and the Warp tape gradient
-equals the analytic force). Do not let the two narrowphases drift. GPU-validated
-on RTX 3090: CPU↔CUDA parity 1e-7, ~349M node-evals/s at B=65536.
+The solver is the Newton engine, which runs on the CPU (Warp's LLVM backend) and
+on CUDA — the same code, device chosen by `lumen.hardware.detect_device()`. There
+is **no** separate PyTorch engine: Newton already covers CPU, and a parallel
+reduced-order engine would violate "do not write an engine" (§3.2). (An earlier
+torch path existed as a prototype and was removed once Newton-on-CPU was
+confirmed.) The contact barrier is a Warp kernel injected into VBD's AVBD solve
+(`newton/tube_barrier_kernel.py` + `newton/vbd_fork.py`).
 
 ## Invariant 4 — two tiers
 
-- **Fast tier** (this repo, Warp/Newton): batched, differentiable-with-care,
-  reduced-order shell. For RL throughput.
+- **Fast tier** (this repo, Newton VBD): batched, for RL throughput. Newton VBD
+  is not autograd-differentiable; that is by design (doc §3.5.7).
 - **Accurate tier** (external oracle: STARK/SymX, ppf-contact-solver):
-  cross-validation and offline calibration only. We *consume* it; we don't
-  reimplement IPC. Hooks live in `lumen/core/validate/` (P2+).
+  cross-validation, penetration-free IPC, and reliable gradients for offline
+  calibration. We *consume* it; we don't reimplement IPC. Drop-in slot in
+  `lumen/newton/crossval.py` (analytic oracle backs it today).
 
 ## Invariant 5 — the open/closed firewall
 

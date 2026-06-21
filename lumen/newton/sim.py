@@ -33,7 +33,8 @@ class NewtonGuidewireSim:
                  mu_along: float = 0.0, mu_across: float = 0.0,
                  gamma_fric_deg: float = 40.0,
                  vbd_iterations: int = 10, device: str | None = None):
-        self.device = device or ("cuda" if wp.get_cuda_device_count() > 0 else "cpu")
+        from lumen.hardware import detect_device
+        self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
         self.contact_frame = CenterlineFrame(vessel_centerline)
         self._fwd = self.contact_frame.tangents[0].astype(np.float32)

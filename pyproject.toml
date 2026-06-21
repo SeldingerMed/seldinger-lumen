@@ -15,15 +15,12 @@ keywords = ["differentiable-physics", "contact", "cosserat-rod", "endovascular",
 dependencies = ["numpy>=1.24"]
 
 [project.optional-dependencies]
-# GPU physics tier (doc §3.2: build on Newton/Warp, do not write an engine).
-# Kept optional so the geometry core installs and tests anywhere, no GPU needed.
-gpu = ["warp-lang>=1.0"]
-# differentiable/batched physics tier (CPU/MPS/CUDA); the runnable Layer-0 solver
-physics = ["torch>=2.2"]
-# Newton platform (primary, doc §3.2). Install from source until a real PyPI
-# release exists:  pip install git+https://github.com/newton-physics/newton
-newton = ["newton>=1.4.0.dev0", "warp-lang>=1.14"]
-dev = ["pytest>=7", "torch>=2.2"]
+# The Layer-0 solver runs on the Newton engine (doc §3.2: build on Newton/Warp,
+# do not write an engine). Newton/Warp execute on BOTH CPU and CUDA — one engine,
+# no separate CPU fallback. Newton has no stable PyPI release yet; install it from
+# source alongside this:  pip install git+https://github.com/newton-physics/newton
+solver = ["warp-lang>=1.14"]      # + newton (from git, see above)
+dev = ["pytest>=7", "warp-lang>=1.14"]
 
 [project.urls]
 Homepage = "https://github.com/txmed82/lumen"
