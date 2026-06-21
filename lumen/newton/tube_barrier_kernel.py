@@ -36,12 +36,14 @@ def accumulate_tube_barrier(
     color_group: wp.array(dtype=wp.int32),
     wire_mask: wp.array(dtype=wp.int32),
     body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
     P: wp.array(dtype=wp.vec3),
     Tg: wp.array(dtype=wp.vec3),
     M: int,
     R0: float, s_max: float, n_s: int, n_th: int,
     w_field: wp.array(dtype=wp.float32),      # [n_s*n_th] radial displacement (shared R)
     kappa: float, d_hat: float, mode: int,
+    mu_along: float, mu_across: float, gamma_fric: float,  # anisotropic friction
     body_forces: wp.array(dtype=wp.vec3),     # in/out
     body_hessian_ll: wp.array(dtype=wp.mat33),  # in/out
     wall_load: wp.array(dtype=wp.float32),    # [n_s*n_th] accumulated normal load (out)
@@ -87,4 +89,18 @@ def accumulate_tube_barrier(
         bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)
         body_forces[bid] = body_forces[bid] + bp * er
         body_hessian_ll[bid] = body_hessian_ll[bid] + bpp * wp.outer(er, er)
-        wp.atomic_add(wall_load, cell, -bp)    # -bp > 0 = normal load magnitude on wall
+        fn = -bp                               # normal load magnitude (>0)
+        wp.atomic_add(wall_load, cell, fn)
+        # --- anisotropic, fiber-aligned friction (doc §3.5.5) ---
+        if mu_across > 0.0 or mu_along > 0.0:
+            v_lin = wp.spatial_bottom(body_qd[bid])         # device node linear velocity
+            v_t = v_lin - wp.dot(v_lin, er) * er            # wall-tangential component
+            vt_mag = wp.length(v_t)
+            if vt_mag > 1.0e-6:
+                tdir = v_t / vt_mag
+                circ = wp.normalize(wp.cross(tang, er))     # circumferential direction
+                fiber = wp.cos(gamma_fric) * circ + wp.sin(gamma_fric) * tang  # HGO fiber
+                ca = wp.dot(tdir, fiber)
+                mu = mu_across + (mu_along - mu_across) * ca * ca  # min along fibers
+                # regularised Coulomb force opposing tangential sliding
+                body_forces[bid] = body_forces[bid] - (mu * fn) * tdir

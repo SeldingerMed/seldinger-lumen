@@ -2504,10 +2504,13 @@ class SolverVBD(SolverBase):
                     kernel=accumulate_tube_barrier,
                     dim=color_group.size,
                     inputs=[color_group, self._tube_wire_mask, state_in.body_q,
+                            state_in.body_qd,
                             self._tube_P, self._tube_Tg, self._tube_M,
                             self._tube_R, self._tube_s_max, self._tube_ns,
                             self._tube_nth, self._wall.w_field,
-                            self._tube_kappa, self._tube_d_hat, self._tube_mode],
+                            self._tube_kappa, self._tube_d_hat, self._tube_mode,
+                            self._tube_mu_along, self._tube_mu_across,
+                            self._tube_gamma_fric],
                     outputs=[self.body_forces, self.body_hessian_ll,
                              self._tube_wall_load],
                     device=self.device,
@@ -2913,7 +2916,8 @@ class TubeVBDSolver(SolverVBD):
 
     def set_tube_contact(self, centerline, R, wire_body_ids, kappa=2.0e3, d_hat=0.3,
                          barrier_mode="compliant", deformable_wall=False,
-                         hgo_params=None, n_s=40, n_th=16):
+                         hgo_params=None, n_s=40, n_th=16,
+                         mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0):
         """barrier_mode: 'compliant' (fast tier) | 'log' (bounded IPC option).
 
         deformable_wall=True activates the HGO wall (lumen.newton.hgo_wall): the
@@ -2934,6 +2938,9 @@ class TubeVBDSolver(SolverVBD):
         self._tube_kappa = float(kappa)
         self._tube_d_hat = float(d_hat)
         self._tube_mode = 1 if barrier_mode == "log" else 0
+        self._tube_mu_along = float(mu_along)
+        self._tube_mu_across = float(mu_across)
+        self._tube_gamma_fric = float(_np.radians(gamma_fric_deg))
         self._tube_deformable = bool(deformable_wall)
         self._wall = WallField(R0=float(R), s_max=float(f.length), n_s=n_s, n_th=n_th,
                                params=hgo_params, device=dev)
