@@ -29,6 +29,7 @@ class NewtonGuidewireSim:
                  bend_damping: float = 1.0, density: float = 1.0,
                  kappa: float = 2.0e3, d_hat: float = 0.3,
                  barrier_mode: str = "compliant",
+                 deformable_wall: bool = False, hgo_params=None,
                  vbd_iterations: int = 10, device: str | None = None):
         self.device = device or ("cuda" if wp.get_cuda_device_count() > 0 else "cpu")
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
@@ -55,7 +56,9 @@ class NewtonGuidewireSim:
         self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
         self.solver.set_tube_contact(vessel_centerline, R, bodies,
                                      kappa=kappa, d_hat=d_hat,
-                                     barrier_mode=barrier_mode)
+                                     barrier_mode=barrier_mode,
+                                     deformable_wall=deformable_wall,
+                                     hgo_params=hgo_params)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()
@@ -97,6 +100,9 @@ class NewtonGuidewireSim:
 
     def node_radii(self) -> np.ndarray:
         return np.array([self.contact_frame.project(p).r for p in self.body_positions()])
+
+    def wall_max_deflection(self) -> float:
+        return self.solver.wall_max_deflection()
 
 
 def _quat_mul(a, b):

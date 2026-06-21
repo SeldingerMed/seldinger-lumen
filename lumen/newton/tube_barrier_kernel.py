@@ -1,14 +1,15 @@
-"""Tube-intrinsic barrier as a native AVBD constraint (force + Hessian).
+"""Tube-intrinsic barrier as a native AVBD constraint, over a deformable wall.
 
-This kernel is injected into the forked SolverVBD's per-color rigid solve. Unlike
-an external predictor force, it adds BOTH the barrier reaction force and its
-Hessian (κ·eᵣ⊗eᵣ) to the per-body 6×6 system, so contact is treated *implicitly*
-together with inertia and the cable joints — which is what makes stiff contact
-stable in VBD (doc §3.5: barrier inside the solve, not as an explicit force).
+Injected into the forked SolverVBD's per-color rigid solve. Adds BOTH the barrier
+reaction force and its Hessian (κ·eᵣ⊗eᵣ) to the per-body 6×6 system so contact is
+treated *implicitly* with inertia + cable joints — what makes stiff contact stable
+in VBD (doc §3.5). The lumen radius is the SHARED field R(s,θ) = R0 + w(s,θ): the
+barrier reads the deformed radius and deposits the contact normal load onto the
+wall cell, so the HGO wall (lumen.newton.hgo_wall) and the contact share R
+(doc §3.5.6). With w≡0 the wall is rigid.
 
-Energy (compliant fast tier, doc §3.5.3): E = ½·κ·δ², δ = max(0, d_hat − (R − r)),
-where r is the tube-intrinsic radius. Force = −∂E/∂p = −κ·δ·eᵣ (inward);
-Hessian ≈ κ·eᵣ⊗eᵣ (SPD, preserves the system's positive-definiteness).
+Barrier (doc §3.5.3): compliant fast tier E=½κδ² or bounded IPC-log option; the
+rigorous penetration-free IPC is the accurate tier (§3.3).
 """
 
 from __future__ import annotations
@@ -18,48 +19,38 @@ import warp as wp
 
 @wp.func
 def _barrier_dd(d: float, d_hat: float, kappa: float, mode: int):
-    """Return (b'(d), b''(d)) for the wall-distance barrier.
-
-    mode 0 — compliant fast tier: b = ½·κ·(d_hat−d)²  (penetrating, bounded).
-             b' = −κ·(d_hat−d),  b'' = κ.
-    mode 1 — IPC log barrier form (doc §3.5.3, Li et al. 2020):
-             b = −κ·(d−d_hat)²·ln(d/d_hat),  → +∞ as d→0.
-             NOTE: rigorous penetration-free IPC requires a CCD filter line search
-             and is provided by the ACCURATE TIER (STARK/ppf, doc §3.3 "borrow, do
-             not build"). This in-VBD form is an experimental option, bounded here
-             so it is numerically safe (it is not the default fast-tier contact).
-    Force on the body is b'(d)·eᵣ (caller); b''(d) feeds the SPD Hessian.
-    """
+    """Return (b'(d), b''(d)) for the wall-distance barrier (see module docstring)."""
     if mode == 1:
-        dd = wp.max(d, 0.05 * d_hat)         # floor (no CCD line search in VBD)
+        dd = wp.max(d, 0.05 * d_hat)
         ln = wp.log(dd / d_hat)
         diff = dd - d_hat
         bp = -kappa * (2.0 * diff * ln + diff * diff / dd)
         bpp = -kappa * (2.0 * ln + 4.0 * diff / dd - diff * diff / (dd * dd))
-        # bound so a no-line-search step cannot explode (safety, not IPC-rigorous)
         bp = wp.max(bp, -50.0 * kappa * d_hat)
         return bp, wp.clamp(bpp, 0.0, 200.0 * kappa)
-    # compliant (fast tier) — the validated default
     return -kappa * (d_hat - d), kappa
 
 
 @wp.kernel
 def accumulate_tube_barrier(
     color_group: wp.array(dtype=wp.int32),
-    wire_mask: wp.array(dtype=wp.int32),     # 1 for guidewire bodies, else 0
+    wire_mask: wp.array(dtype=wp.int32),
     body_q: wp.array(dtype=wp.transform),
-    P: wp.array(dtype=wp.vec3),              # vessel centerline vertices
-    Tg: wp.array(dtype=wp.vec3),             # vessel centerline tangents
-    M: int, R: float, kappa: float, d_hat: float, mode: int,
-    body_forces: wp.array(dtype=wp.vec3),    # in/out (accumulated)
-    body_hessian_ll: wp.array(dtype=wp.mat33),  # in/out (accumulated)
+    P: wp.array(dtype=wp.vec3),
+    Tg: wp.array(dtype=wp.vec3),
+    M: int,
+    R0: float, s_max: float, n_s: int, n_th: int,
+    w_field: wp.array(dtype=wp.float32),      # [n_s*n_th] radial displacement (shared R)
+    kappa: float, d_hat: float, mode: int,
+    body_forces: wp.array(dtype=wp.vec3),     # in/out
+    body_hessian_ll: wp.array(dtype=wp.mat33),  # in/out
+    wall_load: wp.array(dtype=wp.float32),    # [n_s*n_th] accumulated normal load (out)
 ):
     t = wp.tid()
     bid = color_group[t]
     if wire_mask[bid] == 0:
         return
     p = wp.transform_get_translation(body_q[bid])
-    # nearest centerline segment (tube-intrinsic narrowphase)
     best = float(1.0e30)
     bj = int(0)
     bu = float(0.0)
@@ -68,8 +59,8 @@ def accumulate_tube_barrier(
         ab = P[j + 1] - a
         L2 = wp.dot(ab, ab)
         u = wp.clamp(wp.dot(p - a, ab) / L2, 0.0, 1.0)
-        d = p - (a + u * ab)
-        d2 = wp.dot(d, d)
+        dd = p - (a + u * ab)
+        d2 = wp.dot(dd, dd)
         if d2 < best:
             best = d2
             bj = j
@@ -80,10 +71,20 @@ def accumulate_tube_barrier(
     radial = (p - foot) - wp.dot(p - foot, tang) * tang
     r = wp.length(radial)
     er = radial / (r + 1.0e-9)
-    dwall = R - r                            # distance to the lumen wall (>0 inside)
-    if dwall < d_hat:                        # within the barrier band
+
+    # arc-length s of this contact (segment cum-length approximated by index*seg)
+    s = (float(bj) + bu) * (s_max / float(M - 1))
+    i_s = wp.clamp(int(s / s_max * float(n_s - 1) + 0.5), 0, n_s - 1)
+    m1 = wp.vec3(1.0, 0.0, 0.0)               # reference axis for theta binning
+    theta = wp.atan2(wp.dot(radial, wp.cross(tang, m1)), wp.dot(radial, m1))
+    th01 = (theta + 3.14159265) / 6.2831853
+    i_th = int(th01 * float(n_th)) % n_th
+    cell = i_s * n_th + i_th
+
+    R_eff = R0 + w_field[cell]                 # SHARED deformable radius
+    dwall = R_eff - r
+    if dwall < d_hat:
         bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)
-        # force = -dE/dp = b'(d)·eᵣ (inward, since b'(d) < 0); Hessian = b''(d)·eᵣ⊗eᵣ.
-        # one body per thread per color -> non-atomic accumulate is safe.
         body_forces[bid] = body_forces[bid] + bp * er
         body_hessian_ll[bid] = body_hessian_ll[bid] + bpp * wp.outer(er, er)
+        wp.atomic_add(wall_load, cell, -bp)    # -bp > 0 = normal load magnitude on wall

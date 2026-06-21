@@ -2405,6 +2405,8 @@ class SolverVBD(SolverBase):
         self.body_hessian_aa.zero_()
         self.body_hessian_al.zero_()
         self.body_hessian_ll.zero_()
+        if getattr(self, "_tube_enabled", False):
+            self._tube_wall_load.zero_()      # holds this iteration's wall contact load
 
         body_color_groups = model.body_color_groups
 
@@ -2503,9 +2505,11 @@ class SolverVBD(SolverBase):
                     dim=color_group.size,
                     inputs=[color_group, self._tube_wire_mask, state_in.body_q,
                             self._tube_P, self._tube_Tg, self._tube_M,
-                            self._tube_R, self._tube_kappa, self._tube_d_hat,
-                            self._tube_mode],
-                    outputs=[self.body_forces, self.body_hessian_ll],
+                            self._tube_R, self._tube_s_max, self._tube_ns,
+                            self._tube_nth, self._wall.w_field,
+                            self._tube_kappa, self._tube_d_hat, self._tube_mode],
+                    outputs=[self.body_forces, self.body_hessian_ll,
+                             self._tube_wall_load],
                     device=self.device,
                 )
             wp.launch(
@@ -2908,19 +2912,42 @@ class TubeVBDSolver(SolverVBD):
     """SolverVBD with the tube-intrinsic barrier injected into the AVBD solve."""
 
     def set_tube_contact(self, centerline, R, wire_body_ids, kappa=2.0e3, d_hat=0.3,
-                         barrier_mode="compliant"):
-        """barrier_mode: 'compliant' (fast tier) | 'log' (IPC accurate tier)."""
+                         barrier_mode="compliant", deformable_wall=False,
+                         hgo_params=None, n_s=40, n_th=16):
+        """barrier_mode: 'compliant' (fast tier) | 'log' (bounded IPC option).
+
+        deformable_wall=True activates the HGO wall (lumen.newton.hgo_wall): the
+        lumen radius becomes the shared field R0 + w(s,θ), the contact deposits
+        load onto it, and it deforms per HGO each substep. False = rigid wall.
+        """
         from lumen.core.frame import CenterlineFrame
+        from lumen.newton.hgo_wall import WallField
         f = CenterlineFrame(_np.asarray(centerline))
         dev = self.device
         self._tube_P = _wp.array(f.points.astype(_np.float32), dtype=_wp.vec3, device=dev)
         self._tube_Tg = _wp.array(f.tangents.astype(_np.float32), dtype=_wp.vec3, device=dev)
         self._tube_M = len(f.points)
         self._tube_R = float(R)
+        self._tube_s_max = float(f.length)
+        self._tube_ns = int(n_s)
+        self._tube_nth = int(n_th)
         self._tube_kappa = float(kappa)
         self._tube_d_hat = float(d_hat)
         self._tube_mode = 1 if barrier_mode == "log" else 0
+        self._tube_deformable = bool(deformable_wall)
+        self._wall = WallField(R0=float(R), s_max=float(f.length), n_s=n_s, n_th=n_th,
+                               params=hgo_params, device=dev)
+        self._tube_wall_load = self._wall.wall_load
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tube_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
         self._tube_enabled = True
+
+    def step(self, state_in, state_out, control, contacts, dt):
+        super().step(state_in, state_out, control, contacts, dt)
+        # staggered HGO co-sim: relax the shared-R wall to the contact load it just saw
+        if getattr(self, "_tube_enabled", False) and self._tube_deformable:
+            self._wall.update_from_load()
+
+    def wall_max_deflection(self):
+        return self._wall.max_deflection() if getattr(self, "_wall", None) else 0.0
