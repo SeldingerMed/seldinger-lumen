@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lumensim"                 # import name stays `lumen`; PyPI name avoids collisions
+version = "0.0.0"
+description = "Differentiable, GPU-parallel contact & coupling solver for a continuum instrument in a deformable lumen"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Colin Son" }]
+keywords = ["differentiable-physics", "contact", "cosserat-rod", "endovascular",
+            "surgical-simulation", "newton", "warp"]
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+# GPU physics tier (doc §3.2: build on Newton/Warp, do not write an engine).
+# Kept optional so the geometry core installs and tests anywhere, no GPU needed.
+gpu = ["warp-lang>=1.0"]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/txmed82/lumen"
+
+[tool.setuptools.packages.find]
+include = ["lumen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

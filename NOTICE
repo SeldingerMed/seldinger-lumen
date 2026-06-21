@@ -1,0 +1,18 @@
+lumen
+Copyright 2026 Colin Son / Seldinger, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License").
+
+This product is designed to build on, and interoperate with, the following
+open-source projects (not vendored here; installed as dependencies or used as
+external oracles):
+
+  * Newton physics engine — Apache-2.0 (NVIDIA / Google DeepMind / Disney
+    Research; Linux Foundation). https://github.com/newton-physics/newton
+  * NVIDIA Warp — Apache-2.0. https://github.com/NVIDIA/warp
+  * STARK / SymX — accurate-tier oracle (cross-validation only).
+  * ppf-contact-solver — GPU accurate-tier baseline (cross-validation only).
+  * DiffDRR — differentiable X-ray rendering (sensor layer).
+
+This repository deliberately does NOT depend on or derive from CathSim
+(CC-BY-NC-SA-4.0) or any patient-derived data. See tools/check_firewall.py.
