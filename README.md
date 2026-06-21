@@ -38,6 +38,33 @@ pip install -e ".[dev]"        # geometry core + torch fallback + tests
 pip install -e ".[gpu]"        # adds warp-lang for the GPU contact kernels
 ```
 
+## Layer 0 on Newton (the faithful implementation, `lumen.newton`)
+
+The bible's Layer 0 (§3) is implemented on the **Newton** engine (the doc's build
+target, §3.2 — "a domain-specialized module inside the engine"). Requires
+`newton` (install from github.com/newton-physics/newton); runs on Warp-CPU and CUDA.
+
+- **Guidewire** = Newton `add_rod` cable (stretch + bend/twist); **torsion**
+  transmits proximal rotation to the distal tip (whip).
+- **`TubeVBDSolver`** (`vbd_fork.py`) — a fork of Newton's `SolverVBD` that injects
+  the **tube-intrinsic contact barrier (force + Hessian)** into the per-color AVBD
+  solve, so contact is implicit and stable (not an external force).
+- **HGO wall** (`hgo_wall.py`) — Holzapfel-Gasser-Ogden anisotropic hyperelastic
+  shell as the **deformable shared lumen field** R(s,θ)=R0+w; contact reads R_eff
+  and deposits load; the wall deforms per HGO.
+- **Anisotropic friction** — Coulomb friction with μ varying by the slide angle to
+  the collagen fiber direction.
+- **Clot** (`clot.py`) — INSIST/Luraghi Ogden clot, adhesive/frictional capture,
+  fragmentation criterion, **two-way aspiration/flow** coupling.
+- **Accurate-tier cross-validation** (`crossval.py`) — fast-tier kernels vs
+  analytic ground truth to ~1e-6; STARK/ppf-contact-solver drop-in slot.
+- **GPU-validated** on an RTX 3090 (contact holds, HGO wall deflects, cross-val to
+  3e-6, 31 steps/s full stack).
+
+```python
+from lumen.newton.sim import NewtonGuidewireSim   # needs newton + warp
+```
+
 ## Backends (Warp/Newton primary, PyTorch fallback)
 
 The contact narrowphase + analytic barrier are implemented as **Warp kernels**
