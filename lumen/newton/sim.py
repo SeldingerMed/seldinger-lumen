@@ -31,7 +31,7 @@ class NewtonGuidewireSim:
                  barrier_mode: str = "compliant",
                  deformable_wall: bool = False, hgo_params=None,
                  mu_along: float = 0.0, mu_across: float = 0.0,
-                 gamma_fric_deg: float = 40.0,
+                 gamma_fric_deg: float = 40.0, lumen_field=None,
                  vbd_iterations: int = 10, device: str | None = None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
@@ -62,7 +62,8 @@ class NewtonGuidewireSim:
                                      barrier_mode=barrier_mode,
                                      deformable_wall=deformable_wall,
                                      hgo_params=hgo_params, mu_along=mu_along,
-                                     mu_across=mu_across, gamma_fric_deg=gamma_fric_deg)
+                                     mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
+                                     lumen_field=lumen_field)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()

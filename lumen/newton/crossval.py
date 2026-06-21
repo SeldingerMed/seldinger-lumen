@@ -48,11 +48,16 @@ def crossval_contact_force(kappa=2.0e3, d_hat=0.3, R=2.0, mode="compliant"):
     from lumen.newton.tube_barrier_kernel import accumulate_tube_barrier
     wp.init()
 
+    from lumen.core.frame import CenterlineFrame
     M = 10
     cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
-    P = wp.array(cl.astype(np.float32), dtype=wp.vec3)
-    T = np.zeros_like(cl); T[:] = [0, 0, 1]
-    Tg = wp.array(T.astype(np.float32), dtype=wp.vec3)
+    f = CenterlineFrame(cl)
+    P = wp.array(f.points.astype(np.float32), dtype=wp.vec3)
+    Tg = wp.array(f.tangents.astype(np.float32), dtype=wp.vec3)
+    M1 = wp.array(f.m1.astype(np.float32), dtype=wp.vec3)
+    cum_s = wp.array(f.cum_s.astype(np.float32), dtype=wp.float32)
+    n_s, n_th = 4, 4
+    r0_grid = wp.array(np.full(n_s * n_th, R, dtype=np.float32), dtype=wp.float32)
     md = 1 if mode == "log" else 0
 
     errs = []
@@ -62,11 +67,11 @@ def crossval_contact_force(kappa=2.0e3, d_hat=0.3, R=2.0, mode="compliant"):
         bqd = wp.array(np.zeros((1, 6), dtype=np.float32), dtype=wp.spatial_vector)
         cg = wp.array(np.array([0], dtype=np.int32), dtype=wp.int32)
         wm = wp.array(np.array([1], dtype=np.int32), dtype=wp.int32)
-        wf = wp.zeros(16, dtype=wp.float32); ld = wp.zeros(16, dtype=wp.float32)
+        wf = wp.zeros(n_s * n_th, dtype=wp.float32); ld = wp.zeros(n_s * n_th, dtype=wp.float32)
         bf = wp.zeros(1, dtype=wp.vec3); bh = wp.zeros(1, dtype=wp.mat33)
         wp.launch(accumulate_tube_barrier, dim=1,
-                  inputs=[cg, wm, bq, bqd, P, Tg, M, R, 80.0, 4, 4, wf,
-                          kappa, d_hat, md, 0.0, 0.0, 0.0],
+                  inputs=[cg, wm, bq, bqd, P, Tg, M1, cum_s, M, r0_grid, float(f.length),
+                          n_s, n_th, wf, kappa, d_hat, md, 0.0, 0.0, 0.0],
                   outputs=[bf, bh, ld])
         fn_kernel = abs(float(bf.numpy()[0][0]))          # radial (-x) component magnitude
         fn_analytic = float(_analytic_barrier_force(gap, kappa, d_hat, mode))

@@ -16,22 +16,27 @@ from lumen.newton.tube_barrier_kernel import accumulate_tube_barrier
 
 def _friction_force(gamma_deg, mu_along=0.1, mu_across=0.8):
     """Run the contact kernel for one wall-penetrating body sliding +z; return force."""
+    from lumen.core.frame import CenterlineFrame
     M = 10
     cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
-    P = wp.array(cl.astype(np.float32), dtype=wp.vec3)
-    T = np.zeros_like(cl)
-    T[:] = [0, 0, 1]
-    Tg = wp.array(T.astype(np.float32), dtype=wp.vec3)
+    f = CenterlineFrame(cl)
+    P = wp.array(f.points.astype(np.float32), dtype=wp.vec3)
+    Tg = wp.array(f.tangents.astype(np.float32), dtype=wp.vec3)
+    M1 = wp.array(f.m1.astype(np.float32), dtype=wp.vec3)
+    cum_s = wp.array(f.cum_s.astype(np.float32), dtype=wp.float32)
+    n_s, n_th = 4, 4
+    r0 = wp.array(np.full(n_s * n_th, 2.0, dtype=np.float32), dtype=wp.float32)
     bq = wp.array(np.array([[1.8, 0, 40, 0, 0, 0, 1]], dtype=np.float32), dtype=wp.transform)
     bqd = wp.array(np.array([[0, 0, 0, 0, 0, 1.0]], dtype=np.float32), dtype=wp.spatial_vector)
     cg = wp.array(np.array([0], dtype=np.int32), dtype=wp.int32)
     wm = wp.array(np.array([1], dtype=np.int32), dtype=wp.int32)
-    wfield = wp.zeros(16, dtype=wp.float32)
-    load = wp.zeros(16, dtype=wp.float32)
+    wfield = wp.zeros(n_s * n_th, dtype=wp.float32)
+    load = wp.zeros(n_s * n_th, dtype=wp.float32)
     bf = wp.zeros(1, dtype=wp.vec3)
     bh = wp.zeros(1, dtype=wp.mat33)
     wp.launch(accumulate_tube_barrier, dim=1,
-              inputs=[cg, wm, bq, bqd, P, Tg, M, 2.0, 80.0, 4, 4, wfield, 2e3, 0.3, 0,
+              inputs=[cg, wm, bq, bqd, P, Tg, M1, cum_s, M, r0, float(f.length),
+                      n_s, n_th, wfield, 2e3, 0.3, 0,
                       mu_along, mu_across, np.radians(gamma_deg)],
               outputs=[bf, bh, load])
     return bf.numpy()[0]

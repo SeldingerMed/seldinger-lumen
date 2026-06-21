@@ -108,28 +108,39 @@ class WallField:
     w-field is uploaded for the contact barrier to read as R_eff = R0 + w.
     """
 
-    def __init__(self, R0: float, s_max: float, n_s: int = 40, n_th: int = 16,
+    def __init__(self, R0, s_max: float, n_s: int = 40, n_th: int = 16,
                  params: HGOParams | None = None, smooth: float = 0.15,
                  device: str = "cpu"):
-        self.R0, self.s_max, self.n_s, self.n_th = R0, s_max, n_s, n_th
+        """R0 may be a scalar (cylinder) or a per-cell array R0(s,θ) of length
+        n_s*n_th (stenosis/aneurysm/patient anatomy)."""
+        self.s_max, self.n_s, self.n_th = s_max, n_s, n_th
         self.p = params or HGOParams()
         self.smooth = smooth
         self.device = device
-        self.cell_area = (s_max / n_s) * (R0 * 2.0 * np.pi / n_th)  # [m²]
-        self.w = np.zeros(n_s * n_th, dtype=np.float64)
+        n = n_s * n_th
+        if np.isscalar(R0):
+            self.R0_grid = np.full(n, float(R0))
+        else:
+            self.R0_grid = np.asarray(R0, dtype=float).ravel()
+            assert self.R0_grid.size == n, "R0 grid must be length n_s*n_th"
+        self.cell_area = (s_max / n_s) * (self.R0_grid * 2.0 * np.pi / n_th)  # [m²] per cell
+        self.w = np.zeros(n, dtype=np.float64)
         if wp is not None:
-            self.w_field = wp.zeros(n_s * n_th, dtype=wp.float32, device=device)
-            self.wall_load = wp.zeros(n_s * n_th, dtype=wp.float32, device=device)
+            self.w_field = wp.zeros(n, dtype=wp.float32, device=device)
+            self.wall_load = wp.zeros(n, dtype=wp.float32, device=device)
+            self.r0_field = wp.array(self.R0_grid.astype(np.float32), dtype=wp.float32,
+                                     device=device)   # base R0(s,θ) for the contact kernel
 
     def _solve_cell(self, p_contact, w0, iters=8):
-        """1-D Newton solve of hgo_wall_pressure(w) = p_contact (per cell, vectorised)."""
+        """1-D Newton solve of hgo_wall_pressure(w)=p_contact per cell (vectorised, per-cell R0)."""
         w = np.maximum(w0, 0.0)
+        R0 = self.R0_grid
         for _ in range(iters):
-            f = hgo_wall_pressure(w, self.R0, self.p) - p_contact
+            f = hgo_wall_pressure(w, R0, self.p) - p_contact
             h = 1e-7
-            df = (hgo_wall_pressure(w + h, self.R0, self.p)
-                  - hgo_wall_pressure(w - h, self.R0, self.p)) / (2 * h)
-            w = np.clip(w - f / np.maximum(df, 1e-3), 0.0, 0.9 * self.R0)
+            df = (hgo_wall_pressure(w + h, R0, self.p)
+                  - hgo_wall_pressure(w - h, R0, self.p)) / (2 * h)
+            w = np.clip(w - f / np.maximum(df, 1e-3), 0.0, 0.9 * R0)
         return w
 
     def update_from_load(self):

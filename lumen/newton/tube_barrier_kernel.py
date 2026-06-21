@@ -37,10 +37,13 @@ def accumulate_tube_barrier(
     wire_mask: wp.array(dtype=wp.int32),
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
-    P: wp.array(dtype=wp.vec3),
-    Tg: wp.array(dtype=wp.vec3),
+    P: wp.array(dtype=wp.vec3),               # centerline vertices
+    Tg: wp.array(dtype=wp.vec3),              # centerline tangents
+    M1: wp.array(dtype=wp.vec3),              # rotation-minimizing reference normals (per vertex)
+    cum_s: wp.array(dtype=wp.float32),        # cumulative arc-length (per vertex)
     M: int,
-    R0: float, s_max: float, n_s: int, n_th: int,
+    R0_grid: wp.array(dtype=wp.float32),      # [n_s*n_th] BASE lumen radius R0(s,θ)
+    s_max: float, n_s: int, n_th: int,
     w_field: wp.array(dtype=wp.float32),      # [n_s*n_th] radial displacement (shared R)
     kappa: float, d_hat: float, mode: int,
     mu_along: float, mu_across: float, gamma_fric: float,  # anisotropic friction
@@ -74,16 +77,19 @@ def accumulate_tube_barrier(
     r = wp.length(radial)
     er = radial / (r + 1.0e-9)
 
-    # arc-length s of this contact (segment cum-length approximated by index*seg)
-    s = (float(bj) + bu) * (s_max / float(M - 1))
+    # arc-length from the true cumulative lengths (matches lumen.core.frame)
+    s = cum_s[bj] + bu * (cum_s[bj + 1] - cum_s[bj])
     i_s = wp.clamp(int(s / s_max * float(n_s - 1) + 0.5), 0, n_s - 1)
-    m1 = wp.vec3(1.0, 0.0, 0.0)               # reference axis for theta binning
-    theta = wp.atan2(wp.dot(radial, wp.cross(tang, m1)), wp.dot(radial, m1))
+    # theta in the rotation-minimizing frame (non-degenerate for any centerline)
+    m1 = M1[bj] - wp.dot(M1[bj], tang) * tang
+    m1 = m1 / (wp.length(m1) + 1.0e-9)
+    m2 = wp.cross(tang, m1)
+    theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
     th01 = (theta + 3.14159265) / 6.2831853
     i_th = int(th01 * float(n_th)) % n_th
     cell = i_s * n_th + i_th
 
-    R_eff = R0 + w_field[cell]                 # SHARED deformable radius
+    R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: base R0(s,θ) + deformation
     dwall = R_eff - r
     if dwall < d_hat:
         bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)

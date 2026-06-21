@@ -2505,8 +2505,9 @@ class SolverVBD(SolverBase):
                     dim=color_group.size,
                     inputs=[color_group, self._tube_wire_mask, state_in.body_q,
                             state_in.body_qd,
-                            self._tube_P, self._tube_Tg, self._tube_M,
-                            self._tube_R, self._tube_s_max, self._tube_ns,
+                            self._tube_P, self._tube_Tg, self._tube_M1,
+                            self._tube_cum_s, self._tube_M,
+                            self._wall.r0_field, self._tube_s_max, self._tube_ns,
                             self._tube_nth, self._wall.w_field,
                             self._tube_kappa, self._tube_d_hat, self._tube_mode,
                             self._tube_mu_along, self._tube_mu_across,
@@ -2917,12 +2918,14 @@ class TubeVBDSolver(SolverVBD):
     def set_tube_contact(self, centerline, R, wire_body_ids, kappa=2.0e3, d_hat=0.3,
                          barrier_mode="compliant", deformable_wall=False,
                          hgo_params=None, n_s=40, n_th=16,
-                         mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0):
+                         mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
+                         lumen_field=None):
         """barrier_mode: 'compliant' (fast tier) | 'log' (bounded IPC option).
 
-        deformable_wall=True activates the HGO wall (lumen.newton.hgo_wall): the
-        lumen radius becomes the shared field R0 + w(s,θ), the contact deposits
-        load onto it, and it deforms per HGO each substep. False = rigid wall.
+        R is the base lumen radius: a scalar (cylinder) OR, via ``lumen_field`` (a
+        ``lumen.core.LumenField``), the true R(s,θ) anatomy (stenosis/aneurysm/
+        patient). The contact reads R0(s,θ)+w(s,θ) — the shared field of §3.5.6.
+        deformable_wall=True activates the HGO wall; False = rigid base R0(s,θ).
         """
         from lumen.core.frame import CenterlineFrame
         from lumen.newton.hgo_wall import WallField
@@ -2930,9 +2933,11 @@ class TubeVBDSolver(SolverVBD):
         dev = self.device
         self._tube_P = _wp.array(f.points.astype(_np.float32), dtype=_wp.vec3, device=dev)
         self._tube_Tg = _wp.array(f.tangents.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_M1 = _wp.array(f.m1.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_cum_s = _wp.array(f.cum_s.astype(_np.float32), dtype=_wp.float32, device=dev)
         self._tube_M = len(f.points)
-        self._tube_R = float(R)
-        self._tube_s_max = float(f.length)
+        s_max = float(f.length)
+        self._tube_s_max = s_max
         self._tube_ns = int(n_s)
         self._tube_nth = int(n_th)
         self._tube_kappa = float(kappa)
@@ -2942,7 +2947,15 @@ class TubeVBDSolver(SolverVBD):
         self._tube_mu_across = float(mu_across)
         self._tube_gamma_fric = float(_np.radians(gamma_fric_deg))
         self._tube_deformable = bool(deformable_wall)
-        self._wall = WallField(R0=float(R), s_max=float(f.length), n_s=n_s, n_th=n_th,
+        # base radius grid R0(s,θ) on the wall cells (cell = i_s*n_th + i_th)
+        if lumen_field is None:
+            R0_grid = float(R)
+        else:
+            ss = _np.linspace(0.0, s_max, n_s)
+            th = -_np.pi + (_np.arange(n_th) + 0.5) / n_th * 2.0 * _np.pi
+            R0_grid = _np.array([[lumen_field.eval(float(s), float(t)) for t in th]
+                                 for s in ss]).ravel()
+        self._wall = WallField(R0=R0_grid, s_max=s_max, n_s=n_s, n_th=n_th,
                                params=hgo_params, device=dev)
         self._tube_wall_load = self._wall.wall_load
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)

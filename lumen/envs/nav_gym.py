@@ -34,7 +34,8 @@ class NavEnv:
         self.asset = asset or procedural.straight_tube(length=80.0, radius=2.0)
         pts, lumen = self.asset.edge_arrays(self.asset.edges[0])
         self.vessel = np.asarray(pts)
-        self.R = float(np.asarray(lumen.R).mean())
+        self.lumen = lumen                       # true R(s,θ) — passed to contact (not averaged)
+        self.R = float(np.asarray(lumen.R).mean())   # representative R, for obs normalisation only
         self.frame = CenterlineFrame(self.vessel)
         self.L = float(self.frame.length)
         self.target_s = target_frac * self.L
@@ -66,6 +67,7 @@ class NavEnv:
         from lumen.newton.sim import NewtonGuidewireSim
         self.sim = NewtonGuidewireSim(self.vessel, self.R, self._device_points(),
                                       radius=0.2, kappa=3e3, d_hat=0.3,
+                                      lumen_field=self.lumen,
                                       vbd_iterations=8, device=self.device)
         self.steps = 0
         self._prev_dist = abs(self._tip()[0] - self.target_s)
