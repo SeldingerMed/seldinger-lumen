@@ -67,12 +67,17 @@ tools/            firewall check (no CathSim, no patient data)
 ## Roadmap
 
 - **P0 ✅** repo + asset seam + tube-intrinsic projection
-- **P1** Warp contact narrowphase + analytic barrier; rod in rigid tube; friction
-  via gradient (first tagged release `v0.1`)
+- **P1 ✅** contact narrowphase + analytic barrier; rod in a tube; friction
+  recovered via gradient (`lumen.physics`, `python -m lumen.physics.sysid`)
 - **P2** deformable anisotropic shell sharing `R`; rod–soft contact
 - **P3** differentiable physics → sensor wiring (synthetic DRR)
 - **P4** flow coupling + generic occlusion interface
 - **P5** rod-primitive bake-off; benchmark suite + leaderboard; Isaac Lab/Gym
+
+> The physics tier is PyTorch (differentiable, batched, CPU/MPS/CUDA). A Warp
+> kernel port is the documented GPU-throughput upgrade; the *formulation* is
+> substrate-independent. Backprop-through-time through stiff contact corrupts past
+> ~50 steps (doc §3.5.7) — calibration uses short differentiable horizons.
 
 ## License & boundaries
 

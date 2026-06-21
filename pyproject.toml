@@ -18,7 +18,9 @@ dependencies = ["numpy>=1.24"]
 # GPU physics tier (doc §3.2: build on Newton/Warp, do not write an engine).
 # Kept optional so the geometry core installs and tests anywhere, no GPU needed.
 gpu = ["warp-lang>=1.0"]
-dev = ["pytest>=7"]
+# differentiable/batched physics tier (CPU/MPS/CUDA); the runnable Layer-0 solver
+physics = ["torch>=2.2"]
+dev = ["pytest>=7", "torch>=2.2"]
 
 [project.urls]
 Homepage = "https://github.com/txmed82/lumen"
