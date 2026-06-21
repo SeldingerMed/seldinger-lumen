@@ -2503,7 +2503,8 @@ class SolverVBD(SolverBase):
                     dim=color_group.size,
                     inputs=[color_group, self._tube_wire_mask, state_in.body_q,
                             self._tube_P, self._tube_Tg, self._tube_M,
-                            self._tube_R, self._tube_kappa, self._tube_d_hat],
+                            self._tube_R, self._tube_kappa, self._tube_d_hat,
+                            self._tube_mode],
                     outputs=[self.body_forces, self.body_hessian_ll],
                     device=self.device,
                 )
@@ -2906,7 +2907,9 @@ import warp as _wp
 class TubeVBDSolver(SolverVBD):
     """SolverVBD with the tube-intrinsic barrier injected into the AVBD solve."""
 
-    def set_tube_contact(self, centerline, R, wire_body_ids, kappa=2.0e3, d_hat=0.3):
+    def set_tube_contact(self, centerline, R, wire_body_ids, kappa=2.0e3, d_hat=0.3,
+                         barrier_mode="compliant"):
+        """barrier_mode: 'compliant' (fast tier) | 'log' (IPC accurate tier)."""
         from lumen.core.frame import CenterlineFrame
         f = CenterlineFrame(_np.asarray(centerline))
         dev = self.device
@@ -2916,6 +2919,7 @@ class TubeVBDSolver(SolverVBD):
         self._tube_R = float(R)
         self._tube_kappa = float(kappa)
         self._tube_d_hat = float(d_hat)
+        self._tube_mode = 1 if barrier_mode == "log" else 0
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tube_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)

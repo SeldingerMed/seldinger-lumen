@@ -28,6 +28,7 @@ class NewtonGuidewireSim:
                  stretch_stiffness: float = 1.0e4, bend_stiffness: float = 5.0e1,
                  bend_damping: float = 1.0, density: float = 1.0,
                  kappa: float = 2.0e3, d_hat: float = 0.3,
+                 barrier_mode: str = "compliant",
                  vbd_iterations: int = 10, device: str | None = None):
         self.device = device or ("cuda" if wp.get_cuda_device_count() > 0 else "cpu")
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
@@ -53,7 +54,8 @@ class NewtonGuidewireSim:
 
         self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
         self.solver.set_tube_contact(vessel_centerline, R, bodies,
-                                     kappa=kappa, d_hat=d_hat)
+                                     kappa=kappa, d_hat=d_hat,
+                                     barrier_mode=barrier_mode)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()

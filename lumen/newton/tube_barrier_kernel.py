@@ -16,6 +16,33 @@ from __future__ import annotations
 import warp as wp
 
 
+@wp.func
+def _barrier_dd(d: float, d_hat: float, kappa: float, mode: int):
+    """Return (b'(d), b''(d)) for the wall-distance barrier.
+
+    mode 0 — compliant fast tier: b = ½·κ·(d_hat−d)²  (penetrating, bounded).
+             b' = −κ·(d_hat−d),  b'' = κ.
+    mode 1 — IPC log barrier form (doc §3.5.3, Li et al. 2020):
+             b = −κ·(d−d_hat)²·ln(d/d_hat),  → +∞ as d→0.
+             NOTE: rigorous penetration-free IPC requires a CCD filter line search
+             and is provided by the ACCURATE TIER (STARK/ppf, doc §3.3 "borrow, do
+             not build"). This in-VBD form is an experimental option, bounded here
+             so it is numerically safe (it is not the default fast-tier contact).
+    Force on the body is b'(d)·eᵣ (caller); b''(d) feeds the SPD Hessian.
+    """
+    if mode == 1:
+        dd = wp.max(d, 0.05 * d_hat)         # floor (no CCD line search in VBD)
+        ln = wp.log(dd / d_hat)
+        diff = dd - d_hat
+        bp = -kappa * (2.0 * diff * ln + diff * diff / dd)
+        bpp = -kappa * (2.0 * ln + 4.0 * diff / dd - diff * diff / (dd * dd))
+        # bound so a no-line-search step cannot explode (safety, not IPC-rigorous)
+        bp = wp.max(bp, -50.0 * kappa * d_hat)
+        return bp, wp.clamp(bpp, 0.0, 200.0 * kappa)
+    # compliant (fast tier) — the validated default
+    return -kappa * (d_hat - d), kappa
+
+
 @wp.kernel
 def accumulate_tube_barrier(
     color_group: wp.array(dtype=wp.int32),
@@ -23,7 +50,7 @@ def accumulate_tube_barrier(
     body_q: wp.array(dtype=wp.transform),
     P: wp.array(dtype=wp.vec3),              # vessel centerline vertices
     Tg: wp.array(dtype=wp.vec3),             # vessel centerline tangents
-    M: int, R: float, kappa: float, d_hat: float,
+    M: int, R: float, kappa: float, d_hat: float, mode: int,
     body_forces: wp.array(dtype=wp.vec3),    # in/out (accumulated)
     body_hessian_ll: wp.array(dtype=wp.mat33),  # in/out (accumulated)
 ):
@@ -53,8 +80,10 @@ def accumulate_tube_barrier(
     radial = (p - foot) - wp.dot(p - foot, tang) * tang
     r = wp.length(radial)
     er = radial / (r + 1.0e-9)
-    delta = wp.max(d_hat - (R - r), 0.0)     # penetration into the barrier band
-    if delta > 0.0:
-        # one body per thread per color -> non-atomic accumulate is safe
-        body_forces[bid] = body_forces[bid] - (kappa * delta) * er
-        body_hessian_ll[bid] = body_hessian_ll[bid] + kappa * wp.outer(er, er)
+    dwall = R - r                            # distance to the lumen wall (>0 inside)
+    if dwall < d_hat:                        # within the barrier band
+        bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)
+        # force = -dE/dp = b'(d)·eᵣ (inward, since b'(d) < 0); Hessian = b''(d)·eᵣ⊗eᵣ.
+        # one body per thread per color -> non-atomic accumulate is safe.
+        body_forces[bid] = body_forces[bid] + bp * er
+        body_hessian_ll[bid] = body_hessian_ll[bid] + bpp * wp.outer(er, er)
