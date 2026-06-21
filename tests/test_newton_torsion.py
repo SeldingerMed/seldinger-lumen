@@ -20,6 +20,20 @@ def _roll_z(quat):
     return 2.0 * np.arctan2(z, w)
 
 
+# module-level so Warp can introspect the kernel source on a cold cache
+@wp.kernel
+def _spin(bid: int, rate: float, dt: float,
+          q0: wp.array(dtype=wp.transform), q1: wp.array(dtype=wp.transform)):
+    t = q0[bid]
+    pos = wp.transform_get_translation(t)
+    rot = wp.transform_get_rotation(t)
+    ax = wp.quat_rotate(rot, wp.vec3(0.0, 0.0, 1.0))
+    dq = wp.quat_from_axis_angle(ax, rate * dt)
+    T = wp.transform(pos, wp.mul(dq, rot))
+    q0[bid] = T
+    q1[bid] = T
+
+
 def test_twist_propagates_to_distal_tip():
     wp.init()
     b = newton.ModelBuilder(gravity=0.0)
@@ -41,18 +55,7 @@ def test_twist_propagates_to_distal_tip():
     s0, s1 = model.state(), model.state()
     c, ct = model.control(), model.contacts()
 
-    @wp.kernel
-    def spin(bid: int, rate: float, dt: float,
-             q0: wp.array(dtype=wp.transform), q1: wp.array(dtype=wp.transform)):
-        t = q0[bid]
-        pos = wp.transform_get_translation(t)
-        rot = wp.transform_get_rotation(t)
-        ax = wp.quat_rotate(rot, wp.vec3(0.0, 0.0, 1.0))
-        dq = wp.quat_from_axis_angle(ax, rate * dt)
-        T = wp.transform(pos, wp.mul(dq, rot))
-        q0[bid] = T
-        q1[bid] = T
-
+    spin = _spin
     tip0 = _roll_z(s0.body_q.numpy()[bodies[-1]][3:7])
     for _ in range(120):
         for _ in range(10):
