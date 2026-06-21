@@ -97,16 +97,26 @@ def accumulate_tube_barrier(
         body_hessian_ll[bid] = body_hessian_ll[bid] + bpp * wp.outer(er, er)
         fn = -bp                               # normal load magnitude (>0)
         wp.atomic_add(wall_load, cell, fn)
-        # --- anisotropic, fiber-aligned friction (doc §3.5.5) ---
+        # --- anisotropic, fiber-aligned friction, implicit (doc §3.5.5) ---
         if mu_across > 0.0 or mu_along > 0.0:
             v_lin = wp.spatial_bottom(body_qd[bid])         # device node linear velocity
             v_t = v_lin - wp.dot(v_lin, er) * er            # wall-tangential component
             vt_mag = wp.length(v_t)
-            if vt_mag > 1.0e-6:
-                tdir = v_t / vt_mag
-                circ = wp.normalize(wp.cross(tang, er))     # circumferential direction
-                fiber = wp.cos(gamma_fric) * circ + wp.sin(gamma_fric) * tang  # HGO fiber
-                ca = wp.dot(tdir, fiber)
-                mu = mu_across + (mu_along - mu_across) * ca * ca  # min along fibers
-                # regularised Coulomb force opposing tangential sliding
-                body_forces[bid] = body_forces[bid] - (mu * fn) * tdir
+            # fiber-aligned mu (min along fibers); default to a circumferential
+            # slide direction when not yet moving, so mu is well-defined.
+            circ = wp.normalize(wp.cross(tang, er))
+            fiber = wp.cos(gamma_fric) * circ + wp.sin(gamma_fric) * tang
+            tdir = v_t / vt_mag if vt_mag > 1.0e-9 else circ
+            ca = wp.dot(tdir, fiber)
+            mu = mu_across + (mu_along - mu_across) * ca * ca
+            # Stribeck-regularised Coulomb: smooth through v_t=0 (sticking band of
+            # width eps_v), so force is bounded and the tangent stiffness below is
+            # finite -> implicit, stable at high mu (the explicit version was not).
+            eps_v = 1.0e-2
+            denom = wp.sqrt(vt_mag * vt_mag + eps_v * eps_v)
+            body_forces[bid] = body_forces[bid] - (mu * fn / denom) * v_t
+            # friction (tangent-space) Hessian: c_t · (I - eᵣ⊗eᵣ), PSD, added to the
+            # per-body system so the AVBD solve treats friction implicitly (#19)
+            c_t = mu * fn / denom
+            ident = wp.mat33(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+            body_hessian_ll[bid] = body_hessian_ll[bid] + c_t * (ident - wp.outer(er, er))

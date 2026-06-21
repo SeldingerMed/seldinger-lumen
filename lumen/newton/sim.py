@@ -1,7 +1,7 @@
 """Newton-based guidewire simulation with tube-intrinsic contact (doc §3.2).
 
 The guidewire is a Newton ``add_rod`` cable (stretch + bend/twist), integrated by
-the forked ``TubeVBDSolver`` (``lumen.newton.vbd_fork``) which injects the
+the forked ``TubeVBDSolver`` (``lumen.newton.tube_vbd``) which injects the
 tube-intrinsic barrier (force + Hessian) natively into VBD's per-color AVBD solve
 — so contact is implicit and stable, not an external predictor force. This is the
 faithful replatform of Layer 0 onto Newton (doc §3.2: a domain-specialized module
@@ -18,7 +18,7 @@ import warp as wp
 import newton
 
 from lumen.core.frame import CenterlineFrame
-from lumen.newton.vbd_fork import TubeVBDSolver
+from lumen.newton.tube_vbd import TubeVBDSolver
 from lumen.newton.forces import add_world_force
 
 

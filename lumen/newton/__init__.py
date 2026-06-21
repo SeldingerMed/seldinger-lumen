@@ -8,6 +8,6 @@ implicit and stable. Requires ``newton`` (installed from github.com/newton-physi
 """
 
 from lumen.newton.sim import NewtonGuidewireSim
-from lumen.newton.vbd_fork import TubeVBDSolver
+from lumen.newton.tube_vbd import TubeVBDSolver
 
 __all__ = ["NewtonGuidewireSim", "TubeVBDSolver"]

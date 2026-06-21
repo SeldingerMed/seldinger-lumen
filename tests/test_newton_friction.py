@@ -60,3 +60,19 @@ def test_anisotropic_friction_matches_coulomb_and_fiber_orientation():
 def test_friction_off_by_default():
     f = _friction_force(40.0, mu_along=0.0, mu_across=0.0)
     assert abs(f[2]) < 1e-6            # no tangential force when friction disabled
+
+
+def test_high_friction_full_sim_is_stable():
+    # #19: the implicit friction Hessian keeps the coupled solve stable at high mu
+    pytest.importorskip("newton")
+    from lumen.newton.sim import NewtonGuidewireSim
+    M, L, R, n = 40, 80.0, 2.0, 11
+    vessel = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, L, M)], axis=1)
+    dev = np.stack([np.full(n, 1.65), np.zeros(n), np.linspace(4, 4 + 2 * (n - 1), n)], axis=1)
+    sim = NewtonGuidewireSim(vessel, R, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+                             mu_along=0.2, mu_across=0.9, gamma_fric_deg=30,
+                             vbd_iterations=12, device="cpu")
+    for _ in range(60):
+        sim.step(dt=2.5e-2, substeps=5, preload=(120.0, 0.0, 40.0))
+    r = sim.node_radii()
+    assert np.isfinite(r).all() and r.max() <= R + 0.15      # stable, held at the wall
