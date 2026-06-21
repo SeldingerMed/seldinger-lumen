@@ -86,8 +86,11 @@ class NewtonGuidewireSim:
         q[self.base] = np.concatenate([pos, rot])
         self.state_0.body_q = wp.array(q, dtype=wp.transform, device=self.device)
 
-    def step(self, dt: float = 5.0e-3, substeps: int = 5,
+    def step(self, dt: float = 2.5e-2, substeps: int = 5,
              insertion: float = 0.0, twist: float = 0.0, preload=(0.0, 0.0, 0.0)):
+        """Advance the simulation by `dt` total, as `substeps` sub-steps of
+        `dt/substeps` each (the standard substep convention)."""
+        sub_dt = dt / substeps
         for _ in range(substeps):
             self.state_0.clear_forces()
             self._actuate_base(insertion / substeps, twist / substeps)
@@ -97,7 +100,7 @@ class NewtonGuidewireSim:
                                   float(preload[2]), 1],
                           outputs=[self.state_0.body_f], device=self.device)
             self.solver.step(self.state_0, self.state_1, self.control,
-                             self.contacts, dt)
+                             self.contacts, sub_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
 
     def body_positions(self) -> np.ndarray:

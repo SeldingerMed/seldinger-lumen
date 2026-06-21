@@ -31,13 +31,13 @@ def _run(enable_contact, preload=120.0, nsteps=200, barrier_mode="compliant"):
     if not enable_contact:
         sim.solver._tube_enabled = False        # disable the injected barrier
     for _ in range(nsteps):
-        sim.step(dt=5e-3, substeps=5, preload=(preload, 0.0, 0.0))
+        sim.step(dt=2.5e-2, substeps=5, preload=(preload, 0.0, 0.0))
     return sim.node_radii(), R
 
 
 def test_guidewire_builds_and_steps_on_newton():
     sim = NewtonGuidewireSim(_vessel(), 2.0, _device_points())
-    sim.step(dt=5e-3, substeps=3)
+    sim.step(dt=1.5e-2, substeps=3)
     assert np.isfinite(sim.body_positions()).all()
     assert len(sim.bodies) == 10        # 11 centerline points -> 10 capsule bodies
 

@@ -75,7 +75,7 @@ class NavEnv:
 
     def step(self, action):
         a = float(np.clip(np.asarray(action).reshape(-1)[0], -1.0, 1.0))
-        self.sim.step(dt=5e-3, substeps=self.substeps, insertion=a * self.max_insertion)
+        self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps, insertion=a * self.max_insertion)
         self.steps += 1
         s, r, th, rmax = self._tip()
         dist = abs(s - self.target_s)

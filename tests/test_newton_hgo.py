@@ -48,7 +48,7 @@ def test_deformable_wall_deflection_depends_on_hgo_stiffness():
                                  deformable_wall=deformable, hgo_params=params,
                                  vbd_iterations=12, device="cpu")
         for _ in range(120):
-            sim.step(dt=5e-3, substeps=5, preload=(150.0, 0.0, 0.0))
+            sim.step(dt=2.5e-2, substeps=5, preload=(150.0, 0.0, 0.0))
         return sim.wall_max_deflection(), np.isfinite(sim.node_radii()).all()
 
     rigid_defl, _ = run(deformable=False)

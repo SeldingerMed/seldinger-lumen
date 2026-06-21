@@ -100,7 +100,9 @@ class ClotModel:
                     self.fragmented = True
                     self.engaged = False
                 else:
-                    self.s_clot = s_tip                          # clot follows (retrieved)
+                    # clot follows the device VELOCITY (no teleport to the tip):
+                    # it moves by the device's displacement this step.
+                    self.s_clot += v_dev * dt
             # while advancing/holding, the engaged clot stays put (no retrieval)
         return {"engaged": self.engaged, "fragmented": self.fragmented,
                 "load": load, "retrieved": self.s0 - self.s_clot,

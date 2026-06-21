@@ -39,6 +39,22 @@ def test_slow_retraction_retrieves_clot():
     assert r["retrieved"] > 1e-3                        # clot pulled along with the device
 
 
+def test_clot_does_not_teleport_to_tip():
+    # device pushes 5mm PAST the clot, then retracts: the clot must follow the
+    # device velocity, never snapping forward (retrieved must stay >= 0).
+    clot = ClotModel(s_clot=0.040, params=ClotParams(), engage_radius=3e-3)
+    s_tip, dt = 0.030, 1e-3
+    for _ in range(40):                                 # advance well past the clot
+        s_tip = min(s_tip + 0.0008, 0.045)
+        clot.step(s_tip, dt)
+    worst = 0.0
+    for _ in range(40):                                 # retract
+        s_tip -= 0.1 * dt
+        r = clot.step(s_tip, dt)
+        worst = min(worst, r["retrieved"])
+    assert worst >= -1e-9                               # never teleported forward
+
+
 def test_fast_yank_fragments_clot():
     r = _retrieve(v_retract=0.8)
     assert r["fragmented"]                              # retrieval load exceeds failure
