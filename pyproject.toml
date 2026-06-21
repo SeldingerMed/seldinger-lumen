@@ -20,6 +20,9 @@ dependencies = ["numpy>=1.24"]
 gpu = ["warp-lang>=1.0"]
 # differentiable/batched physics tier (CPU/MPS/CUDA); the runnable Layer-0 solver
 physics = ["torch>=2.2"]
+# Newton platform (primary, doc §3.2). Install from source until a real PyPI
+# release exists:  pip install git+https://github.com/newton-physics/newton
+newton = ["newton>=1.4.0.dev0", "warp-lang>=1.14"]
 dev = ["pytest>=7", "torch>=2.2"]
 
 [project.urls]

@@ -9,6 +9,10 @@ external oracles):
 
   * Newton physics engine — Apache-2.0 (NVIDIA / Google DeepMind / Disney
     Research; Linux Foundation). https://github.com/newton-physics/newton
+    NOTE: lumen/newton/vbd_fork.py is a derivative of Newton's SolverVBD
+    (newton/_src/solvers/vbd/solver_vbd.py, Apache-2.0), modified to inject the
+    tube-intrinsic contact barrier into the per-color AVBD solve. Original
+    copyright (c) 2025 The Newton Developers; modifications (c) 2026 Seldinger.
   * NVIDIA Warp — Apache-2.0. https://github.com/NVIDIA/warp
   * STARK / SymX — accurate-tier oracle (cross-validation only).
   * ppf-contact-solver — GPU accurate-tier baseline (cross-validation only).
