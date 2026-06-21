@@ -19,7 +19,7 @@ import newton
 
 from lumen.core.frame import CenterlineFrame
 from lumen.newton.vbd_fork import TubeVBDSolver
-from lumen.newton.tube_contact import add_world_force
+from lumen.newton.forces import add_world_force
 
 
 class NewtonGuidewireSim:
