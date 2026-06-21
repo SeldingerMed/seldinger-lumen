@@ -19,6 +19,7 @@ import torch
 
 from lumen.physics.contact import ContactGeometry, ContactParams
 from lumen.physics.rod import Rod
+from lumen.physics.wall import WallShell
 
 
 @dataclass
@@ -33,24 +34,38 @@ class SimConfig:
 
 class Solver:
     def __init__(self, geom: ContactGeometry, contact: ContactParams | None = None,
-                 cfg: SimConfig | None = None):
+                 cfg: SimConfig | None = None, wall: WallShell | None = None):
         self.geom = geom
         self.cp = contact or ContactParams()
         self.cfg = cfg or SimConfig()
+        self.wall = wall
 
-    def _force(self, rod: Rod, x: torch.Tensor) -> torch.Tensor:
-        # Conservative force = -grad(energy). Computed on a detached copy: the
-        # elastic/contact force is treated as locally constant across the backward
-        # pass, so gradients to physical params flow through the (differentiable)
-        # friction term, not this stiff contact graph.
-        # ponytail: friction-only gradient is enough for the M0 sysID; full
-        # backprop through the contact barrier is the upgrade if we ever calibrate
-        # stiffness this way (then drop the detach + set create_graph=True).
+    def _deformed_R(self, x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+        """Node lumen radius using the deformable wall: R0(s) + w(s,theta)."""
+        proj = self.geom.project(x)
+        R0 = self.geom._R_of_s(proj["s"])
+        return R0 + self.wall.sample(proj["s"], proj["theta"], w)
+
+    def _forces(self, rod: Rod, cp: ContactParams):
+        """Conservative forces on rod (and wall, if present), -grad(total energy).
+
+        Detached copy: the stiff elastic/contact force is treated as locally
+        constant across the backward pass, so param gradients flow through the
+        differentiable friction term, not this stiff graph (doc §3.5.7).
+        Returns (F_rod, F_wall_or_None).
+        """
         with torch.enable_grad():   # works even under an outer torch.no_grad()
-            xd = x.detach().requires_grad_(True)
-            E = rod.internal_energy(xd) + self.geom.barrier_energy(xd, self.cp)
-            (grad,) = torch.autograd.grad(E.sum(), xd, create_graph=False)
-        return -grad.detach()
+            xd = rod.x.detach().requires_grad_(True)
+            if self.wall is None:
+                E = rod.internal_energy(xd) + self.geom.barrier_energy(xd, cp)
+                (gx,) = torch.autograd.grad(E.sum(), xd)
+                return -gx.detach(), None
+            wd = self.wall.w.detach().requires_grad_(True)
+            R_over = self._deformed_R(xd, wd)
+            E = (rod.internal_energy(xd) + self.wall.energy(wd)
+                 + self.geom.barrier_energy(xd, cp, R_override=R_over))
+            gx, gw = torch.autograd.grad(E.sum(), [xd, wd])
+            return -gx.detach(), -gw.detach()
 
     def step(self, rod: Rod, mu: torch.Tensor | None = None) -> Rod:
         """One overdamped (first-order) step. `mu` (per-batch) overrides cp.mu.
@@ -66,7 +81,7 @@ class Solver:
             cp = ContactParams(kappa=cp.kappa, d_hat=cp.d_hat, mu=mu)
         c = rod.params.damping
 
-        F = self._force(rod, rod.x)                       # conservative force
+        F, Fw = self._forces(rod, cp)                     # conservative forces
         base_dir = rod.x[:, 1] - rod.x[:, 0]
         base_dir = base_dir / torch.linalg.norm(base_dir, dim=-1, keepdim=True).clamp_min(1e-12)
         # Neumann driving: a constant push at the base, transmitted through the rod
@@ -85,6 +100,9 @@ class Solver:
             v[:, 0] = (cfg.insertion_rate / cfg.dt) * base_dir
         x = rod.x + cfg.dt * v
         rod.x, rod.v = x, v
+        # wall DOFs evolve by the same overdamped flow on their elastic + contact energy
+        if self.wall is not None:
+            self.wall.w = self.wall.w + cfg.dt * Fw / self.wall.params.drag
         return rod
 
     def rollout(self, rod: Rod, mu: torch.Tensor | None = None) -> Rod:

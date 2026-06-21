@@ -18,6 +18,7 @@ core does not depend on it.
 from lumen.physics.rod import Rod, RodParams
 from lumen.physics.contact import ContactGeometry, ContactParams
 from lumen.physics.solver import SimConfig, Solver
+from lumen.physics.wall import WallShell, WallShellParams
 
 __all__ = ["Rod", "RodParams", "ContactGeometry", "ContactParams",
-           "SimConfig", "Solver"]
+           "SimConfig", "Solver", "WallShell", "WallShellParams"]

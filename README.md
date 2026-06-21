@@ -69,7 +69,8 @@ tools/            firewall check (no CathSim, no patient data)
 - **P0 ✅** repo + asset seam + tube-intrinsic projection
 - **P1 ✅** contact narrowphase + analytic barrier; rod in a tube; friction
   recovered via gradient (`lumen.physics`, `python -m lumen.physics.sysid`)
-- **P2** deformable anisotropic shell sharing `R`; rod–soft contact
+- **P2 ✅** deformable anisotropic shell sharing `R`; coupled rod–soft contact
+  (point-load deflection matches analytic Winkler; HGO-style axial/hoop anisotropy)
 - **P3** differentiable physics → sensor wiring (synthetic DRR)
 - **P4** flow coupling + generic occlusion interface
 - **P5** rod-primitive bake-off; benchmark suite + leaderboard; Isaac Lab/Gym
