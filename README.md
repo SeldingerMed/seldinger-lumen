@@ -73,7 +73,8 @@ tools/            firewall check (no CathSim, no patient data)
   (point-load deflection matches analytic Winkler; HGO-style axial/hoop anisotropy)
 - **P3 ✅** differentiable physics → projective sensor; device-as-sensor recovers
   a mechanical parameter from the fluoro image alone (`lumen.physics.imaging`)
-- **P4** flow coupling + generic occlusion interface
+- **P4 ✅** one-way Windkessel flow drag + generic clot/occlusion interface
+  (R-collapse + adhesive capture; real INSIST/Luraghi model plugs in privately)
 - **P5** rod-primitive bake-off; benchmark suite + leaderboard; Isaac Lab/Gym
 
 > The physics tier is PyTorch (differentiable, batched, CPU/MPS/CUDA). A Warp

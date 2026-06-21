@@ -34,11 +34,15 @@ class SimConfig:
 
 class Solver:
     def __init__(self, geom: ContactGeometry, contact: ContactParams | None = None,
-                 cfg: SimConfig | None = None, wall: WallShell | None = None):
+                 cfg: SimConfig | None = None, wall: WallShell | None = None,
+                 flow=None, occlusion=None):
         self.geom = geom
         self.cp = contact or ContactParams()
         self.cfg = cfg or SimConfig()
         self.wall = wall
+        self.flow = flow            # WindkesselFlow | None (one-way drag)
+        self.occlusion = occlusion  # Occlusion | None (clot adhesion)
+        self._t = 0.0
 
     def _deformed_R(self, x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
         """Node lumen radius using the deformable wall: R0(s) + w(s,theta)."""
@@ -56,14 +60,21 @@ class Solver:
         """
         with torch.enable_grad():   # works even under an outer torch.no_grad()
             xd = rod.x.detach().requires_grad_(True)
+
+            def adhesion(x):
+                if self.occlusion is None or rod.x_ref is None:
+                    return 0.0
+                return self.occlusion.adhesion_energy(x, rod.x_ref, rod.engaged)
+
             if self.wall is None:
-                E = rod.internal_energy(xd) + self.geom.barrier_energy(xd, cp)
+                E = (rod.internal_energy(xd) + self.geom.barrier_energy(xd, cp)
+                     + adhesion(xd))
                 (gx,) = torch.autograd.grad(E.sum(), xd)
                 return -gx.detach(), None
             wd = self.wall.w.detach().requires_grad_(True)
             R_over = self._deformed_R(xd, wd)
             E = (rod.internal_energy(xd) + self.wall.energy(wd)
-                 + self.geom.barrier_energy(xd, cp, R_override=R_over))
+                 + self.geom.barrier_energy(xd, cp, R_override=R_over) + adhesion(xd))
             gx, gw = torch.autograd.grad(E.sum(), [xd, wd])
             return -gx.detach(), -gw.detach()
 
@@ -81,7 +92,26 @@ class Solver:
             cp = ContactParams(kappa=cp.kappa, d_hat=cp.d_hat, mu=mu)
         c = rod.params.damping
 
+        # latch occlusion engagement (which device nodes are stuck in the clot)
+        if self.occlusion is not None:
+            with torch.no_grad():
+                s_now = self.geom.project(rod.x)["s"]
+                mask = self.occlusion.engaged_mask(s_now)
+                if rod.x_ref is None:
+                    rod.x_ref = rod.x.detach().clone()
+                    rod.engaged = torch.zeros_like(mask)
+                newly = ((mask > 0) & (rod.engaged == 0))[..., None]
+                rod.x_ref = torch.where(newly, rod.x.detach(), rod.x_ref)
+                rod.engaged = torch.clamp(rod.engaged + mask, max=1.0)
+
         F, Fw = self._forces(rod, cp)                     # conservative forces
+        # one-way flow drag along the local (distal) rod tangent
+        if self.flow is not None:
+            tang = torch.zeros_like(rod.x)
+            tang[:, :-1] = rod.x[:, 1:] - rod.x[:, :-1]
+            tang[:, -1] = rod.x[:, -1] - rod.x[:, -2]
+            tang = tang / torch.linalg.norm(tang, dim=-1, keepdim=True).clamp_min(1e-12)
+            F = F + self.flow.drag_force(tang, self._t)
         base_dir = rod.x[:, 1] - rod.x[:, 0]
         base_dir = base_dir / torch.linalg.norm(base_dir, dim=-1, keepdim=True).clamp_min(1e-12)
         # Neumann driving: a constant push at the base, transmitted through the rod
@@ -103,9 +133,11 @@ class Solver:
         # wall DOFs evolve by the same overdamped flow on their elastic + contact energy
         if self.wall is not None:
             self.wall.w = self.wall.w + cfg.dt * Fw / self.wall.params.drag
+        self._t += cfg.dt
         return rod
 
     def rollout(self, rod: Rod, mu: torch.Tensor | None = None) -> Rod:
+        self._t = 0.0
         for _ in range(self.cfg.steps):
             rod = self.step(rod, mu=mu)
         return rod

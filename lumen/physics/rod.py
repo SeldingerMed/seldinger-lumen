@@ -35,6 +35,8 @@ class Rod:
         self.x = x0.clone()
         self.v = torch.zeros_like(self.x)
         self.params = params or RodParams()
+        self.x_ref = None        # latched engagement positions (occlusion adhesion)
+        self.engaged = None      # latched engaged-node mask
         # rest edge lengths from the initial shape
         self.l0 = torch.linalg.norm(self.x[:, 1:] - self.x[:, :-1], dim=-1)  # [B, N-1]
 
