@@ -33,6 +33,17 @@ Wall mechanics and contact geometry are the **same object** `R(s,θ,t)` (doc
 `R`; pulsatility = a temporal modulation of `R`. Do not introduce a separate
 collision mesh that can drift out of sync with the wall state.
 
+## Invariant 3b — Warp/Newton is primary; PyTorch is the fallback
+
+The contact narrowphase + barrier are Warp kernels (`physics/warp_contact.py`),
+differentiable via Warp's tape, batched, running on CUDA or the Warp CPU device.
+`physics/backend.py` selects `warp-cuda → warp-cpu → torch`, favouring Warp/Newton
+(the doc's substrate). The PyTorch solver (`physics/contact.py`, `solver.py`) is
+the portable fallback AND the reference the Warp path is kept in parity with
+(`tests/test_warp_parity.py`: gap/energy/force match, and the Warp tape gradient
+equals the analytic force). Do not let the two narrowphases drift. GPU-validated
+on RTX 3090: CPU↔CUDA parity 1e-7, ~349M node-evals/s at B=65536.
+
 ## Invariant 4 — two tiers
 
 - **Fast tier** (this repo, Warp/Newton): batched, differentiable-with-care,

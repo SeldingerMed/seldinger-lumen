@@ -34,9 +34,30 @@ A new modality is a new directory under `lumen/profiles/` — see
 ## Install
 
 ```bash
-pip install -e ".[dev]"      # geometry core + tests, no GPU needed
-pip install -e ".[gpu]"      # adds warp-lang for the contact kernels (P1+)
+pip install -e ".[dev]"        # geometry core + torch fallback + tests
+pip install -e ".[gpu]"        # adds warp-lang for the GPU contact kernels
 ```
+
+## Backends (Warp/Newton primary, PyTorch fallback)
+
+The contact narrowphase + analytic barrier are implemented as **Warp kernels**
+(`lumen.physics.warp_contact`), differentiable via Warp's autodiff tape, batched
+across environments. `lumen.physics.backend.select_backend()` is hardware-gated:
+
+```
+warp-cuda  →  warp-cpu  →  torch     (favour Warp/Newton; torch is the fallback)
+```
+
+The same kernel source runs on CUDA and on the Warp CPU device; the PyTorch
+solver (`lumen.physics.contact`) is the always-available fallback and the
+reference the Warp path is kept in parity with (`tests/test_warp_parity.py`).
+
+GPU-validated on an RTX 3090 (CUDA path, `benchmarks/warp_gpu_check.py`):
+CPU↔CUDA kernel parity to 1e-7; **349M node-evals/s ≈ 21.8M env-steps/s** at
+B=65536 (~140× over the Warp CPU device; the doc's ≥1e4 env-steps/s target, §3.1,
+beaten by 3 orders of magnitude). Full Warp rod + solver integration (today the
+stepper is torch; Warp supplies the GPU narrowphase) is the next step, with
+Newton VBD as the rod substrate.
 
 ## Quickstart
 

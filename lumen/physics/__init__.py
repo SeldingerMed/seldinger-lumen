@@ -21,7 +21,8 @@ from lumen.physics.solver import SimConfig, Solver
 from lumen.physics.wall import WallShell, WallShellParams
 from lumen.physics.flow import WindkesselFlow
 from lumen.physics.occlusion import Occlusion
+from lumen.physics import backend
 
 __all__ = ["Rod", "RodParams", "ContactGeometry", "ContactParams",
            "SimConfig", "Solver", "WallShell", "WallShellParams",
-           "WindkesselFlow", "Occlusion"]
+           "WindkesselFlow", "Occlusion", "backend"]
