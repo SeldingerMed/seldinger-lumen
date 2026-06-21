@@ -71,7 +71,8 @@ tools/            firewall check (no CathSim, no patient data)
   recovered via gradient (`lumen.physics`, `python -m lumen.physics.sysid`)
 - **P2 ✅** deformable anisotropic shell sharing `R`; coupled rod–soft contact
   (point-load deflection matches analytic Winkler; HGO-style axial/hoop anisotropy)
-- **P3** differentiable physics → sensor wiring (synthetic DRR)
+- **P3 ✅** differentiable physics → projective sensor; device-as-sensor recovers
+  a mechanical parameter from the fluoro image alone (`lumen.physics.imaging`)
 - **P4** flow coupling + generic occlusion interface
 - **P5** rod-primitive bake-off; benchmark suite + leaderboard; Isaac Lab/Gym
 
