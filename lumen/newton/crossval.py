@@ -92,6 +92,41 @@ def crossval_hgo_stress(params: HGOParams | None = None):
     return max(errs)
 
 
+def crossval_penetration_free(R=2.0, force=400.0):
+    """Accurate vs fast tier under the SAME contact load: the accurate-tier IPC
+    reference is penetration-free (every node stays inside the wall), while the
+    compliant fast tier allows penetration ≤ d_hat by design. Returns both peak
+    penetrations (r − R, clamped at 0). Requires only numpy for the accurate side;
+    the fast side needs warp+newton (callers skip if absent)."""
+    from lumen.accurate.ipc import IPCTubeReference, IPCParams
+    M, n = 40, 11
+    cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
+    # accurate tier: rod near the +x wall, pushed outward by `force`
+    x0 = np.stack([np.full(n, 1.5), np.zeros(n), np.linspace(20, 40, n)], axis=1)
+    ref = IPCTubeReference(cl, R, IPCParams(d_hat=0.3, kappa=1.0e2))
+    _, info = ref.solve(x0, F=np.array([force, 0.0, 0.0]), iters=600)
+    acc_pen = max(-info["min_gap"], 0.0)              # >0 only if it penetrated (it won't)
+
+    fast_pen = None
+    try:
+        import warp  # noqa: F401
+        import newton  # noqa: F401
+        from lumen.newton.sim import NewtonGuidewireSim
+    except ImportError:
+        pass
+    else:
+        dev = np.stack([np.full(n, 1.6), np.zeros(n), np.linspace(30, 50, n)], axis=1)
+        sim = NewtonGuidewireSim(cl, R, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+                                 vbd_iterations=12, device="cpu")
+        peak = 0.0
+        for _ in range(60):
+            sim.step(dt=2.5e-2, substeps=5, preload=(force, 0.0, 0.0))
+            peak = max(peak, float((sim.node_radii() - R).max()))
+        fast_pen = peak
+    return {"accurate_penetration": acc_pen, "fast_penetration": fast_pen,
+            "accurate_min_gap": info["min_gap"], "penetration_free": info["penetration_free"]}
+
+
 def accurate_tier_status() -> dict:
     """Report which accurate-tier oracle backs the cross-validation."""
     external = None
@@ -104,8 +139,9 @@ def accurate_tier_status() -> dict:
             __import__(name)
             external = name
             break
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
-    return {"analytic_oracle": True, "external_oracle": external,
-            "note": "analytic oracle always on; STARK/ppf-contact-solver drop in "
-                    "via OracleReference when built on a GPU box (doc §3.3)"}
+    return {"analytic_oracle": True, "ipc_reference": True, "external_oracle": external,
+            "note": "analytic + built-in penetration-free IPC reference "
+                    "(lumen.accurate.ipc) always on; STARK/ppf-contact-solver drop in "
+                    "via the same seam when built on a GPU box (doc §3.3)"}
