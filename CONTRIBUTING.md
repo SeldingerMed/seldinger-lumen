@@ -18,8 +18,13 @@ git clone https://github.com/SeldingerMed/seldinger-lumen
 cd seldinger-lumen
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pip install "git+https://github.com/newton-physics/newton"   # the Newton engine
+# the Newton engine, pinned to the commit our SolverVBD fork tracks (same as CI)
+pip install "git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7"
 ```
+
+Newton is pre-1.0 and `TubeVBDSolver` forks one of its internals, so we pin a
+known-good commit (`NEWTON_REF` in `.github/workflows/ci.yml`). Bumping it is a
+deliberate PR with the test suite re-run, not an automatic upgrade.
 
 Run the checks the way CI does:
 

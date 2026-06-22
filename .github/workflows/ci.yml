@@ -25,11 +25,15 @@ jobs:
           cache: pip
       - name: Install package + dev deps
         run: pip install -e ".[dev]"
-      - name: Install Newton engine (best effort)
-        # Newton has no PyPI release; install from source. If upstream main is
-        # broken, the Newton-backed tests skip cleanly rather than failing CI.
+      - name: Install Newton engine (pinned)
+        # Newton has no PyPI release and is pre-1.0; TubeVBDSolver forks a SolverVBD
+        # internal, so we pin a known-good commit (upstream HEAD drifts and breaks
+        # the override). Best-effort: if the pin can't install, Newton-backed tests
+        # skip rather than reds CI. Bump NEWTON_REF deliberately, re-running tests.
         continue-on-error: true
-        run: pip install "git+https://github.com/newton-physics/newton"
+        env:
+          NEWTON_REF: 6dfe7303d9ca50f7505cac31bee9885c813d89d7
+        run: pip install "git+https://github.com/newton-physics/newton@${NEWTON_REF}"
       - name: Tests
         run: pytest -q
       - name: Firewall (no CathSim, no patient data)
