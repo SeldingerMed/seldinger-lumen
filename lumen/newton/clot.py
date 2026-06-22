@@ -90,6 +90,7 @@ class ClotField:
         wall_load_grid: [n_s*n_th] device→wall/clot normal force per cell (from the
         solver). Returns the downstream occlusion fraction for the flow coupling.
         """
+        wall_load_grid = np.nan_to_num(wall_load_grid, nan=0.0, posinf=0.0, neginf=0.0)  # L5
         F_dev = wall_load_grid.reshape(self.n_s, self.n_th).sum(axis=1)   # per-s contact force
         pressure = F_dev / self.p.area
         lam = self._compression_stretch(pressure)            # Ogden elastic compression
@@ -107,7 +108,8 @@ class ClotField:
     def max_damage(self) -> float:
         return float(self.D.max())
 
-    def retrieve(self, delta_s: float, engagement: float, aspiration: float = 0.0) -> dict:
+    def retrieve(self, delta_s: float, engagement: float, aspiration: float = 0.0,
+                 dt: float = 2.5e-2) -> dict:
         """Attempt to drag the clot proximally by delta_s with a stent-retriever.
 
         Force balance (doc §3.4.4): the clot is held by wall friction (μ·N, N ∝
@@ -123,7 +125,10 @@ class ClotField:
         net_hold = max(self.p.friction_mu * N - aspiration, 0.0)
         R_coh = self.p.failure_stress * self.p.area          # clot cohesive strength
         if net_hold > R_coh:
-            self.D = np.clip(self.D + self.mask * 0.3, 0.0, 1.0)   # tears -> fragments
+            # M2: progressive, rate- and overstress-scaled fragmentation (same damage
+            # law as update()), not a fixed 0.3 jump — so it integrates with dt.
+            over = net_hold / R_coh - 1.0
+            self.D = np.clip(self.D + self.mask * self.p.damage_rate * over * dt, 0.0, 1.0)
             self.o = np.where(self.mask, self.o0 * (1.0 - self.D), 0.0)
             return {"status": "fragment", "retrieved": self.retrieved}
         if engagement < net_hold:

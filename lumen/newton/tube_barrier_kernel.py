@@ -51,7 +51,7 @@ def accumulate_tube_barrier(
     s_max: float, n_s: int, n_th: int,
     w_field: wp.array(dtype=wp.float32),      # [n_s*n_th] radial displacement (shared R)
     kappa: float, d_hat: float, mode: int,
-    mu_along: float, mu_across: float, gamma_fric: float,  # anisotropic friction
+    mu_along: float, mu_across: float, gamma_fric: float, dt: float,  # anisotropic friction
     body_forces: wp.array(dtype=wp.vec3),     # in/out
     body_hessian_ll: wp.array(dtype=wp.mat33),  # in/out
     wall_load: wp.array(dtype=wp.float32),    # [n_s*n_th] accumulated normal load (out)
@@ -124,8 +124,9 @@ def accumulate_tube_barrier(
             eps_v = 1.0e-2
             denom = wp.sqrt(vt_mag * vt_mag + eps_v * eps_v)
             body_forces[bid] = body_forces[bid] - (mu * fn / denom) * v_t
-            # friction (tangent-space) Hessian: c_t · (I - eᵣ⊗eᵣ), PSD, added to the
-            # per-body system so the AVBD solve treats friction implicitly (#19)
-            c_t = mu * fn / denom
+            # friction (tangent-space) Hessian, PSD, added so the AVBD solve treats
+            # friction implicitly (#19). v_t ≈ Δx/dt, so the position-Hessian of the
+            # velocity-based friction force carries a 1/dt factor (L7).
+            c_t = mu * fn / (denom * dt)
             ident = wp.mat33(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
             body_hessian_ll[bid] = body_hessian_ll[bid] + c_t * (ident - wp.outer(er, er))

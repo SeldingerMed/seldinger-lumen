@@ -95,7 +95,7 @@ class NavEnv:
         if not (np.isfinite(obs).all() and np.isfinite([s, rmax]).all()):
             zeros = np.zeros(5, dtype=np.float32)
             return zeros, -100.0, True, False, {
-                "tip_s": 0.0, "dist": float("inf"), "max_r": 0.0,
+                "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,        # L1: finite (JSON-safe)
                 "success": False, "diverged": True}
         dist = abs(s - self.target_s)
         contact_pen = max(0.0, rmax - self.R)

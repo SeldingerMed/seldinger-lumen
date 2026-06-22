@@ -71,7 +71,9 @@ class NewtonGuidewireSim:
         self.contacts = self.model.contacts()
         self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
-        self.flow = flow                 # optional NewtonFlow (Windkessel + drag + pulsatility)
+        self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
+        # FlowField exposes a per-s lumen/pressure API; the lumped NewtonFlow doesn't.
+        self._flow_is_field = flow is not None and hasattr(flow, "set_lumen")
         # optional finite-extent deformable clot (shares the wall's s,θ grid)
         self.clot = None
         if clot_segment is not None:
@@ -130,6 +132,7 @@ class NewtonGuidewireSim:
             self.flow.aspiration = aspiration        # aspiration recovers downstream flow
         # flow drag acts along the (slowly-varying) device tangents — compute once/step
         tang = None
+        s_nodes = None
         if self.flow is not None:
             pos = self.state_0.body_q.numpy()[self.bodies, :3]
             tang = np.zeros_like(pos)
@@ -137,6 +140,9 @@ class NewtonGuidewireSim:
             tang[0] = pos[1] - pos[0]
             tang[-1] = pos[-1] - pos[-2]
             tang /= (np.linalg.norm(tang, axis=1, keepdims=True) + 1e-12)
+            if self._flow_is_field:                  # device-node arc-lengths for local v(s)
+                s_nodes = np.array([self.contact_frame.project(p).s for p in pos])
+                self.flow.set_tip(float(s_nodes.max()))   # catheter tip = deepest node
         for _ in range(substeps):
             self.state_0.clear_forces()
             self._actuate_base(insertion / substeps, twist / substeps)
@@ -146,17 +152,30 @@ class NewtonGuidewireSim:
                                   float(preload[2]), 1],
                           outputs=[self.state_0.body_f], device=self.device)
             wall = getattr(self.solver, "_wall", None)
-            # compose the shared effective base radius R0(s,θ,t) = (R0_base − clot
-            # occlusion) × pulsatility, which the contact kernel reads (+ wall w).
+            # compose the shared effective base radius R0(s,θ,t) = R0_base × pulse −
+            # clot occlusion, which the contact kernel reads (+ wall w). M1: pulse
+            # modulates the *vessel* wall only, NOT the clot (a clot is incompressible
+            # tissue — it doesn't breathe with the cardiac cycle).
             if wall is not None and (self.flow is not None or self.clot is not None):
-                base = wall._R0_base.copy()
-                if self.clot is not None:
-                    base = base - self.clot.occlusion_grid().astype(np.float32)
                 pulse = self.flow.pulse_factor() if self.flow is not None else 1.0
-                wall.r0_field.assign((base * np.float32(pulse)).astype(np.float32))
+                base = wall._R0_base * np.float32(pulse)
+                if self.clot is not None:
+                    occ = self.clot.occlusion_grid().astype(np.float32)
+                    base = base - occ
+                    wall.set_clot_mask(occ)              # H1: clot bears its own load
+                wall.r0_field.assign(base.astype(np.float32))
             if self.flow is not None:
                 self.flow.advance(sub_dt)
-                dvecs = wp.array((self.flow.drag_per_unit_tangent() * tang).astype(np.float32),
+                if self._flow_is_field:
+                    # feed the SHARED lumen radius (θ-averaged open radius) to the 1-D
+                    # network, solve P(s)/v(s), then drag each node by its LOCAL v(s).
+                    r_open_s = base.reshape(wall.n_s, wall.n_th).mean(axis=1)
+                    self.flow.set_lumen(r_open_s, wall.s_max)
+                    self.flow.solve()
+                    drag = self.flow.drag_at(s_nodes)[:, None]
+                else:
+                    drag = self.flow.drag_per_unit_tangent()
+                dvecs = wp.array((drag * tang).astype(np.float32),
                                  dtype=wp.vec3, device=self.device)
                 wp.launch(add_body_forces, dim=self.body_ids.shape[0],
                           inputs=[self.body_ids, dvecs, 1],
@@ -165,14 +184,20 @@ class NewtonGuidewireSim:
                              self.contacts, sub_dt)
             if self.clot is not None:                # clot deforms/damages from contact load
                 occ = self.clot.update(wall.wall_load.numpy(), sub_dt)
-                if self.flow is not None:
-                    self.flow.occlusion = occ
+                if self.flow is not None and not self._flow_is_field:
+                    self.flow.occlusion = occ        # lumped model: feed the scalar blockage
             self.state_0, self.state_1 = self.state_1, self.state_0
         # stent-retriever: on retraction, drag the clot proximally (retrieve/slip/fragment)
         if self.stentriever is not None and self.clot is not None and insertion < 0.0:
-            asp = aspiration + (self.flow.aspiration if self.flow is not None else 0.0)
+            if self._flow_is_field and self.clot.mask.any():
+                # mobilising force = retrograde pressure gradient the aspiration sink
+                # builds across the clot (real hemodynamics), plus any direct command.
+                sc = self.clot.s_grid[self.clot.mask]
+                asp = aspiration + self.flow.clot_mobilizing_force(float(sc[0]), float(sc[-1]))
+            else:
+                asp = aspiration + (self.flow.aspiration if self.flow is not None else 0.0)
             self.last_retrieval = self.clot.retrieve(
-                -insertion, self.stentriever.engagement_strength(self.clot), asp)
+                -insertion, self.stentriever.engagement_strength(self.clot), asp, dt)
 
     def body_positions(self) -> np.ndarray:
         return self.state_0.body_q.numpy()[self.bodies, :3]

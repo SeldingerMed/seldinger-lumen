@@ -63,6 +63,19 @@ def test_friction_uses_contact_normal_force_not_bulk_stress():
     assert abs(c.friction_resistance(_load_grid(c, Fn)) - c.p.friction_mu * (Fn * c.mask.sum())) < 1e-9
 
 
+def test_retrieve_fragmentation_scales_with_dt():
+    # M2: tearing damage now integrates with dt via the damage law (was a fixed 0.3
+    # jump that ignored the timestep). failure_stress chosen so wall-grip hold > R_coh.
+    p = ClotParams(failure_stress=3.0e3)
+    def frag_D(dt):
+        c = ClotField(80.0, 40, 8, 2.0, 35, 45, 1.6, p)
+        r = c.retrieve(delta_s=1.0, engagement=0.0, aspiration=0.0, dt=dt)
+        assert r["status"] == "fragment"
+        return c.max_damage()
+    d1, d2 = frag_D(1e-2), frag_D(2e-2)
+    assert d2 > d1 and abs(d2 - 2.0 * d1) < 0.2 * d2     # ~linear in dt, not a fixed jump
+
+
 def test_clot_occludes_lumen_and_drives_flow_in_sim():
     pytest.importorskip("warp")
     pytest.importorskip("newton")

@@ -37,7 +37,7 @@ def _friction_force(gamma_deg, mu_along=0.1, mu_across=0.8):
     wp.launch(accumulate_tube_barrier, dim=1,
               inputs=[cg, wm, bq, bqd, P, Tg, M1, cum_s, M, r0, float(f.length),
                       n_s, n_th, wfield, 2e3, 0.3, 0,
-                      mu_along, mu_across, np.radians(gamma_deg)],
+                      mu_along, mu_across, np.radians(gamma_deg), 5e-3],
               outputs=[bf, bh, load])
     return bf.numpy()[0]
 

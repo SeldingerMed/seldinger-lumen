@@ -124,10 +124,13 @@ if wp is not None:
     def _wall_solve_kernel(
         wall_load: wp.array(dtype=wp.float32), cell_area: wp.array(dtype=wp.float32),
         r0_grid: wp.array(dtype=wp.float32), w_in: wp.array(dtype=wp.float32),
+        clot_mask: wp.array(dtype=wp.float32),
         C10: float, k1: float, k2: float, kd: float, cg2: float, sg2: float,
         thickness: float, w_eq: wp.array(dtype=wp.float32)):
         c = wp.tid()
-        pc = wall_load[c] / cell_area[c]
+        # H1 — at clot cells the contact load is borne by the clot (it compresses),
+        # not the HGO wall; routing it to both would double-count it in R_eff.
+        pc = wall_load[c] * clot_mask[c] / cell_area[c]
         R0 = r0_grid[c]
         w = wp.max(w_in[c], 0.0)
         for _ in range(8):                         # per-cell Newton solve hgo_p(w)=pc
@@ -191,6 +194,9 @@ class WallField:
             self.cell_area_field = wp.array(self.cell_area.astype(np.float32),
                                             dtype=wp.float32, device=device)
             self.w_eq_field = wp.zeros(n, dtype=wp.float32, device=device)  # solve scratch
+            # H1 — 1=wall bears the contact load here, 0=clot cell (clot bears it)
+            self.clot_mask_field = wp.array(np.ones(n, np.float32), dtype=wp.float32,
+                                            device=device)
 
     def _solve_cell(self, p_contact, w0, iters=8):
         """1-D Newton solve of hgo_wall_pressure(w)=p_contact per cell (vectorised, per-cell R0)."""
@@ -215,9 +221,9 @@ class WallField:
         cg2, sg2 = float(np.cos(g) ** 2), float(np.sin(g) ** 2)
         wp.launch(_wall_solve_kernel, dim=self.n_s * self.n_th,
                   inputs=[self.wall_load, self.cell_area_field, self.r0_field,
-                          self.w_field, float(self.p.C10), float(self.p.k1),
-                          float(self.p.k2), float(self.p.kappa_d), cg2, sg2,
-                          float(self.p.thickness)],
+                          self.w_field, self.clot_mask_field, float(self.p.C10),
+                          float(self.p.k1), float(self.p.k2), float(self.p.kappa_d),
+                          cg2, sg2, float(self.p.thickness)],
                   outputs=[self.w_eq_field], device=self.device)
         wp.launch(_wall_smooth_kernel, dim=self.n_s * self.n_th,
                   inputs=[self.w_eq_field, self.r0_field, self.n_s, self.n_th,
@@ -231,3 +237,9 @@ class WallField:
     def set_pulse(self, factor: float) -> None:
         """Modulate the resting lumen radius R0(s,θ,t) = R0_base · factor (pulsatility)."""
         self.r0_field.assign(self._R0_base * float(factor))
+
+    def set_clot_mask(self, occlusion_grid) -> None:
+        """Route contact load away from clot cells (H1): cells with occlusion are
+        borne by the clot, so the HGO wall solve zeroes its load there."""
+        m = (np.asarray(occlusion_grid, dtype=np.float32).ravel() <= 1e-9).astype(np.float32)
+        self.clot_mask_field.assign(m)

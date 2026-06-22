@@ -71,7 +71,7 @@ def crossval_contact_force(kappa=2.0e3, d_hat=0.3, R=2.0, mode="compliant"):
         bf = wp.zeros(1, dtype=wp.vec3); bh = wp.zeros(1, dtype=wp.mat33)
         wp.launch(accumulate_tube_barrier, dim=1,
                   inputs=[cg, wm, bq, bqd, P, Tg, M1, cum_s, M, r0_grid, float(f.length),
-                          n_s, n_th, wf, kappa, d_hat, md, 0.0, 0.0, 0.0],
+                          n_s, n_th, wf, kappa, d_hat, md, 0.0, 0.0, 0.0, 5e-3],
                   outputs=[bf, bh, ld])
         fn_kernel = abs(float(bf.numpy()[0][0]))          # radial (-x) component magnitude
         fn_analytic = float(_analytic_barrier_force(gap, kappa, d_hat, mode))

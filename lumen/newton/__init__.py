@@ -9,10 +9,11 @@ implicit and stable. Requires ``newton`` (installed from github.com/newton-physi
 
 from lumen.newton.sim import NewtonGuidewireSim
 from lumen.newton.tube_vbd import TubeVBDSolver
-from lumen.newton.flow import NewtonFlow, FlowParams
+from lumen.newton.flow import NewtonFlow, FlowParams, FlowField, FlowFieldParams
 from lumen.newton.hgo_wall import HGOParams
 from lumen.newton.clot import ClotField, ClotParams
 from lumen.newton.devices import Stentriever
 
 __all__ = ["NewtonGuidewireSim", "TubeVBDSolver", "NewtonFlow", "FlowParams",
+           "FlowField", "FlowFieldParams",
            "HGOParams", "ClotField", "ClotParams", "Stentriever"]

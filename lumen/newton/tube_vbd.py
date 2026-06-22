@@ -16,6 +16,7 @@ import warp as wp
 import warp as _wp
 
 from newton.solvers import SolverVBD
+from newton import State, Control, Contacts        # L3: used in method annotations
 from newton._src.solvers.vbd.rigid_vbd_kernels import (
     _NUM_CONTACT_THREADS_PER_BODY,
     accumulate_body_body_contacts_per_body,
@@ -184,7 +185,7 @@ class TubeVBDSolver(SolverVBD):
                             self._tube_nth, self._wall.w_field,
                             self._tube_kappa, self._tube_d_hat, self._tube_mode,
                             self._tube_mu_along, self._tube_mu_across,
-                            self._tube_gamma_fric],
+                            self._tube_gamma_fric, dt],
                     outputs=[self.body_forces, self.body_hessian_ll,
                              self._tube_wall_load],
                     device=self.device,
@@ -341,9 +342,6 @@ class TubeVBDSolver(SolverVBD):
                 ],
                 device=self.device,
             )
-
-
-    """SolverVBD with the tube-intrinsic barrier injected into the AVBD solve."""
 
     def set_tube_contact(self, centerline, R, wire_body_ids, kappa=2.0e3, d_hat=0.3,
                          barrier_mode="compliant", deformable_wall=False,
