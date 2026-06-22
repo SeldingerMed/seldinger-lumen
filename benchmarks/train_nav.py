@@ -25,10 +25,17 @@ def _anat(asset):
     return np.asarray(pts), float(np.asarray(lumen.R).mean()), lumen
 
 
+def positive_int(value):
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"{value} is not a positive integer")
+    return ivalue
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pop", type=int, default=48)
-    ap.add_argument("--iters", type=int, default=22)
+    ap.add_argument("--pop", type=positive_int, default=48)
+    ap.add_argument("--iters", type=positive_int, default=22)
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--json", default=None)
     args = ap.parse_args()
