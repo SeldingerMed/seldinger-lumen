@@ -46,12 +46,18 @@ subclass overriding only the per-color rigid-body iteration).
 
 ## Invariant 4 — two tiers
 
-- **Fast tier** (this repo, Newton VBD): batched, for RL throughput. Newton VBD
-  is not autograd-differentiable; that is by design (doc §3.5.7).
-- **Accurate tier** (external oracle: STARK/SymX, ppf-contact-solver):
-  cross-validation, penetration-free IPC, and reliable gradients for offline
-  calibration. We *consume* it; we don't reimplement IPC. Drop-in slot in
-  `lumen/newton/crossval.py` (analytic oracle backs it today).
+- **Fast tier** (`lumen/newton`, Newton VBD): batched, for RL throughput. Newton
+  VBD is not autograd-differentiable; that is by design (doc §3.5.7).
+- **Accurate tier** (`lumen/accurate`): cross-validation, penetration-free IPC, and
+  gradients for offline calibration.
+  - `accurate/ipc.py` — a *built-in, self-contained* penetration-free IPC reference
+    (quasi-static rod + log barrier + feasibility line search). Always available, no
+    GPU/C++ build; it's a reference, not a production engine.
+  - `accurate/diff.py` — the differentiable calibration path (Warp autodiff), fitting
+    constitutive parameters to observations.
+  - The heavy external oracles (STARK/SymX, ppf-contact-solver) remain a drop-in via
+    the same `crossval.accurate_tier_status` seam for those who build them on a GPU
+    box — we don't reimplement *production* IPC, only a reference.
 
 ## Invariant 5 — the open/closed firewall
 
