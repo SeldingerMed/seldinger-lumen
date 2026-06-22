@@ -182,7 +182,7 @@ class TubeVBDSolver(SolverVBD):
                             self._tube_P, self._tube_Tg, self._tube_M1,
                             self._tube_cum_s, self._tube_M,
                             self._wall.r0_field, self._tube_s_max, self._tube_ns,
-                            self._tube_nth, self._wall.w_field,
+                            self._tube_nth, self._tube_n_per_env, self._wall.w_field,
                             self._tube_kappa, self._tube_d_hat, self._tube_mode,
                             self._tube_mu_along, self._tube_mu_across,
                             self._tube_gamma_fric, dt],
@@ -347,7 +347,7 @@ class TubeVBDSolver(SolverVBD):
                          barrier_mode="compliant", deformable_wall=False,
                          hgo_params=None, n_s=40, n_th=16,
                          mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
-                         lumen_field=None):
+                         lumen_field=None, n_envs=1, n_per_env=None):
         """barrier_mode: 'compliant' (fast tier) | 'log' (bounded IPC option).
 
         R is the base lumen radius: a scalar (cylinder) OR, via ``lumen_field`` (a
@@ -383,8 +383,11 @@ class TubeVBDSolver(SolverVBD):
             th = -_np.pi + (_np.arange(n_th) + 0.5) / n_th * 2.0 * _np.pi
             R0_grid = _np.array([[lumen_field.eval(float(s), float(t)) for t in th]
                                  for s in ss]).ravel()
+        self._tube_n_envs = int(n_envs)
+        self._tube_n_per_env = int(n_per_env if n_per_env is not None
+                                   else len(wire_body_ids) // n_envs)
         self._wall = WallField(R0=R0_grid, s_max=s_max, n_s=n_s, n_th=n_th,
-                               params=hgo_params, device=dev)
+                               params=hgo_params, device=dev, n_envs=n_envs)
         self._tube_wall_load = self._wall.wall_load
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1

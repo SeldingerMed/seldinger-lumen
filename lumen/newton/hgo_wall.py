@@ -146,14 +146,18 @@ if wp is not None:
         w_eq: wp.array(dtype=wp.float32), r0_grid: wp.array(dtype=wp.float32),
         n_s: int, n_th: int, smooth: float, w_out: wp.array(dtype=wp.float32)):
         c = wp.tid()
-        i_s = c // n_th
-        i_th = c % n_th
+        # per-env block of n_s*n_th cells; neighbours must stay within the same env
+        ncell = n_s * n_th
+        off = (c // ncell) * ncell
+        local = c % ncell
+        i_s = local // n_th
+        i_th = local % n_th
         sm = wp.max(i_s - 1, 0)                    # zero-flux at s ends (not connected)
         sp = wp.min(i_s + 1, n_s - 1)
-        lap_s = w_eq[sm * n_th + i_th] + w_eq[sp * n_th + i_th] - 2.0 * w_eq[c]
+        lap_s = w_eq[off + sm * n_th + i_th] + w_eq[off + sp * n_th + i_th] - 2.0 * w_eq[c]
         tm = (i_th - 1 + n_th) % n_th             # periodic in theta
         tp = (i_th + 1) % n_th
-        lap_th = w_eq[i_s * n_th + tm] + w_eq[i_s * n_th + tp] - 2.0 * w_eq[c]
+        lap_th = w_eq[off + i_s * n_th + tm] + w_eq[off + i_s * n_th + tp] - 2.0 * w_eq[c]
         val = w_eq[c] + smooth * (lap_s + lap_th)
         w_out[c] = wp.clamp(val, 0.0, 0.9 * r0_grid[c])
 
@@ -170,32 +174,43 @@ class WallField:
 
     def __init__(self, R0, s_max: float, n_s: int = 40, n_th: int = 16,
                  params: HGOParams | None = None, smooth: float = 0.15,
-                 device: str = "cpu"):
+                 device: str = "cpu", n_envs: int = 1):
         """R0 may be a scalar (cylinder) or a per-cell array R0(s,θ) of length
-        n_s*n_th (stenosis/aneurysm/patient anatomy)."""
+        n_s*n_th (stenosis/aneurysm/patient anatomy).
+
+        For batched sims (n_envs>1) every device array carries a leading env block of
+        n_s*n_th cells, laid out [env0 cells | env1 cells | ...]; the same base R0(s,θ)
+        is replicated to each env (one shared vessel) but each env's wall deforms
+        independently from its own wire's contact load."""
         self.s_max, self.n_s, self.n_th = s_max, n_s, n_th
+        self.n_envs = int(n_envs)
         self.p = params or HGOParams()
         self.smooth = smooth
         self.device = device
         n = n_s * n_th
+        self.n_cells = n
         if np.isscalar(R0):
-            self.R0_grid = np.full(n, float(R0))
+            base = np.full(n, float(R0))
         else:
-            self.R0_grid = np.asarray(R0, dtype=float).ravel()
-            assert self.R0_grid.size == n, "R0 grid must be length n_s*n_th"
-        self.cell_area = (s_max / n_s) * (self.R0_grid * 2.0 * np.pi / n_th)  # per cell
-        self.w = np.zeros(n, dtype=np.float64)
+            base = np.asarray(R0, dtype=float).ravel()
+            assert base.size == n, "R0 grid must be length n_s*n_th"
+        self.R0_grid = np.tile(base, self.n_envs)                  # [n_envs*n]
+        cell_area = (s_max / n_s) * (base * 2.0 * np.pi / n_th)    # per cell, one env
+        self.cell_area = np.tile(cell_area, self.n_envs)
+        total = self.n_envs * n
+        self.w = np.zeros(total, dtype=np.float64)
         if wp is not None:
-            self.w_field = wp.zeros(n, dtype=wp.float32, device=device)
-            self.wall_load = wp.zeros(n, dtype=wp.float32, device=device)
+            self.w_field = wp.zeros(total, dtype=wp.float32, device=device)
+            self.wall_load = wp.zeros(total, dtype=wp.float32, device=device)
             self.r0_field = wp.array(self.R0_grid.astype(np.float32), dtype=wp.float32,
                                      device=device)   # base R0(s,θ) for the contact kernel
             self._R0_base = self.R0_grid.astype(np.float32).copy()   # unpulsed resting radius
+            self._R0_base_d = wp.array(self._R0_base, dtype=wp.float32, device=device)
             self.cell_area_field = wp.array(self.cell_area.astype(np.float32),
                                             dtype=wp.float32, device=device)
-            self.w_eq_field = wp.zeros(n, dtype=wp.float32, device=device)  # solve scratch
+            self.w_eq_field = wp.zeros(total, dtype=wp.float32, device=device)  # solve scratch
             # H1 — 1=wall bears the contact load here, 0=clot cell (clot bears it)
-            self.clot_mask_field = wp.array(np.ones(n, np.float32), dtype=wp.float32,
+            self.clot_mask_field = wp.array(np.ones(total, np.float32), dtype=wp.float32,
                                             device=device)
 
     def _solve_cell(self, p_contact, w0, iters=8):
@@ -219,13 +234,14 @@ class WallField:
         """
         g = np.radians(self.p.gamma_deg)
         cg2, sg2 = float(np.cos(g) ** 2), float(np.sin(g) ** 2)
-        wp.launch(_wall_solve_kernel, dim=self.n_s * self.n_th,
+        total = self.n_envs * self.n_cells
+        wp.launch(_wall_solve_kernel, dim=total,
                   inputs=[self.wall_load, self.cell_area_field, self.r0_field,
                           self.w_field, self.clot_mask_field, float(self.p.C10),
                           float(self.p.k1), float(self.p.k2), float(self.p.kappa_d),
                           cg2, sg2, float(self.p.thickness)],
                   outputs=[self.w_eq_field], device=self.device)
-        wp.launch(_wall_smooth_kernel, dim=self.n_s * self.n_th,
+        wp.launch(_wall_smooth_kernel, dim=total,
                   inputs=[self.w_eq_field, self.r0_field, self.n_s, self.n_th,
                           float(self.smooth)],
                   outputs=[self.w_field], device=self.device)

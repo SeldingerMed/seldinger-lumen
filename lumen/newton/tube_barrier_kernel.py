@@ -47,9 +47,9 @@ def accumulate_tube_barrier(
     M1: wp.array(dtype=wp.vec3),              # rotation-minimizing reference normals (per vertex)
     cum_s: wp.array(dtype=wp.float32),        # cumulative arc-length (per vertex)
     M: int,
-    R0_grid: wp.array(dtype=wp.float32),      # [n_s*n_th] BASE lumen radius R0(s,θ)
-    s_max: float, n_s: int, n_th: int,
-    w_field: wp.array(dtype=wp.float32),      # [n_s*n_th] radial displacement (shared R)
+    R0_grid: wp.array(dtype=wp.float32),      # [n_envs*n_s*n_th] BASE lumen radius R0(s,θ)
+    s_max: float, n_s: int, n_th: int, n_per_env: int,
+    w_field: wp.array(dtype=wp.float32),      # [n_envs*n_s*n_th] radial displacement (shared R)
     kappa: float, d_hat: float, mode: int,
     mu_along: float, mu_across: float, gamma_fric: float, dt: float,  # anisotropic friction
     body_forces: wp.array(dtype=wp.vec3),     # in/out
@@ -96,7 +96,10 @@ def accumulate_tube_barrier(
     theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
     th01 = (theta + 3.14159265) / 6.2831853
     i_th = int(th01 * float(n_th)) % n_th
-    cell = i_s * n_th + i_th
+    # per-env wall block: each env has its own R0/w/load grid of n_s*n_th cells, so a
+    # body's contact reads/writes its OWN env's wall (env = body id / bodies-per-env).
+    env = bid // n_per_env
+    cell = env * (n_s * n_th) + i_s * n_th + i_th
 
     R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: base R0(s,θ) + deformation
     dwall = R_eff - r

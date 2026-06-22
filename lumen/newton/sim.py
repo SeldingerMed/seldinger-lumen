@@ -20,6 +20,7 @@ import newton
 from lumen.core.frame import CenterlineFrame
 from lumen.newton.tube_vbd import TubeVBDSolver
 from lumen.newton.forces import add_world_force, add_body_forces, actuate_bases
+from lumen.newton.coupling import compose_radius_k, flow_drag_k
 
 
 class NewtonGuidewireSim:
@@ -41,12 +42,19 @@ class NewtonGuidewireSim:
         self.n_envs = int(n_envs)
         self.contact_frame = CenterlineFrame(vessel_centerline)
         # Batched envs share one vessel (the contact is wire-vs-wall, never wire-vs-wire,
-        # so E rods in one model are independent). Per-env wall/clot/flow state needs an
-        # env dimension that isn't ported yet, so those features are single-env for now.
-        if self.n_envs > 1 and (deformable_wall or flow is not None or clot_segment is not None):
+        # so E rods in one model are independent). For n_envs>1 the wall/clot/flow co-sim
+        # runs through on-device kernels (no per-substep host round-trip); n_envs==1 keeps
+        # the original host path. The lumped Windkessel (NewtonFlow) is single-env only —
+        # batched flow needs the 1-D FlowField.
+        self._flow_is_field = flow is not None and hasattr(flow, "set_lumen")
+        if self.n_envs > 1 and flow is not None and not self._flow_is_field:
             raise NotImplementedError(
-                "batched n_envs>1 currently supports the rigid-wall contact sim only; "
-                "per-env deformable wall / clot / flow is the next step")
+                "batched flow requires the 1-D FlowField; the lumped NewtonFlow is "
+                "single-env (analytic fallback)")
+        if self.n_envs > 1 and stentriever is not None:
+            raise NotImplementedError(
+                "batched stent-retriever retrieval is not ported (per-env host force "
+                "balance); run retrieval single-env")
 
         builder = newton.ModelBuilder(gravity=0.0)
         builder.default_shape_cfg.density = density
@@ -70,18 +78,19 @@ class NewtonGuidewireSim:
         self.model = builder.finalize(device=self.device)
 
         self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
-        self.solver.set_tube_contact(vessel_centerline, R, bodies,
+        self.solver.set_tube_contact(vessel_centerline, R, self.bodies,
                                      kappa=kappa, d_hat=d_hat,
                                      barrier_mode=barrier_mode,
                                      deformable_wall=deformable_wall,
                                      hgo_params=hgo_params, mu_along=mu_along,
                                      mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
-                                     lumen_field=lumen_field)
+                                     lumen_field=lumen_field,
+                                     n_envs=self.n_envs, n_per_env=self.n_per_env)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()
         self.contacts = self.model.contacts()
-        self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
+        self.body_ids = wp.array(np.array(self.bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
         # on-device base actuation (no per-substep body_q host round-trip), one per env
         self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
@@ -89,8 +98,21 @@ class NewtonGuidewireSim:
         self._ins_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
         self._tw_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
-        # FlowField exposes a per-s lumen/pressure API; the lumped NewtonFlow doesn't.
-        self._flow_is_field = flow is not None and hasattr(flow, "set_lumen")
+        if self._flow_is_field:
+            # Bind the FlowField to this sim's batch/device. Its device arrays are
+            # sized to n_envs, so a FlowField must not be shared across sims with
+            # different shapes — refuse to rebind an already-used or conflicting one.
+            if getattr(flow, "_P_d", None) is not None:
+                raise ValueError("this FlowField is already bound to a sim (device "
+                                 "arrays allocated); use one FlowField per NewtonGuidewireSim")
+            if getattr(flow, "n_envs", 1) not in (1, self.n_envs):
+                raise ValueError(f"FlowField.n_envs ({flow.n_envs}) conflicts with sim "
+                                 f"n_envs ({self.n_envs})")
+            if getattr(flow, "device", "cpu") not in ("cpu", self.device):
+                raise ValueError(f"FlowField.device ({flow.device}) conflicts with sim "
+                                 f"device ({self.device})")
+            flow.n_envs = self.n_envs
+            flow.device = self.device
         # optional finite-extent deformable clot (shares the wall's s,θ grid)
         self.clot = None
         if clot_segment is not None:
@@ -98,8 +120,19 @@ class NewtonGuidewireSim:
             w = self.solver._wall
             self.clot = ClotField(s_max=w.s_max, n_s=w.n_s, n_th=w.n_th, R_base=R,
                                   s0=clot_segment[0], s1=clot_segment[1],
-                                  height=clot_height, params=clot_params)
+                                  height=clot_height, params=clot_params,
+                                  n_envs=self.n_envs, device=self.device)
         self.stentriever = stentriever   # optional device for clot retrieval
+        # batched on-device coupling scratch (n_envs>1): node drag arrays + zero occ
+        self._use_device_coupling = self.n_envs > 1 and (self.clot is not None
+                                                         or self._flow_is_field)
+        if self._use_device_coupling:
+            w = self.solver._wall
+            n_node = self.n_per_env * self.n_envs
+            self._snodes_d = wp.zeros(n_node, dtype=wp.float32, device=self.device)
+            self._tang_d = wp.zeros(n_node, dtype=wp.vec3, device=self.device)
+            self._zero_occ_d = wp.zeros(self.n_envs * w.n_s, dtype=wp.float32,
+                                        device=self.device)
         # snapshot for fast reset (avoid rebuilding the model/solver each episode)
         self._init_body_q = self.state_0.body_q.numpy().copy()
 
@@ -142,6 +175,58 @@ class NewtonGuidewireSim:
         sub_dt = dt / substeps
         if self.flow is not None and aspiration:
             self.flow.aspiration = aspiration        # aspiration recovers downstream flow
+        if self._use_device_coupling:                # n_envs>1 with clot/flow: on-device
+            self._step_device(sub_dt, substeps, insertion, twist, preload)
+            return
+        self._step_host(sub_dt, substeps, insertion, twist, preload, aspiration, dt)
+
+    def _step_device(self, sub_dt, substeps, insertion, twist, preload):
+        """Batched per-substep co-sim entirely on device (no host round-trip):
+        compose R0 (pulse − clot occlusion) -> flow solve -> local drag -> contact
+        solve -> clot update. Each env reads/writes its own wall/clot/flow block."""
+        wall = self.solver._wall
+        n_s, n_th, s_max, ncell = wall.n_s, wall.n_th, wall.s_max, wall.n_cells
+        field_flow = self._flow_is_field
+        if field_flow:                               # per-step host prep for local drag
+            pos = self.state_0.body_q.numpy()[self.bodies, :3].reshape(
+                self.n_envs, self.n_per_env, 3)
+            tang = np.zeros_like(pos)
+            tang[:, 1:-1] = pos[:, 2:] - pos[:, :-2]
+            tang[:, 0] = pos[:, 1] - pos[:, 0]
+            tang[:, -1] = pos[:, -1] - pos[:, -2]
+            tang /= (np.linalg.norm(tang, axis=2, keepdims=True) + 1e-12)
+            s_nodes = self.contact_frame.project_s(pos.reshape(-1, 3))   # vectorized
+            self._tang_d.assign(np.ascontiguousarray(tang.reshape(-1, 3).astype(np.float32)))
+            self._snodes_d.assign(s_nodes.astype(np.float32))
+            self.flow.set_tips(s_nodes, s_max, n_s)
+        occ_arr = self.clot.o_d if self.clot is not None else self._zero_occ_d
+        for _ in range(substeps):
+            self.state_0.clear_forces()
+            self._actuate_base(insertion / substeps, twist / substeps)
+            if any(preload):
+                wp.launch(add_world_force, dim=self.body_ids.shape[0],
+                          inputs=[self.body_ids, float(preload[0]), float(preload[1]),
+                                  float(preload[2]), 1],
+                          outputs=[self.state_0.body_f], device=self.device)
+            pulse = self.flow.pulse_factor() if self.flow is not None else 1.0
+            wp.launch(compose_radius_k, dim=self.n_envs * ncell,
+                      inputs=[wall._R0_base_d, occ_arr, float(pulse), n_s, n_th],
+                      outputs=[wall.r0_field, wall.clot_mask_field], device=self.device)
+            if field_flow:
+                self.flow.advance(sub_dt)
+                self.flow.solve_device(wall.r0_field, n_s, n_th, s_max)
+                wp.launch(flow_drag_k, dim=self.n_envs * self.n_per_env,
+                          inputs=[self._snodes_d, self._tang_d, self.body_ids,
+                                  self.flow._v_d, self.n_per_env, n_s, float(s_max),
+                                  float(self.flow.p.drag_coeff)],
+                          outputs=[self.state_0.body_f], device=self.device)
+            self.solver.step(self.state_0, self.state_1, self.control, self.contacts, sub_dt)
+            if self.clot is not None:
+                self.clot.update_device(wall.wall_load, sub_dt)
+            self.state_0, self.state_1 = self.state_1, self.state_0
+
+    def _step_host(self, sub_dt, substeps, insertion, twist, preload, aspiration, dt):
+        """Single-env (n_envs==1) path: the original host-side co-sim, unchanged."""
         # flow drag acts along the (slowly-varying) device tangents — compute once/step
         tang = None
         s_nodes = None

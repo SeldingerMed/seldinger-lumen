@@ -25,6 +25,68 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+try:
+    import warp as wp
+except Exception:  # pragma: no cover
+    wp = None
+
+
+if wp is not None:
+    @wp.func
+    def _avg_r(r0_field: wp.array(dtype=wp.float32), celloff: int, i_s: int,
+               n_th: int, R_floor: float):
+        """θ-averaged open lumen radius at (env, s), floored — the 1-D flow's R(s)."""
+        acc = float(0.0)
+        for it in range(n_th):
+            acc += r0_field[celloff + i_s * n_th + it]
+        return wp.max(acc / float(n_th), R_floor)
+
+    @wp.kernel
+    def _flow_solve_k(
+        r0_field: wp.array(dtype=wp.float32), n_s: int, n_th: int, ds: float,
+        visc: float, R_floor: float, Pin: float, R_periph: float, asp_gain: float,
+        asp: wp.array(dtype=wp.float32), tip: wp.array(dtype=wp.int32),
+        P_out: wp.array(dtype=wp.float32), v_out: wp.array(dtype=wp.float32),
+        Qdown_out: wp.array(dtype=wp.float32)):
+        """One thread per env: series resistive solve over the env's composed lumen
+        radius (reads r0_field directly, no host round-trip). Mirrors FlowField.solve()."""
+        e = wp.tid()
+        celloff = e * (n_s * n_th)
+        soff = e * n_s
+        it = tip[e]
+        cum_it = float(0.0)
+        cum_tot = float(0.0)
+        for k in range(n_s - 1):
+            rm = 0.5 * (_avg_r(r0_field, celloff, k, n_th, R_floor)
+                        + _avg_r(r0_field, celloff, k + 1, n_th, R_floor))
+            rseg = visc * ds / (rm * rm * rm * rm)
+            if k < it:
+                cum_it += rseg
+            cum_tot += rseg
+        R_up = cum_it
+        R_down = (cum_tot - cum_it) + R_periph
+        Q_nat = Pin / (R_up + R_down)
+        P_tip_nat = Pin - Q_nat * R_up
+        a = wp.clamp(asp[e], 0.0, 1.0)
+        P_tip = P_tip_nat - a * asp_gain
+        Q_up = (Pin - P_tip) / wp.max(R_up, 1.0e-9)
+        Q_down = P_tip / wp.max(R_down, 1.0e-9)
+        Qdown_out[e] = Q_down
+        cum = float(0.0)
+        for i in range(n_s):
+            ri = _avg_r(r0_field, celloff, i, n_th, R_floor)
+            A = 3.14159265 * ri * ri
+            if i < it:
+                P_out[soff + i] = Pin - Q_up * cum
+                v_out[soff + i] = Q_up / A
+            else:
+                P_out[soff + i] = P_tip - Q_down * (cum - R_up)
+                v_out[soff + i] = Q_down / A
+            if i < n_s - 1:
+                rm = 0.5 * (_avg_r(r0_field, celloff, i, n_th, R_floor)
+                            + _avg_r(r0_field, celloff, i + 1, n_th, R_floor))
+                cum += visc * ds / (rm * rm * rm * rm)
+
 
 @dataclass
 class FlowParams:
@@ -110,16 +172,22 @@ class FlowField:
     clot_mobilizing_force) the sim uses when present.
     """
 
-    def __init__(self, params: FlowFieldParams | None = None):
+    def __init__(self, params: FlowFieldParams | None = None, n_envs: int = 1,
+                 device: str = "cpu"):
         self.p = params or FlowFieldParams()
         self.t = 0.0
+        self.n_envs = int(n_envs)
+        self.device = device
         self.aspiration = 0.0            # [0,1] suction command at the tip
-        self.R_s = None                  # per-node open lumen radius R(s)
+        self.R_s = None                  # per-node open lumen radius R(s)  [host path]
         self.s_grid = None
         self.tip_s = None                # catheter-tip arc-length (aspiration point)
-        self._P = None                   # solved pressure field P(s)
+        self._P = None                   # solved pressure field P(s)  [host path]
         self._v = None                   # solved velocity field v(s)
         self._Q = 0.0                    # solved through-flow (proximal)
+        # device fields for the on-device per-env solve (set up lazily on first use)
+        self._n_s = None
+        self._P_d = self._v_d = self._tip_d = self._asp_d = self._Qdown_d = None
 
     # --- geometry / actuation set each step by the sim ----------------------
     def set_lumen(self, radius_s, s_max: float) -> None:
@@ -174,6 +242,42 @@ class FlowField:
         Qn = np.where(np.arange(n) < it, Q_up, Q_down)
         self._P, self._v, self._Q = P, Qn / A, Q_up
         self._Q_down = Q_down
+
+    # --- on-device per-env solve (batched, no host round-trip) ----------------
+    def _ensure_device(self, n_s: int) -> None:
+        if self._P_d is not None and self._n_s == n_s:
+            return
+        self._n_s = n_s
+        self._P_d = wp.zeros(self.n_envs * n_s, dtype=wp.float32, device=self.device)
+        self._v_d = wp.zeros(self.n_envs * n_s, dtype=wp.float32, device=self.device)
+        self._Qdown_d = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
+        self._tip_d = wp.zeros(self.n_envs, dtype=wp.int32, device=self.device)
+        self._asp_d = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
+
+    def set_tips(self, s_nodes_per_env, s_max: float, n_s: int) -> None:
+        """Per-env catheter tip = the env's deepest node, as a wall-grid s index."""
+        import numpy as np
+        self._ensure_device(n_s)
+        s = np.asarray(s_nodes_per_env, dtype=float).reshape(self.n_envs, -1)
+        tip_s = s.max(axis=1)
+        it = np.clip(np.round(tip_s / s_max * (n_s - 1)), 0, n_s - 1).astype(np.int32)
+        self._tip_d.assign(it)
+        asp = np.full(self.n_envs, min(max(self.aspiration, 0.0), 1.0), np.float32)
+        self._asp_d.assign(asp)
+
+    def solve_device(self, r0_field, n_s: int, n_th: int, s_max: float) -> None:
+        """Solve the series network for every env on device, reading the composed
+        wall radius field directly (no D2H). Writes the device velocity field v_d."""
+        self._ensure_device(n_s)
+        ds = s_max / (n_s - 1)
+        wp.launch(_flow_solve_k, dim=self.n_envs,
+                  inputs=[r0_field, n_s, n_th, float(ds), float(self.p.visc),
+                          float(self.p.R_floor), float(self.P_in()), float(self.p.R_periph),
+                          float(self.p.asp_gain), self._asp_d, self._tip_d],
+                  outputs=[self._P_d, self._v_d, self._Qdown_d], device=self.device)
+
+    def velocity_field_device(self):
+        return self._v_d
 
     # --- accessors -----------------------------------------------------------
     def pressure_field(self):

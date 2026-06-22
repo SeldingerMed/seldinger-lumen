@@ -29,6 +29,20 @@ def test_straight_tube_projection():
     assert abs(p.r - 1.5) < 1e-6
 
 
+def test_project_s_batch_matches_scalar_project():
+    # the vectorized batch projection must give the same arc-length as the per-point
+    # project() (used on the batched flow-drag hot path)
+    a = np.linspace(0, np.pi / 2, 40)
+    cl = np.stack([30 * np.sin(a), 4 * np.cos(2 * a), 30 * (1 - np.cos(a))], axis=1)
+    f = CenterlineFrame(cl)
+    rng = np.random.default_rng(1)
+    pts = cl[rng.integers(0, 40, 200)] + rng.normal(0, 1.0, (200, 3))
+    s_loop = np.array([f.project(p).s for p in pts])
+    s_vec = f.project_s(pts)
+    assert np.allclose(s_loop, s_vec, atol=1e-9)
+    assert f.project_s(pts[0]).shape == (1,)        # accepts a single point too
+
+
 def test_curved_centerline_arclength_monotone():
     # quarter circle in the x-z plane, radius 20
     a = np.linspace(0, np.pi / 2, 50)
