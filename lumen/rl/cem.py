@@ -67,6 +67,14 @@ class BatchedNav:
             self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
                           insertion=a.astype(np.float32))
             obs, s, r = self._tip_obs()
+            # finite guard immediately after _tip_obs, before dist/rew/prev;
+            # mark diverged done to stop NaN propagation into returns and elite selection
+            finite = np.isfinite(obs).all(axis=1) & np.isfinite(s) & np.isfinite(r)
+            if not finite.all():
+                obs = np.nan_to_num(obs)
+                s = np.nan_to_num(s)
+                r = np.nan_to_num(r)
+            done = done | (~finite)
             dist = np.abs(s - self.target_s)
             contact_pen = np.maximum(0.0, r - self.R)
             rew = (prev - dist) - 0.5 * contact_pen - 0.01
@@ -77,8 +85,6 @@ class BatchedNav:
             succ = succ | hit
             done = done | (dist < success_tol)
             prev = dist
-            if not np.isfinite(obs).all():                      # guard a diverged candidate
-                obs = np.nan_to_num(obs)
             if done.all():
                 break
         return ret, succ, steps
@@ -93,6 +99,15 @@ def train_cem(vessel=None, R=None, lumen_field=None, anatomies=None, pop=64,
     each candidate is scored by its MEAN return across all anatomies, so the policy
     must generalise (a single straight-tube fit overfits and fails a stenosis). If
     omitted, trains on the single (vessel, R, lumen_field). Returns (best_theta, history)."""
+    if pop <= 0:
+        raise ValueError(f"pop must be greater than 0, got {pop}")
+    if iters <= 0:
+        raise ValueError(f"iters must be greater than 0, got {iters}")
+    if not (0 < elite_frac < 1):
+        raise ValueError(f"elite_frac must be between 0 and 1 (exclusive), got {elite_frac}")
+    if anatomies is not None:
+        if not isinstance(anatomies, (list, tuple)) or len(anatomies) == 0:
+            raise ValueError("anatomies must be either None or a non-empty list of (vessel, R, lumen_field) tuples")
     rng = np.random.default_rng(seed)
     if anatomies is None:
         anatomies = [(vessel, R, lumen_field)]
