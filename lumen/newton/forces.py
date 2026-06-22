@@ -79,7 +79,8 @@ def actuate_bases(base_ids: wp.array(dtype=wp.int32),
     for j in range(M - 1):
         a = P[j]
         ab = P[j + 1] - a
-        u = wp.clamp(wp.dot(p - a, ab) / wp.dot(ab, ab), 0.0, 1.0)
+        # guard duplicate/zero-length centerline segments (ab·ab == 0)
+        u = wp.clamp(wp.dot(p - a, ab) / wp.max(wp.dot(ab, ab), 1.0e-9), 0.0, 1.0)
         dd = p - (a + u * ab)
         d2 = wp.dot(dd, dd)
         if d2 < best:
