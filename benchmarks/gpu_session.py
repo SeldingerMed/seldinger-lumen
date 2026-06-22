@@ -81,7 +81,10 @@ def main():
             parity(m)
 
     dev = "cuda" if has_cuda else "cpu"
-    envs = [1, 16, 256, 1024, 4096, 16384] if has_cuda else [1, 8, 64]
+    # NB: the model is built with a Python add_rod loop (O(E) host calls), so very
+    # large E is dominated by build time (amortized out of the rate, but slow to set
+    # up). Cap at a moot-but-representative count; per-step throughput is the signal.
+    envs = [1, 64, 512, 2048] if has_cuda else [1, 8, 64]
     print(f"\n== throughput ({dev}) ==")
     for m in ("rigid", "deformable", "clotflow"):
         throughput(m, dev, envs)
