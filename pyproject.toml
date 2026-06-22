@@ -23,10 +23,23 @@ solver = ["warp-lang>=1.14"]      # + newton (from git, see above)
 dev = ["pytest>=7", "warp-lang>=1.14"]
 
 [project.urls]
-Homepage = "https://github.com/txmed82/lumen"
+Homepage = "https://github.com/SeldingerMed/seldinger-lumen"
+Repository = "https://github.com/SeldingerMed/seldinger-lumen"
+Documentation = "https://seldingermed.github.io/seldinger-lumen/"
+Issues = "https://github.com/SeldingerMed/seldinger-lumen/issues"
 
 [tool.setuptools.packages.find]
 include = ["lumen*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# High-signal checks only: pyflakes (unused imports, undefined names). Style and
+# import-ordering are intentionally not enforced so CI stays about correctness.
+select = ["F"]
+

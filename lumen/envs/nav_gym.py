@@ -19,7 +19,6 @@ import numpy as np
 from lumen.hardware import detect_device
 
 try:
-    import gymnasium as gym
     from gymnasium import spaces
     _HAS_GYM = True
 except Exception:                       # pragma: no cover - gym optional
