@@ -94,12 +94,13 @@ def hgo_radial_stress(lam_theta, p: HGOParams):
 def hgo_wall_pressure(w, R0, p: HGOParams):
     """Inward restoring pressure of the thin HGO shell at radial displacement w [Pa].
 
-    Thin-shell hoop relation p = σ·t/R, with σ the HGO circumferential stress at
-    hoop stretch λθ = 1 + w/R0. Monotone increasing in w (stiffening), so the
-    per-cell equilibrium solve below is well-posed.
+    Incompressible thin-shell Laplace law p = σ_θθ·t / R with the *current* config:
+    σ_θθ = λθ·(dΨ/dλθ) (Cauchy hoop), thinned wall t = t0/λθ, current radius R =
+    R0·λθ. Those combine to p = (dΨ/dλθ)·t0/(R0·λθ) — i.e. the energy-derivative
+    stress times t0/R0, divided by λθ (the wall-thinning factor). Monotone in w.
     """
     lam = 1.0 + np.asarray(w, dtype=float) / R0
-    return hgo_radial_stress(lam, p) * p.thickness / R0
+    return hgo_radial_stress(lam, p) * p.thickness / (R0 * lam)
 
 
 if wp is not None:
@@ -117,7 +118,7 @@ if wp is not None:
         if E > 0.0:
             dE = kd * dI1 + (1.0 - 3.0 * kd) * dI4
             dpsi = dpsi + 2.0 * k1 * E * wp.exp(k2 * E * E) * dE
-        return dpsi * thickness / R0
+        return dpsi * thickness / (R0 * lam)        # /λθ: incompressible wall thinning
 
     @wp.kernel
     def _wall_solve_kernel(
