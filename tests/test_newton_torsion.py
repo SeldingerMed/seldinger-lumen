@@ -56,16 +56,24 @@ def test_twist_propagates_to_distal_tip():
     c, ct = model.control(), model.contacts()
 
     spin = _spin
-    tip0 = _roll_z(s0.body_q.numpy()[bodies[-1]][3:7])
+    q0 = s0.body_q.numpy()
+    base0 = _roll_z(q0[base][3:7])
+    tip0 = _roll_z(q0[bodies[-1]][3:7])
+    # Spin the base a TOTAL of 2.0 rad/s * 2.4 s = 4.8 rad. Kept under 2π on purpose:
+    # _roll_z = 2·atan2(z,w) wraps for a twist > 2π, which made the old 7.2-rad test
+    # read a wrapped angle whose sign/magnitude flips with float rounding across CPU
+    # builds (it returned 0.0 on one box). Under 2π the reading is the true twist.
     for _ in range(120):
         for _ in range(10):
             s0.clear_forces()
-            wp.launch(spin, dim=1, inputs=[base, 3.0, 2e-3, s0.body_q, s1.body_q])
+            wp.launch(spin, dim=1, inputs=[base, 2.0, 2e-3, s0.body_q, s1.body_q])
             solver.step(s0, s1, c, ct, 2e-3)
             s0, s1 = s1, s0
     q = s0.body_q.numpy()
-    tip_roll = abs(_roll_z(q[bodies[-1]][3:7]) - tip0)
     assert np.isfinite(q).all()
-    # base was spun 3 rad/s * 2.4 s = 7.2 rad; the distal tip must pick up a large
-    # fraction of that twist (transmission), with some lag (whip)
-    assert tip_roll > 3.0
+    base_roll = abs(_roll_z(q[base][3:7]) - base0)
+    tip_roll = abs(_roll_z(q[bodies[-1]][3:7]) - tip0)
+    # the base actually spun a large angle, and the distal tip TRANSMITS most of it
+    # (the cable is torsionally stiff, so the wire co-rotates with a little whip/lag).
+    assert base_roll > 3.0
+    assert tip_roll > 0.6 * base_roll
