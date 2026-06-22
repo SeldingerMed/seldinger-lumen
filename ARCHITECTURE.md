@@ -22,9 +22,9 @@ Anything anatomy-specific is a *profile* or a *sensor*, not core.
 ## Invariant 2 — three swap points, no core change
 
 Repurposing across procedures (doc §3.9) = swapping anatomy field + instrument +
-sensor. Profiles (`lumen/profiles/<x>/`) bundle the choice; sensors
-(`lumen/sensors/`) provide the observation. Adding bronchoscopy must touch
-neither `lumen.core` nor existing profiles.
+sensor. Profiles (`lumen/profiles/<x>/`) bundle the choice; the sensor (the
+observation model, Layer 1) is future work. Adding bronchoscopy must touch neither
+`lumen.core` nor existing profiles.
 
 ## Invariant 3 — the shared `R` field
 
@@ -41,7 +41,8 @@ is **no** separate PyTorch engine: Newton already covers CPU, and a parallel
 reduced-order engine would violate "do not write an engine" (§3.2). (An earlier
 torch path existed as a prototype and was removed once Newton-on-CPU was
 confirmed.) The contact barrier is a Warp kernel injected into VBD's AVBD solve
-(`newton/tube_barrier_kernel.py` + `newton/vbd_fork.py`).
+(`newton/tube_barrier_kernel.py` + `newton/tube_vbd.py`, a thin `SolverVBD`
+subclass overriding only the per-color rigid-body iteration).
 
 ## Invariant 4 — two tiers
 

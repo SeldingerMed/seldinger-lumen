@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use lumen in your research, please cite it."
+title: "lumen: a differentiable contact & coupling solver for a continuum instrument in a deformable lumen"
+abstract: >-
+  Layer 0 of the Seldinger embodied-medical-AI stack: a differentiable,
+  GPU-parallel solver for a slender continuum instrument inside a deformable,
+  moving lumen, built on the NVIDIA Newton engine. Modality-agnostic core with
+  tube-intrinsic contact, an HGO deformable wall, anisotropic friction, torsion,
+  a clot constitutive model, and a 1-D flow field.
+authors:
+  - family-names: Son
+    given-names: Colin
+type: software
+license: Apache-2.0
+repository-code: "https://github.com/SeldingerMed/seldinger-lumen"
+url: "https://seldingermed.github.io/seldinger-lumen/"
+keywords:
+  - differentiable physics
+  - contact mechanics
+  - Cosserat rod
+  - endovascular simulation
+  - surgical robotics
+  - NVIDIA Newton

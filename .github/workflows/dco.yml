@@ -1,0 +1,32 @@
+name: DCO
+
+on:
+  pull_request:
+
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Signed-off-by on all PR commits
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          missing=0
+          for c in $(git rev-list "$base..$head"); do
+            if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              subject=$(git log -1 --format=%s "$c")
+              echo "::error::Missing Signed-off-by: ${c:0:12} \"$subject\""
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "One or more commits are not signed off (DCO)."
+            echo "Fix: git rebase --signoff ${base} && git push --force-with-lease"
+            echo "See CONTRIBUTING.md#developer-certificate-of-origin-dco"
+            exit 1
+          fi
+          echo "All commits signed off. ✔"

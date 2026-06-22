@@ -1,0 +1,34 @@
+name: Feature request / extension proposal
+description: Propose a feature, a new modality profile, or a model extension
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For new modalities (airway, bowel, …) or model extensions, please skim
+        [ARCHITECTURE.md](../blob/master/ARCHITECTURE.md) and
+        [CONTRIBUTING.md](../blob/master/CONTRIBUTING.md) first — the core is meant to
+        stay unchanged.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Sketch the API/design. Cite any equations or papers for physics changes.
+    validations:
+      required: true
+  - type: dropdown
+    id: core-change
+    attributes:
+      label: Does this require a change to lumen/core?
+      options:
+        - "No — it's a profile / device / model alongside existing ones"
+        - "Yes — it needs a core change (let's discuss the invariants first)"
+        - "Not sure"
+    validations:
+      required: true

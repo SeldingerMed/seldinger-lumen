@@ -1,0 +1,9 @@
+# Every PR requests review from the maintainer. (Branch protection enforces that a
+# code-owner review is required before merge.)
+* @txmed82
+
+# The architecture invariants and the firewall are especially sensitive — flagged
+# here for emphasis; the catch-all above already covers them.
+/lumen/core/                @txmed82
+/tools/check_firewall.py    @txmed82
+/ARCHITECTURE.md            @txmed82
