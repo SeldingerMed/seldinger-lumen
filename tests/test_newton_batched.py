@@ -45,7 +45,43 @@ def test_scalar_action_broadcasts_to_all_envs():
     assert np.allclose(tip_z, tip_z[0], atol=1e-4)        # identical -> all envs match
 
 
-def test_batched_rejects_unported_per_env_features():
+def test_batched_deformable_wall_is_per_env():
+    # Each env has its OWN HGO wall block; loading one env's block must not deflect
+    # another's (no cross-env bleed in the per-cell solve or the shell smoothing).
+    from lumen.newton.hgo_wall import WallField, HGOParams
+    E, n_s, n_th = 3, 20, 8
+    ncell = n_s * n_th
+    w = WallField(R0=2.0, s_max=80.0, n_s=n_s, n_th=n_th, n_envs=E, device="cpu",
+                  params=HGOParams(C10=2e3, k1=1e3, k2=1.0, thickness=0.3))
+    load = np.zeros(E * ncell, np.float32)
+    mid = (n_s // 2) * n_th
+    load[1 * ncell + mid:1 * ncell + mid + n_th] = 50.0          # load only env 1
+    w.wall_load.assign(load)
+    w.update_from_load()
+    wf = w.w_field.numpy().reshape(E, ncell)
+    assert wf[1].max() > 1e-3                                     # the loaded env deflects
+    assert wf[0].max() < 1e-9 and wf[2].max() < 1e-9             # the others do not
+
+
+def test_batched_deformable_sim_runs_and_stays_finite():
+    vessel, dev = _vessel_and_device(n=11)
+    dev = dev.copy(); dev[:, 0] = 1.85                           # start the wire in contact
+    E = 3
+    sim = NewtonGuidewireSim(vessel, 2.0, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+                             deformable_wall=True, n_envs=E, vbd_iterations=12,
+                             device="cpu")
+    for _ in range(20):
+        sim.step(dt=2.5e-2, substeps=5, preload=(40.0, 0.0, 0.0))
+    w = sim.solver._wall
+    assert w.w_field.shape[0] == E * w.n_cells                   # one wall block per env
+    assert np.isfinite(sim.env_positions()).all()
+    assert w.w_field.numpy().max() > 1e-3                        # the deformable walls deflected
+
+
+def test_batched_rejects_unported_clot_and_flow():
     vessel, dev = _vessel_and_device()
-    with pytest.raises(NotImplementedError):
-        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2, deformable_wall=True, device="cpu")
+    from lumen.newton.flow import FlowField
+    with pytest.raises(NotImplementedError):                     # clot not ported to batched
+        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2, clot_segment=(30, 40), device="cpu")
+    with pytest.raises(NotImplementedError):                     # flow not ported to batched
+        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2, flow=FlowField(), device="cpu")

@@ -41,12 +41,13 @@ class NewtonGuidewireSim:
         self.n_envs = int(n_envs)
         self.contact_frame = CenterlineFrame(vessel_centerline)
         # Batched envs share one vessel (the contact is wire-vs-wall, never wire-vs-wire,
-        # so E rods in one model are independent). Per-env wall/clot/flow state needs an
-        # env dimension that isn't ported yet, so those features are single-env for now.
-        if self.n_envs > 1 and (deformable_wall or flow is not None or clot_segment is not None):
+        # so E rods in one model are independent). The HGO wall now carries a per-env
+        # block, so batched deformable walls work; clot + flow still couple on the host
+        # per substep, so they remain single-env until that coupling is ported on-device.
+        if self.n_envs > 1 and (flow is not None or clot_segment is not None):
             raise NotImplementedError(
-                "batched n_envs>1 currently supports the rigid-wall contact sim only; "
-                "per-env deformable wall / clot / flow is the next step")
+                "batched n_envs>1 supports rigid or HGO-deformable walls; per-env clot "
+                "and flow coupling is not ported yet (single-env only for now)")
 
         builder = newton.ModelBuilder(gravity=0.0)
         builder.default_shape_cfg.density = density
@@ -70,18 +71,19 @@ class NewtonGuidewireSim:
         self.model = builder.finalize(device=self.device)
 
         self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
-        self.solver.set_tube_contact(vessel_centerline, R, bodies,
+        self.solver.set_tube_contact(vessel_centerline, R, self.bodies,
                                      kappa=kappa, d_hat=d_hat,
                                      barrier_mode=barrier_mode,
                                      deformable_wall=deformable_wall,
                                      hgo_params=hgo_params, mu_along=mu_along,
                                      mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
-                                     lumen_field=lumen_field)
+                                     lumen_field=lumen_field,
+                                     n_envs=self.n_envs, n_per_env=self.n_per_env)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()
         self.contacts = self.model.contacts()
-        self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
+        self.body_ids = wp.array(np.array(self.bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
         # on-device base actuation (no per-substep body_q host round-trip), one per env
         self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
