@@ -268,7 +268,6 @@ class FlowField:
     def solve_device(self, r0_field, n_s: int, n_th: int, s_max: float) -> None:
         """Solve the series network for every env on device, reading the composed
         wall radius field directly (no D2H). Writes the device velocity field v_d."""
-        from lumen.newton.flow import _flow_solve_k
         self._ensure_device(n_s)
         ds = s_max / (n_s - 1)
         wp.launch(_flow_solve_k, dim=self.n_envs,

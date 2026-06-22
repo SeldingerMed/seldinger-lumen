@@ -115,3 +115,30 @@ class CenterlineFrame:
         m2 = np.cross(t, m1)
         theta = float(np.arctan2(np.dot(radial, m2), np.dot(radial, m1)))
         return Projection(s=s, theta=theta, r=r, e_r=e_r, edge_param=uj)
+
+    def project_s(self, points: np.ndarray) -> np.ndarray:
+        """Arc-length ``s`` for many points at once: (N, 3) -> (N,).
+
+        Vectorised over the centerline segments (no per-point Python loop), for the
+        batched hot path where only ``s`` is needed (e.g. flow-drag node positions).
+        Same nearest-segment + arc-length math as ``project``. Builds an (N, M)
+        distance matrix; M (centerline points) is small, so this is cheap.
+        """
+        P = np.asarray(points, dtype=float)
+        if P.ndim == 1:
+            P = P[None]
+        a = self.points[:-1]                                    # (M, 3)
+        ab = self.points[1:] - a                                # (M, 3)
+        denom = np.einsum("mj,mj->m", ab, ab)
+        denom[denom == 0] = 1.0
+        # u[n,m] = clip(((P[n]-a[m])·ab[m]) / |ab[m]|², 0, 1)
+        num = np.einsum("nj,mj->nm", P, ab) - np.einsum("mj,mj->m", a, ab)[None]
+        u = np.clip(num / denom[None], 0.0, 1.0)                # (N, M)
+        foot = a[None] + u[:, :, None] * ab[None]               # (N, M, 3)
+        diff = P[:, None, :] - foot
+        d2 = np.einsum("nmj,nmj->nm", diff, diff)               # (N, M)
+        j = np.argmin(d2, axis=1)                               # (N,)
+        rows = np.arange(len(P))
+        uj = u[rows, j]
+        seglen = np.linalg.norm(ab[j], axis=1)
+        return self.cum_s[j] + uj * seglen

@@ -117,6 +117,22 @@ def test_batched_clot_and_flow_run_on_device():
     assert np.isfinite(sim.env_positions()).all()
 
 
+def test_flowfield_not_shared_across_sims():
+    # a FlowField sizes its device arrays to n_envs; binding a conflicting or
+    # already-used one to a sim must be refused (defensive against silent shape bugs)
+    from lumen.newton.flow import FlowField
+    vessel, dev = _vessel_and_device()
+    f = FlowField(); f.n_envs = 2
+    with pytest.raises(ValueError):                  # n_envs conflict
+        NewtonGuidewireSim(vessel, 2.0, dev, flow=f, n_envs=3, device="cpu")
+    f2 = FlowField()
+    s1 = NewtonGuidewireSim(vessel, 2.0, dev, flow=f2, clot_segment=(30, 40),
+                            n_envs=2, device="cpu")
+    s1.step(dt=2.5e-2, substeps=1, insertion=np.array([0.3, 0.3]))   # allocates f2 device arrays
+    with pytest.raises(ValueError):                  # already bound/used
+        NewtonGuidewireSim(vessel, 2.0, dev, flow=f2, n_envs=2, device="cpu")
+
+
 def test_batched_rejects_lumped_flow_and_stentriever():
     vessel, dev = _vessel_and_device()
     from lumen.newton.flow import NewtonFlow

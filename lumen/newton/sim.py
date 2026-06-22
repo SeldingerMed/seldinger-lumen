@@ -98,7 +98,19 @@ class NewtonGuidewireSim:
         self._ins_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
         self._tw_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
-        if self._flow_is_field:          # match the FlowField's batch/device to the sim
+        if self._flow_is_field:
+            # Bind the FlowField to this sim's batch/device. Its device arrays are
+            # sized to n_envs, so a FlowField must not be shared across sims with
+            # different shapes — refuse to rebind an already-used or conflicting one.
+            if getattr(flow, "_P_d", None) is not None:
+                raise ValueError("this FlowField is already bound to a sim (device "
+                                 "arrays allocated); use one FlowField per NewtonGuidewireSim")
+            if getattr(flow, "n_envs", 1) not in (1, self.n_envs):
+                raise ValueError(f"FlowField.n_envs ({flow.n_envs}) conflicts with sim "
+                                 f"n_envs ({self.n_envs})")
+            if getattr(flow, "device", "cpu") not in ("cpu", self.device):
+                raise ValueError(f"FlowField.device ({flow.device}) conflicts with sim "
+                                 f"device ({self.device})")
             flow.n_envs = self.n_envs
             flow.device = self.device
         # optional finite-extent deformable clot (shares the wall's s,θ grid)
@@ -183,8 +195,7 @@ class NewtonGuidewireSim:
             tang[:, 0] = pos[:, 1] - pos[:, 0]
             tang[:, -1] = pos[:, -1] - pos[:, -2]
             tang /= (np.linalg.norm(tang, axis=2, keepdims=True) + 1e-12)
-            s_nodes = np.array([self.contact_frame.project(p).s
-                                for p in pos.reshape(-1, 3)])
+            s_nodes = self.contact_frame.project_s(pos.reshape(-1, 3))   # vectorized
             self._tang_d.assign(np.ascontiguousarray(tang.reshape(-1, 3).astype(np.float32)))
             self._snodes_d.assign(s_nodes.astype(np.float32))
             self.flow.set_tips(s_nodes, s_max, n_s)
