@@ -112,6 +112,9 @@ def crossval_penetration_free(R=2.0, force=400.0):
         import warp  # noqa: F401
         import newton  # noqa: F401
         from lumen.newton.sim import NewtonGuidewireSim
+    except ImportError:
+        pass
+    else:
         dev = np.stack([np.full(n, 1.6), np.zeros(n), np.linspace(30, 50, n)], axis=1)
         sim = NewtonGuidewireSim(cl, R, dev, radius=0.2, kappa=3e3, d_hat=0.3,
                                  vbd_iterations=12, device="cpu")
@@ -120,8 +123,6 @@ def crossval_penetration_free(R=2.0, force=400.0):
             sim.step(dt=2.5e-2, substeps=5, preload=(force, 0.0, 0.0))
             peak = max(peak, float((sim.node_radii() - R).max()))
         fast_pen = peak
-    except Exception:
-        pass
     return {"accurate_penetration": acc_pen, "fast_penetration": fast_pen,
             "accurate_min_gap": info["min_gap"], "penetration_free": info["penetration_free"]}
 

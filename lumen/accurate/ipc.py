@@ -59,8 +59,8 @@ class IPCTubeReference:
         self.R = R                                   # scalar lumen radius (or callable s->R)
         self.p = params or IPCParams()
 
-    def _R_at(self, s):
-        return self.R(s) if callable(self.R) else float(self.R)
+    def _R_at(self, s, theta):
+        return self.R(s, theta) if callable(self.R) else float(self.R)
 
     def _gaps(self, x):
         """Per-node wall gap d=R−r and radial unit e_r (the contact geometry)."""
@@ -68,7 +68,7 @@ class IPCTubeReference:
         er = np.empty((len(x), 3))
         for i, xi in enumerate(x):
             pr = self.frame.project(xi)
-            d[i] = self._R_at(pr.s) - pr.r
+            d[i] = self._R_at(pr.s, pr.theta) - pr.r
             er[i] = pr.e_r
         return d, er
 
@@ -113,8 +113,10 @@ class IPCTubeReference:
         base = x[0].copy()
         L0 = np.linalg.norm(x[1:] - x[:-1], axis=1)   # rest lengths from the seed
         d0, _ = self._gaps(x)
-        assert d0.min() > 0, "initial configuration must be penetration-free"
+        if not (d0.min() > 0):
+            raise ValueError("initial configuration must be penetration-free")
         E, g = self.energy_and_grad(x, L0, F)
+        it = 0
         for it in range(iters):
             gn = float(np.linalg.norm(g[1:]))
             if gn < tol:
