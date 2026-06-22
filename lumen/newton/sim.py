@@ -7,8 +7,9 @@ tube-intrinsic barrier (force + Hessian) natively into VBD's per-color AVBD solv
 faithful replatform of Layer 0 onto Newton (doc §3.2: a domain-specialized module
 inside the engine, replacing generic device-vs-mesh collision).
 
-Proximal-end actuation (insertion = translate the kinematic base along the vessel
-tangent; rotation = spin its quaternion) matches the continuum action space (§1.2).
+Proximal-end actuation (insertion = advance the kinematic base along the centerline
+arc-length, staying in the lumen through curves; rotation = spin its quaternion)
+matches the continuum action space (§1.2).
 """
 
 from __future__ import annotations
@@ -163,8 +164,11 @@ class NewtonGuidewireSim:
             return
         self._ins_arr.assign(np.ascontiguousarray(ins))
         self._tw_arr.assign(np.ascontiguousarray(tw))
+        sv = self.solver
         wp.launch(actuate_bases, dim=self.n_envs,
-                  inputs=[self._base_ids, self._ins_arr, self._tw_arr],
+                  inputs=[self._base_ids, self._ins_arr, self._tw_arr,
+                          sv._tube_P, sv._tube_Tg, sv._tube_cum_s, sv._tube_M,
+                          sv._tube_s_max],
                   outputs=[self.state_0.body_q], device=self.device)
 
     def step(self, dt: float = 2.5e-2, substeps: int = 5,
