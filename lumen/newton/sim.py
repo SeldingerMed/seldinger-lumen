@@ -19,7 +19,7 @@ import newton
 
 from lumen.core.frame import CenterlineFrame
 from lumen.newton.tube_vbd import TubeVBDSolver
-from lumen.newton.forces import add_world_force, add_body_forces
+from lumen.newton.forces import add_world_force, add_body_forces, actuate_bases
 
 
 class NewtonGuidewireSim:
@@ -71,6 +71,11 @@ class NewtonGuidewireSim:
         self.contacts = self.model.contacts()
         self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
+        # on-device base actuation (no per-substep body_q host round-trip)
+        self._base_ids = wp.array(np.array([self.base], dtype=np.int32), dtype=wp.int32,
+                                  device=self.device)
+        self._ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
+        self._tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
         # FlowField exposes a per-s lumen/pressure API; the lumped NewtonFlow doesn't.
         self._flow_is_field = flow is not None and hasattr(flow, "set_lumen")
@@ -106,21 +111,12 @@ class NewtonGuidewireSim:
     def _actuate_base(self, insertion: float, twist: float):
         if insertion == 0.0 and twist == 0.0:
             return
-        q = self.state_0.body_q.numpy()
-        T = q[self.base]
-        rot = T[3:7]
-        # #23 — actuate along/about the base body's CURRENT axis (capsule local +z
-        # rotated into world), not the fixed initial tangent — correct on curves.
-        x, y, z, w = rot
-        ax = np.array([2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)])
-        ax = ax / (np.linalg.norm(ax) + 1e-12)
-        pos = T[:3] + insertion * ax
-        if twist != 0.0:
-            s = np.sin(twist / 2)
-            dq = np.array([ax[0] * s, ax[1] * s, ax[2] * s, np.cos(twist / 2)])
-            rot = _quat_mul(dq, rot)
-        q[self.base] = np.concatenate([pos, rot])
-        self.state_0.body_q = wp.array(q, dtype=wp.transform, device=self.device)
+        # on device: translate/rotate the kinematic base about its current axis (#23)
+        self._ins_arr.fill_(float(insertion))
+        self._tw_arr.fill_(float(twist))
+        wp.launch(actuate_bases, dim=self._base_ids.shape[0],
+                  inputs=[self._base_ids, self._ins_arr, self._tw_arr],
+                  outputs=[self.state_0.body_q], device=self.device)
 
     def step(self, dt: float = 2.5e-2, substeps: int = 5,
              insertion: float = 0.0, twist: float = 0.0, preload=(0.0, 0.0, 0.0),
@@ -207,12 +203,3 @@ class NewtonGuidewireSim:
 
     def wall_max_deflection(self) -> float:
         return self.solver.wall_max_deflection()
-
-
-def _quat_mul(a, b):
-    ax, ay, az, aw = a
-    bx, by, bz, bw = b
-    return np.array([aw * bx + ax * bw + ay * bz - az * by,
-                     aw * by - ax * bz + ay * bw + az * bx,
-                     aw * bz + ax * by - ay * bx + az * bw,
-                     aw * bw - ax * bx - ay * by - az * bz])
