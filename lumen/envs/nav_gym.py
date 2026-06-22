@@ -38,7 +38,9 @@ class NavEnv:
         self.R = float(np.asarray(lumen.R).mean())   # representative R, for obs normalisation only
         self.frame = CenterlineFrame(self.vessel)
         self.L = float(self.frame.length)
+        self.target_frac = target_frac
         self.target_s = target_frac * self.L
+        self.rng = np.random.default_rng()
         self.max_insertion, self.substeps, self.max_steps = max_insertion, substeps, max_steps
         self.success_tol = success_tol
         self.device = device or detect_device()
@@ -65,6 +67,12 @@ class NavEnv:
 
     def reset(self, *, seed=None, options=None):
         from lumen.newton.sim import NewtonGuidewireSim
+        # #13 — honour the seed: reproducible-but-varied episodes via a jittered
+        # target (cheap — no model rebuild, unlike varying the start geometry).
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+        self.target_s = float(np.clip(self.target_frac + self.rng.uniform(-0.1, 0.1),
+                                      0.25, 0.9)) * self.L
         if getattr(self, "sim", None) is None:
             self.sim = NewtonGuidewireSim(self.vessel, self.R, self._device_points(),
                                           radius=0.2, kappa=3e3, d_hat=0.3,

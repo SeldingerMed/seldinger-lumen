@@ -31,3 +31,14 @@ def test_emitted_asset_is_procedural():
     for a in (procedural.straight_tube(), procedural.stenotic_tube(),
               procedural.bifurcation()):
         assert a.provenance == "procedural"
+
+
+def test_lumenfield_rejects_partial_theta_grid():
+    # #15 — eval() wraps theta periodically; a partial theta grid (not a full 2π
+    # revolution) would be silently wrong, so it must be rejected.
+    import pytest
+    with pytest.raises(ValueError):
+        LumenField(np.array([0.0, 1.0]), np.array([0.0, np.pi / 2]), np.ones((2, 2)))
+    # a full revolution (endpoint-excluded) is accepted
+    th = np.linspace(-np.pi, np.pi, 8, endpoint=False)
+    LumenField(np.array([0.0, 1.0]), th, np.ones((2, 8)))

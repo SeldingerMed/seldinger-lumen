@@ -37,7 +37,6 @@ class NewtonGuidewireSim:
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
         self.contact_frame = CenterlineFrame(vessel_centerline)
-        self._fwd = self.contact_frame.tangents[0].astype(np.float32)
 
         builder = newton.ModelBuilder(gravity=0.0)
         builder.default_shape_cfg.density = density
@@ -92,10 +91,14 @@ class NewtonGuidewireSim:
             return
         q = self.state_0.body_q.numpy()
         T = q[self.base]
-        pos = T[:3] + insertion * self._fwd
         rot = T[3:7]
+        # #23 — actuate along/about the base body's CURRENT axis (capsule local +z
+        # rotated into world), not the fixed initial tangent — correct on curves.
+        x, y, z, w = rot
+        ax = np.array([2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)])
+        ax = ax / (np.linalg.norm(ax) + 1e-12)
+        pos = T[:3] + insertion * ax
         if twist != 0.0:
-            ax = self._fwd / (np.linalg.norm(self._fwd) + 1e-12)
             s = np.sin(twist / 2)
             dq = np.array([ax[0] * s, ax[1] * s, ax[2] * s, np.cos(twist / 2)])
             rot = _quat_mul(dq, rot)

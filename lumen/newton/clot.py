@@ -33,6 +33,8 @@ class ClotParams:
     area: float = 4.0e-6         # clot cross-section [m²] (~2.3 mm vessel)
     failure_stress: float = 8.0e3  # retrieval failure / fragmentation stress [Pa]
     viscous: float = 0.05        # speed-dependent retrieval load [N·s/m] (yank-rate effect)
+    resist_stretch: float = 1.3  # #18 — representative shear stretch of the clot as it
+                                 # is dragged through the lumen, for static_resistance()
 
 
 def ogden_stress(stretch, p: ClotParams):
@@ -73,7 +75,7 @@ class ClotModel:
 
     def static_resistance(self) -> float:
         """Quasi-static retrieval resistance: Ogden bulk + Coulomb friction [N]."""
-        ogden = abs(ogden_stress(1.3, self.p)) * self.p.area    # clot dragged through lumen
+        ogden = abs(ogden_stress(self.p.resist_stretch, self.p)) * self.p.area
         return ogden * (1.0 + self.p.friction_mu)
 
     def step(self, s_tip: float, dt: float, aspiration: float = 0.0) -> dict:

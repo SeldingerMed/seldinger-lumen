@@ -10,6 +10,11 @@ wall cell, so the HGO wall (lumen.newton.hgo_wall) and the contact share R
 
 Barrier (doc §3.5.3): compliant fast tier E=½κδ² or bounded IPC-log option; the
 rigorous penetration-free IPC is the accurate tier (§3.3).
+
+Precision (#21): geometry arrays are float32 here (Warp GPU throughput), while
+lumen.core.frame is float64. The resulting s/r differences are ~1e-6 at the
+scales we run — negligible and an intentional speed/precision trade. Promote the
+arrays to float64 only if very long centerlines or large coordinates demand it.
 """
 
 from __future__ import annotations
@@ -70,6 +75,10 @@ def accumulate_tube_barrier(
             best = d2
             bj = j
             bu = u
+    # #22 — open vessel ends: a node axially past either opening has left the
+    # vessel; no wall contact there (don't deposit load at a boundary cell).
+    if wp.dot(p - P[0], Tg[0]) < 0.0 or wp.dot(p - P[M - 1], Tg[M - 1]) > 0.0:
+        return
     a = P[bj]
     foot = a + bu * (P[bj + 1] - a)
     tang = wp.normalize(Tg[bj] + bu * (Tg[bj + 1] - Tg[bj]))

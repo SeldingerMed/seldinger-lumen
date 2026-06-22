@@ -28,6 +28,16 @@ class LumenField:
         self.R = np.asarray(R, dtype=float)
         if self.R.shape != (len(self.s), len(self.theta)):
             raise ValueError("R must have shape (len(s_grid), len(theta_grid))")
+        # #15 — eval() wraps theta periodically, which is only correct if the grid
+        # spans a full revolution. Reject a partial theta grid (silently wrong else).
+        if len(self.theta) > 1:
+            step = (self.theta[-1] - self.theta[0]) / (len(self.theta) - 1)
+            span = (self.theta[-1] - self.theta[0]) + step      # assume last cell wraps
+            if not np.isclose(span, 2 * np.pi, atol=1e-3):
+                raise ValueError(
+                    "theta_grid must be length 1 (axisymmetric) or span a full 2π "
+                    f"revolution; got span≈{span:.4f}. Partial theta grids are not "
+                    "supported (periodic wrap would be wrong).")
 
     @classmethod
     def cylinder(cls, length: float, radius: float, n: int = 2) -> "LumenField":

@@ -95,7 +95,11 @@ def crossval_hgo_stress(params: HGOParams | None = None):
 def accurate_tier_status() -> dict:
     """Report which accurate-tier oracle backs the cross-validation."""
     external = None
-    for name in ("ppf_contact_solver", "stark"):
+    # #24 — try the several plausible import names each oracle may install under
+    # (the exact module name is unverified until one is actually built/installed)
+    candidates = ("ppf_contact_solver", "ppf", "ppf_contact", "pyppf",
+                  "stark", "pystark", "stark_sim")
+    for name in candidates:
         try:
             __import__(name)
             external = name

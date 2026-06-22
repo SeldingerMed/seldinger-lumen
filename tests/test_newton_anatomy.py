@@ -74,3 +74,14 @@ def test_curved_nonuniform_plusx_centerline_matches_frame():
     assert abs(force).sum() > 1.0                       # contact happened (non-degenerate frame)
     assert load.argmax() == exp_cell                   # load landed in frame.py's (s,θ) cell
     assert load[exp_cell] > 0.0
+
+
+def test_node_past_open_end_has_no_contact():
+    # #22: a node axially beyond the vessel opening has left the vessel — no wall
+    # contact (it must not be clamped to a boundary cell and held).
+    M, n_s, n_th = 40, 24, 8
+    cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
+    R0_grid = np.full(n_s * n_th, 0.5, np.float32)      # tight, so an in-bounds node would penetrate
+    _, force, load = _launch(cl, R0_grid, (0.6, 0, 90.0), n_s, n_th)   # z=90 > L=80
+    assert abs(force).sum() < 1e-6                      # no contact force past the end
+    assert load.max() == 0.0                            # no load deposited
