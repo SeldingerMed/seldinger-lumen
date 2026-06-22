@@ -33,27 +33,39 @@ class NewtonGuidewireSim:
                  mu_along: float = 0.0, mu_across: float = 0.0,
                  gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
                  clot_segment=None, clot_height: float = 1.6, clot_params=None,
-                 stentriever=None,
+                 stentriever=None, n_envs: int = 1,
                  vbd_iterations: int = 10, device: str | None = None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
+        self.n_envs = int(n_envs)
         self.contact_frame = CenterlineFrame(vessel_centerline)
+        # Batched envs share one vessel (the contact is wire-vs-wall, never wire-vs-wire,
+        # so E rods in one model are independent). Per-env wall/clot/flow state needs an
+        # env dimension that isn't ported yet, so those features are single-env for now.
+        if self.n_envs > 1 and (deformable_wall or flow is not None or clot_segment is not None):
+            raise NotImplementedError(
+                "batched n_envs>1 currently supports the rigid-wall contact sim only; "
+                "per-env deformable wall / clot / flow is the next step")
 
         builder = newton.ModelBuilder(gravity=0.0)
         builder.default_shape_cfg.density = density
         pts = [wp.vec3(*map(float, p)) for p in device_points]
         quats = newton.utils.create_parallel_transport_cable_quaternions(pts)
-        bodies, joints = builder.add_rod(
-            pts, quats, radius=radius, stretch_stiffness=stretch_stiffness,
-            bend_stiffness=bend_stiffness, bend_damping=bend_damping,
-            body_frame_origin="com")
-        self.bodies = bodies
-        self.base = bodies[0]
-        builder.body_mass[self.base] = 0.0
-        builder.body_inv_mass[self.base] = 0.0
-        builder.body_inertia[self.base] = wp.mat33(0.0)
-        builder.body_inv_inertia[self.base] = wp.mat33(0.0)
+        self.bodies, self.bases = [], []
+        for _ in range(self.n_envs):
+            bodies, _ = builder.add_rod(
+                pts, quats, radius=radius, stretch_stiffness=stretch_stiffness,
+                bend_stiffness=bend_stiffness, bend_damping=bend_damping,
+                body_frame_origin="com")
+            self.bodies.extend(bodies)
+            self.bases.append(bodies[0])
+            builder.body_mass[bodies[0]] = 0.0       # kinematic base (proximal actuation)
+            builder.body_inv_mass[bodies[0]] = 0.0
+            builder.body_inertia[bodies[0]] = wp.mat33(0.0)
+            builder.body_inv_inertia[bodies[0]] = wp.mat33(0.0)
+        self.n_per_env = len(self.bodies) // self.n_envs   # add_rod: N+1 points -> N bodies
+        self.base = self.bases[0]
         builder.color()
         self.model = builder.finalize(device=self.device)
 
@@ -71,11 +83,11 @@ class NewtonGuidewireSim:
         self.contacts = self.model.contacts()
         self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
-        # on-device base actuation (no per-substep body_q host round-trip)
-        self._base_ids = wp.array(np.array([self.base], dtype=np.int32), dtype=wp.int32,
+        # on-device base actuation (no per-substep body_q host round-trip), one per env
+        self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
                                   device=self.device)
-        self._ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
-        self._tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
+        self._ins_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
+        self._tw_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
         # FlowField exposes a per-s lumen/pressure API; the lumped NewtonFlow doesn't.
         self._flow_is_field = flow is not None and hasattr(flow, "set_lumen")
@@ -108,13 +120,17 @@ class NewtonGuidewireSim:
             self.clot.o = self.clot.o0.copy()
             self.clot.D[:] = 0.0
 
-    def _actuate_base(self, insertion: float, twist: float):
-        if insertion == 0.0 and twist == 0.0:
+    def _actuate_base(self, insertion, twist):
+        # insertion/twist may be scalars (same action for every env) or length-n_envs
+        # arrays (per-env RL actions). On device: translate/rotate each kinematic base
+        # about its current axis (#23).
+        ins = np.broadcast_to(np.asarray(insertion, np.float32), (self.n_envs,))
+        tw = np.broadcast_to(np.asarray(twist, np.float32), (self.n_envs,))
+        if not ins.any() and not tw.any():
             return
-        # on device: translate/rotate the kinematic base about its current axis (#23)
-        self._ins_arr.fill_(float(insertion))
-        self._tw_arr.fill_(float(twist))
-        wp.launch(actuate_bases, dim=self._base_ids.shape[0],
+        self._ins_arr.assign(np.ascontiguousarray(ins))
+        self._tw_arr.assign(np.ascontiguousarray(tw))
+        wp.launch(actuate_bases, dim=self.n_envs,
                   inputs=[self._base_ids, self._ins_arr, self._tw_arr],
                   outputs=[self.state_0.body_q], device=self.device)
 
@@ -197,6 +213,10 @@ class NewtonGuidewireSim:
 
     def body_positions(self) -> np.ndarray:
         return self.state_0.body_q.numpy()[self.bodies, :3]
+
+    def env_positions(self) -> np.ndarray:
+        """Device-node positions per env, shape (n_envs, n_per_env, 3)."""
+        return self.body_positions().reshape(self.n_envs, self.n_per_env, 3)
 
     def node_radii(self) -> np.ndarray:
         return np.array([self.contact_frame.project(p).r for p in self.body_positions()])
