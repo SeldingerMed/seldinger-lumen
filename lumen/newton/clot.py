@@ -39,6 +39,7 @@ class ClotParams:
     failure_stress: float = 8.0e3   # fragmentation stress (clot-analog calibrated)
     damage_rate: float = 4.0    # progressive-damage accumulation rate [1/s per overstress]
     min_stretch: float = 0.05   # compression floor (incompressible-ish)
+    grip_coeff: float = 0.15    # wall-grip (clot→wall normal force) per unit occlusion
 
 
 def ogden_stress(stretch, p: ClotParams):
@@ -64,6 +65,8 @@ class ClotField:
         self.o0 = np.where(self.mask, float(height), 0.0)    # initial occlusion
         self.o = self.o0.copy()                              # current occlusion
         self.D = np.zeros(n_s)                               # progressive damage [0,1]
+        self.s_grid = s_grid
+        self.retrieved = 0.0                                 # proximal distance the clot was pulled
 
     def occlusion_grid(self) -> np.ndarray:
         """Per-(s,θ) occlusion [n_s*n_th] to subtract from the base lumen radius."""
@@ -103,3 +106,32 @@ class ClotField:
 
     def max_damage(self) -> float:
         return float(self.D.max())
+
+    def retrieve(self, delta_s: float, engagement: float, aspiration: float = 0.0) -> dict:
+        """Attempt to drag the clot proximally by delta_s with a stent-retriever.
+
+        Force balance (doc §3.4.4): the clot is held by wall friction (μ·N, N ∝
+        occlusion) minus aspiration; the stent-retriever grips with `engagement`.
+          * net_hold > cohesive strength  -> the clot tears (progressive fragmentation)
+          * engagement < net_hold         -> the retriever slips (clot not moved)
+          * otherwise                     -> the clot translates proximally (retrieved)
+        """
+        if not self.mask.any():
+            return {"status": "none", "retrieved": self.retrieved}
+        occ_mean = float(self.o[self.mask].mean())
+        N = self.p.grip_coeff * occ_mean                     # clot→wall normal (grip) force
+        net_hold = max(self.p.friction_mu * N - aspiration, 0.0)
+        R_coh = self.p.failure_stress * self.p.area          # clot cohesive strength
+        if net_hold > R_coh:
+            self.D = np.clip(self.D + self.mask * 0.3, 0.0, 1.0)   # tears -> fragments
+            self.o = np.where(self.mask, self.o0 * (1.0 - self.D), 0.0)
+            return {"status": "fragment", "retrieved": self.retrieved}
+        if engagement < net_hold:
+            return {"status": "slip", "retrieved": self.retrieved}
+        # retrieve: translate the occlusion + damage profiles proximally by delta_s
+        self.o = np.interp(self.s_grid + delta_s, self.s_grid, self.o, left=0.0, right=0.0)
+        self.D = np.interp(self.s_grid + delta_s, self.s_grid, self.D, left=0.0, right=0.0)
+        self.o0 = np.interp(self.s_grid + delta_s, self.s_grid, self.o0, left=0.0, right=0.0)
+        self.mask = self.o0 > 1e-6
+        self.retrieved += delta_s
+        return {"status": "retrieve", "retrieved": self.retrieved}

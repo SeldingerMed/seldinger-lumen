@@ -11,6 +11,8 @@ from lumen.newton.sim import NewtonGuidewireSim
 from lumen.newton.tube_vbd import TubeVBDSolver
 from lumen.newton.flow import NewtonFlow, FlowParams
 from lumen.newton.hgo_wall import HGOParams
+from lumen.newton.clot import ClotField, ClotParams
+from lumen.newton.devices import Stentriever
 
 __all__ = ["NewtonGuidewireSim", "TubeVBDSolver", "NewtonFlow", "FlowParams",
-           "HGOParams"]
+           "HGOParams", "ClotField", "ClotParams", "Stentriever"]

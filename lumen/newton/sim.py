@@ -33,6 +33,7 @@ class NewtonGuidewireSim:
                  mu_along: float = 0.0, mu_across: float = 0.0,
                  gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
                  clot_segment=None, clot_height: float = 1.6, clot_params=None,
+                 stentriever=None,
                  vbd_iterations: int = 10, device: str | None = None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
@@ -79,6 +80,7 @@ class NewtonGuidewireSim:
             self.clot = ClotField(s_max=w.s_max, n_s=w.n_s, n_th=w.n_th, R_base=R,
                                   s0=clot_segment[0], s1=clot_segment[1],
                                   height=clot_height, params=clot_params)
+        self.stentriever = stentriever   # optional device for clot retrieval
         # snapshot for fast reset (avoid rebuilding the model/solver each episode)
         self._init_body_q = self.state_0.body_q.numpy().copy()
 
@@ -119,10 +121,13 @@ class NewtonGuidewireSim:
         self.state_0.body_q = wp.array(q, dtype=wp.transform, device=self.device)
 
     def step(self, dt: float = 2.5e-2, substeps: int = 5,
-             insertion: float = 0.0, twist: float = 0.0, preload=(0.0, 0.0, 0.0)):
+             insertion: float = 0.0, twist: float = 0.0, preload=(0.0, 0.0, 0.0),
+             aspiration: float = 0.0):
         """Advance the simulation by `dt` total, as `substeps` sub-steps of
         `dt/substeps` each (the standard substep convention)."""
         sub_dt = dt / substeps
+        if self.flow is not None and aspiration:
+            self.flow.aspiration = aspiration        # aspiration recovers downstream flow
         # flow drag acts along the (slowly-varying) device tangents — compute once/step
         tang = None
         if self.flow is not None:
@@ -163,6 +168,11 @@ class NewtonGuidewireSim:
                 if self.flow is not None:
                     self.flow.occlusion = occ
             self.state_0, self.state_1 = self.state_1, self.state_0
+        # stent-retriever: on retraction, drag the clot proximally (retrieve/slip/fragment)
+        if self.stentriever is not None and self.clot is not None and insertion < 0.0:
+            asp = aspiration + (self.flow.aspiration if self.flow is not None else 0.0)
+            self.last_retrieval = self.clot.retrieve(
+                -insertion, self.stentriever.engagement_strength(self.clot), asp)
 
     def body_positions(self) -> np.ndarray:
         return self.state_0.body_q.numpy()[self.bodies, :3]
