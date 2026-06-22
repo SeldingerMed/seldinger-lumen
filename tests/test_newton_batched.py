@@ -78,10 +78,52 @@ def test_batched_deformable_sim_runs_and_stays_finite():
     assert w.w_field.numpy().max() > 1e-3                        # the deformable walls deflected
 
 
-def test_batched_rejects_unported_clot_and_flow():
-    vessel, dev = _vessel_and_device()
+def test_batched_clot_update_is_per_env():
+    # The on-device clot kernel evolves each env's occlusion independently: loading
+    # only one env's clot block compresses/damages just that env.
+    import warp as wp
+    from lumen.newton.clot import ClotField, ClotParams
+    E, n_s, n_th = 3, 40, 8
+    ncell = n_s * n_th
+    c = ClotField(80.0, n_s, n_th, 2.0, 35, 45, 1.6, ClotParams(), n_envs=E, device="cpu")
+    load = np.zeros(E * ncell, np.float32)
+    s = np.linspace(0, 80, n_s); mask = (s >= 35) & (s <= 45)
+    for i in np.where(mask)[0]:
+        load[1 * ncell + i * n_th:1 * ncell + (i + 1) * n_th] = 0.05   # only env 1
+    wl = wp.array(load, dtype=wp.float32, device="cpu")
+    for _ in range(20):
+        c.update_device(wl, dt=1e-2)
+    o = c.o_d.numpy().reshape(E, n_s)
+    assert o[0].max() > 1.5 and o[2].max() > 1.5        # untouched envs keep their clot
+    assert o[1].max() < 0.5                              # the loaded env's clot collapsed
+
+
+def test_batched_clot_and_flow_run_on_device():
+    # Batched clot + 1-D FlowField run through the on-device coupling path (no host
+    # round-trip per substep) and stay finite, with per-env wall/flow blocks.
     from lumen.newton.flow import FlowField
-    with pytest.raises(NotImplementedError):                     # clot not ported to batched
-        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2, clot_segment=(30, 40), device="cpu")
-    with pytest.raises(NotImplementedError):                     # flow not ported to batched
-        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2, flow=FlowField(), device="cpu")
+    vessel, dev = _vessel_and_device(M=60, L=120.0, n=11)
+    E = 3
+    flow = FlowField()
+    sim = NewtonGuidewireSim(vessel, 2.0, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+                             flow=flow, clot_segment=(55, 70), clot_height=1.6,
+                             n_envs=E, device="cpu")
+    assert sim._use_device_coupling and flow.n_envs == E
+    for _ in range(8):
+        sim.step(dt=2.5e-2, substeps=2, insertion=np.array([0.5, 1.0, 1.5]))
+    w = sim.solver._wall
+    assert flow._v_d.shape[0] == E * w.n_s              # a velocity field per env
+    assert sim.clot.o_d.shape[0] == E * w.n_s           # a clot field per env
+    assert np.isfinite(sim.env_positions()).all()
+
+
+def test_batched_rejects_lumped_flow_and_stentriever():
+    vessel, dev = _vessel_and_device()
+    from lumen.newton.flow import NewtonFlow
+    from lumen.newton.devices import Stentriever
+    with pytest.raises(NotImplementedError):            # lumped flow is single-env only
+        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2, flow=NewtonFlow(), device="cpu")
+    with pytest.raises(NotImplementedError):            # batched retrieval not ported
+        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2,
+                           stentriever=Stentriever(deployed_center=40.0, span=10.0),
+                           device="cpu")

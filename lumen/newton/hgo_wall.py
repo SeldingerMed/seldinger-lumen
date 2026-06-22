@@ -205,6 +205,7 @@ class WallField:
             self.r0_field = wp.array(self.R0_grid.astype(np.float32), dtype=wp.float32,
                                      device=device)   # base R0(s,θ) for the contact kernel
             self._R0_base = self.R0_grid.astype(np.float32).copy()   # unpulsed resting radius
+            self._R0_base_d = wp.array(self._R0_base, dtype=wp.float32, device=device)
             self.cell_area_field = wp.array(self.cell_area.astype(np.float32),
                                             dtype=wp.float32, device=device)
             self.w_eq_field = wp.zeros(total, dtype=wp.float32, device=device)  # solve scratch

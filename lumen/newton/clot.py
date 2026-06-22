@@ -29,6 +29,52 @@ from dataclasses import dataclass
 
 import numpy as np
 
+try:
+    import warp as wp
+except Exception:  # pragma: no cover
+    wp = None
+
+
+if wp is not None:
+    @wp.func
+    def _ogden_resist(lam: float, mu: float, alpha: float):
+        """Compressive Ogden resistance −σ(λ) (>0 for λ<1); matches ogden_stress()."""
+        return -(2.0 * mu / alpha) * (wp.pow(lam, alpha) - wp.pow(lam, -alpha * 0.5))
+
+    @wp.kernel
+    def _clot_update_k(
+        wall_load: wp.array(dtype=wp.float32), n_s: int, n_th: int, area: float,
+        mu: float, alpha: float, failure: float, dmg_rate: float, min_stretch: float,
+        dt: float, o0: wp.array(dtype=wp.float32), mask: wp.array(dtype=wp.float32),
+        D: wp.array(dtype=wp.float32), o_out: wp.array(dtype=wp.float32)):
+        """One thread per (env, s) cell: Ogden compression + progressive damage, on
+        device. Reads the per-env wall_load block directly (no D2H). Mirrors
+        ClotField.update()'s numpy math so the two stay in parity."""
+        j = wp.tid()                                   # env*n_s + i_s
+        if mask[j] == 0.0:
+            o_out[j] = 0.0
+            return
+        env = j // n_s
+        i_s = j % n_s
+        base = env * (n_s * n_th) + i_s * n_th
+        F = float(0.0)
+        for it in range(n_th):
+            F += wall_load[base + it]
+        pressure = wp.max(F / area, 0.0)
+        lam = float(1.0)
+        for _ in range(12):                            # Newton solve |σ_comp(λ)| = pressure
+            f = _ogden_resist(lam, mu, alpha) - pressure
+            h = float(1.0e-4)
+            df = (_ogden_resist(lam + h, mu, alpha) - _ogden_resist(lam - h, mu, alpha)) / (2.0 * h)
+            denom = df
+            if wp.abs(df) < 1.0e-6:
+                denom = -1.0e3
+            lam = wp.clamp(lam - f / denom, min_stretch, 1.0)
+        over = wp.max(pressure / failure - 1.0, 0.0)
+        nd = wp.clamp(D[j] + dmg_rate * over * dt, 0.0, 1.0)
+        D[j] = nd
+        o_out[j] = o0[j] * lam * (1.0 - nd)
+
 
 @dataclass
 class ClotParams:
@@ -57,16 +103,28 @@ class ClotField:
 
     def __init__(self, s_max: float, n_s: int, n_th: int, R_base: float,
                  s0: float, s1: float, height: float,
-                 params: ClotParams | None = None):
+                 params: ClotParams | None = None, n_envs: int = 1,
+                 device: str = "cpu"):
         self.p = params or ClotParams()
         self.n_s, self.n_th, self.R_base = n_s, n_th, R_base
+        self.n_envs = int(n_envs)
+        self.device = device
         s_grid = np.linspace(0.0, s_max, n_s)
-        self.mask = (s_grid >= s0) & (s_grid <= s1)          # clot region
+        self.mask = (s_grid >= s0) & (s_grid <= s1)          # clot region (per-s, shared)
         self.o0 = np.where(self.mask, float(height), 0.0)    # initial occlusion
         self.o = self.o0.copy()                              # current occlusion
         self.D = np.zeros(n_s)                               # progressive damage [0,1]
         self.s_grid = s_grid
         self.retrieved = 0.0                                 # proximal distance the clot was pulled
+        # device mirrors (per env): same initial clot replicated, evolves per env
+        if wp is not None:
+            mask_f = self.mask.astype(np.float32)
+            self.o0_d = wp.array(np.tile(self.o0.astype(np.float32), self.n_envs),
+                                 dtype=wp.float32, device=device)
+            self.mask_d = wp.array(np.tile(mask_f, self.n_envs), dtype=wp.float32, device=device)
+            self.D_d = wp.zeros(self.n_envs * n_s, dtype=wp.float32, device=device)
+            self.o_d = wp.array(np.tile(self.o0.astype(np.float32), self.n_envs),
+                                dtype=wp.float32, device=device)
 
     def occlusion_grid(self) -> np.ndarray:
         """Per-(s,θ) occlusion [n_s*n_th] to subtract from the base lumen radius."""
@@ -99,6 +157,17 @@ class ClotField:
         # residual occlusion: initial × (elastic compression) × (1 − damage)
         self.o = np.where(self.mask, self.o0 * lam * (1.0 - self.D), 0.0)
         return float((self.o / self.R_base).max()) if self.mask.any() else 0.0
+
+    def update_device(self, wall_load_field, dt: float) -> None:
+        """On-device clot update (no D2H): launch the Ogden/damage kernel over all
+        (env, s) cells, reading the solver's per-env wall_load block in place. Updates
+        o_d/D_d on device for the radius-composition kernel to read."""
+        wp.launch(_clot_update_k, dim=self.n_envs * self.n_s,
+                  inputs=[wall_load_field, self.n_s, self.n_th, float(self.p.area),
+                          float(self.p.mu), float(self.p.alpha), float(self.p.failure_stress),
+                          float(self.p.damage_rate), float(self.p.min_stretch), float(dt),
+                          self.o0_d, self.mask_d, self.D_d],
+                  outputs=[self.o_d], device=self.device)
 
     def friction_resistance(self, wall_load_grid: np.ndarray) -> float:
         """Coulomb wall friction opposing clot translation = μ·(contact normal force)."""
