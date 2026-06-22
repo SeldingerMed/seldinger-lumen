@@ -187,6 +187,7 @@ class WallField:
             self.wall_load = wp.zeros(n, dtype=wp.float32, device=device)
             self.r0_field = wp.array(self.R0_grid.astype(np.float32), dtype=wp.float32,
                                      device=device)   # base R0(s,θ) for the contact kernel
+            self._R0_base = self.R0_grid.astype(np.float32).copy()   # unpulsed resting radius
             self.cell_area_field = wp.array(self.cell_area.astype(np.float32),
                                             dtype=wp.float32, device=device)
             self.w_eq_field = wp.zeros(n, dtype=wp.float32, device=device)  # solve scratch
@@ -226,3 +227,7 @@ class WallField:
     def max_deflection(self) -> float:
         # read the device field on demand (diagnostics only, not per-step)
         return float(self.w_field.numpy().max())
+
+    def set_pulse(self, factor: float) -> None:
+        """Modulate the resting lumen radius R0(s,θ,t) = R0_base · factor (pulsatility)."""
+        self.r0_field.assign(self._R0_base * float(factor))

@@ -20,3 +20,14 @@ def add_world_force(body_ids: wp.array(dtype=wp.int32), fx: float, fy: float, fz
         return
     wp.atomic_add(body_f, body_ids[k],
                   wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), wp.vec3(fx, fy, fz)))
+
+
+@wp.kernel
+def add_body_forces(body_ids: wp.array(dtype=wp.int32),
+                    fvecs: wp.array(dtype=wp.vec3), skip_first: int,
+                    body_f: wp.array(dtype=wp.spatial_vector)):
+    """Add a per-body world-frame linear force (e.g. flow drag along each tangent)."""
+    k = wp.tid()
+    if k < skip_first:
+        return
+    wp.atomic_add(body_f, body_ids[k], wp.spatial_vector(wp.vec3(0.0, 0.0, 0.0), fvecs[k]))

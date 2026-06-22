@@ -19,7 +19,7 @@ import newton
 
 from lumen.core.frame import CenterlineFrame
 from lumen.newton.tube_vbd import TubeVBDSolver
-from lumen.newton.forces import add_world_force
+from lumen.newton.forces import add_world_force, add_body_forces
 
 
 class NewtonGuidewireSim:
@@ -31,7 +31,7 @@ class NewtonGuidewireSim:
                  barrier_mode: str = "compliant",
                  deformable_wall: bool = False, hgo_params=None,
                  mu_along: float = 0.0, mu_across: float = 0.0,
-                 gamma_fric_deg: float = 40.0, lumen_field=None,
+                 gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
                  vbd_iterations: int = 10, device: str | None = None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
@@ -69,6 +69,7 @@ class NewtonGuidewireSim:
         self.contacts = self.model.contacts()
         self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
+        self.flow = flow                 # optional NewtonFlow (Windkessel + drag + pulsatility)
         # snapshot for fast reset (avoid rebuilding the model/solver each episode)
         self._init_body_q = self.state_0.body_q.numpy().copy()
 
@@ -110,6 +111,15 @@ class NewtonGuidewireSim:
         """Advance the simulation by `dt` total, as `substeps` sub-steps of
         `dt/substeps` each (the standard substep convention)."""
         sub_dt = dt / substeps
+        # flow drag acts along the (slowly-varying) device tangents — compute once/step
+        tang = None
+        if self.flow is not None:
+            pos = self.state_0.body_q.numpy()[self.bodies, :3]
+            tang = np.zeros_like(pos)
+            tang[1:-1] = pos[2:] - pos[:-2]
+            tang[0] = pos[1] - pos[0]
+            tang[-1] = pos[-1] - pos[-2]
+            tang /= (np.linalg.norm(tang, axis=1, keepdims=True) + 1e-12)
         for _ in range(substeps):
             self.state_0.clear_forces()
             self._actuate_base(insertion / substeps, twist / substeps)
@@ -117,6 +127,16 @@ class NewtonGuidewireSim:
                 wp.launch(add_world_force, dim=self.body_ids.shape[0],
                           inputs=[self.body_ids, float(preload[0]), float(preload[1]),
                                   float(preload[2]), 1],
+                          outputs=[self.state_0.body_f], device=self.device)
+            if self.flow is not None:
+                self.flow.advance(sub_dt)
+                wall = getattr(self.solver, "_wall", None)
+                if wall is not None:
+                    wall.set_pulse(self.flow.pulse_factor())     # pulsatile R(s,θ,t)
+                dvecs = wp.array((self.flow.drag_per_unit_tangent() * tang).astype(np.float32),
+                                 dtype=wp.vec3, device=self.device)
+                wp.launch(add_body_forces, dim=self.body_ids.shape[0],
+                          inputs=[self.body_ids, dvecs, 1],
                           outputs=[self.state_0.body_f], device=self.device)
             self.solver.step(self.state_0, self.state_1, self.control,
                              self.contacts, sub_dt)

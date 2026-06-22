@@ -9,5 +9,8 @@ implicit and stable. Requires ``newton`` (installed from github.com/newton-physi
 
 from lumen.newton.sim import NewtonGuidewireSim
 from lumen.newton.tube_vbd import TubeVBDSolver
+from lumen.newton.flow import NewtonFlow, FlowParams
+from lumen.newton.hgo_wall import HGOParams
 
-__all__ = ["NewtonGuidewireSim", "TubeVBDSolver"]
+__all__ = ["NewtonGuidewireSim", "TubeVBDSolver", "NewtonFlow", "FlowParams",
+           "HGOParams"]
