@@ -56,7 +56,7 @@ class IPCTubeReference:
 
     def __init__(self, centerline: np.ndarray, R, params: IPCParams | None = None):
         self.frame = CenterlineFrame(centerline)
-        self.R = R                                   # scalar lumen radius (or callable s->R)
+        self.R = R                                   # scalar lumen radius (or callable(s, theta)->R)
         self.p = params or IPCParams()
 
     def _R_at(self, s, theta):

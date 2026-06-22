@@ -73,4 +73,5 @@ def calibrate_hgo(w_samples, p_target, init=(4.0e3, 2.0e3), R0=2.0, k2=1.0,
             z = z - lr * gz / gn                                 # normalised-gradient step
         hist.append(float(loss.numpy()[0]))
         tape.zero()
-    return (z * scale), hist[-1], hist
+    final_loss = hist[-1] if hist else 0.0
+    return (z * scale), final_loss, hist

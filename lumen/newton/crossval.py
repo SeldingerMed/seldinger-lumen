@@ -139,7 +139,7 @@ def accurate_tier_status() -> dict:
             __import__(name)
             external = name
             break
-        except Exception:
+        except (ImportError, ModuleNotFoundError):
             pass
     return {"analytic_oracle": True, "ipc_reference": True, "external_oracle": external,
             "note": "analytic + built-in penetration-free IPC reference "
