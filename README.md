@@ -20,7 +20,9 @@ reimplement one.
 
 ```bash
 pip install -e ".[dev]"                                    # core + Warp + tests
-pip install "git+https://github.com/newton-physics/newton" # the Newton engine
+# the Newton engine — pinned: it's pre-1.0 and our solver forks an internal, so we
+# track a known-good commit (CI uses the same one; see .github/workflows/ci.yml)
+pip install "git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7"
 ```
 
 The geometry core needs only NumPy. The solver needs Warp + Newton, which run on
