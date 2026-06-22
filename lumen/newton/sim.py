@@ -32,6 +32,7 @@ class NewtonGuidewireSim:
                  deformable_wall: bool = False, hgo_params=None,
                  mu_along: float = 0.0, mu_across: float = 0.0,
                  gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
+                 clot_segment=None, clot_height: float = 1.6, clot_params=None,
                  vbd_iterations: int = 10, device: str | None = None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
@@ -70,6 +71,14 @@ class NewtonGuidewireSim:
         self.body_ids = wp.array(np.array(bodies, dtype=np.int32), dtype=wp.int32,
                                  device=self.device)
         self.flow = flow                 # optional NewtonFlow (Windkessel + drag + pulsatility)
+        # optional finite-extent deformable clot (shares the wall's s,θ grid)
+        self.clot = None
+        if clot_segment is not None:
+            from lumen.newton.clot import ClotField
+            w = self.solver._wall
+            self.clot = ClotField(s_max=w.s_max, n_s=w.n_s, n_th=w.n_th, R_base=R,
+                                  s0=clot_segment[0], s1=clot_segment[1],
+                                  height=clot_height, params=clot_params)
         # snapshot for fast reset (avoid rebuilding the model/solver each episode)
         self._init_body_q = self.state_0.body_q.numpy().copy()
 
@@ -86,6 +95,9 @@ class NewtonGuidewireSim:
             w.w[:] = 0.0
             w.w_field.zero_()
             w.wall_load.zero_()
+        if self.clot is not None:
+            self.clot.o = self.clot.o0.copy()
+            self.clot.D[:] = 0.0
 
     def _actuate_base(self, insertion: float, twist: float):
         if insertion == 0.0 and twist == 0.0:
@@ -128,11 +140,17 @@ class NewtonGuidewireSim:
                           inputs=[self.body_ids, float(preload[0]), float(preload[1]),
                                   float(preload[2]), 1],
                           outputs=[self.state_0.body_f], device=self.device)
+            wall = getattr(self.solver, "_wall", None)
+            # compose the shared effective base radius R0(s,θ,t) = (R0_base − clot
+            # occlusion) × pulsatility, which the contact kernel reads (+ wall w).
+            if wall is not None and (self.flow is not None or self.clot is not None):
+                base = wall._R0_base.copy()
+                if self.clot is not None:
+                    base = base - self.clot.occlusion_grid().astype(np.float32)
+                pulse = self.flow.pulse_factor() if self.flow is not None else 1.0
+                wall.r0_field.assign((base * np.float32(pulse)).astype(np.float32))
             if self.flow is not None:
                 self.flow.advance(sub_dt)
-                wall = getattr(self.solver, "_wall", None)
-                if wall is not None:
-                    wall.set_pulse(self.flow.pulse_factor())     # pulsatile R(s,θ,t)
                 dvecs = wp.array((self.flow.drag_per_unit_tangent() * tang).astype(np.float32),
                                  dtype=wp.vec3, device=self.device)
                 wp.launch(add_body_forces, dim=self.body_ids.shape[0],
@@ -140,6 +158,10 @@ class NewtonGuidewireSim:
                           outputs=[self.state_0.body_f], device=self.device)
             self.solver.step(self.state_0, self.state_1, self.control,
                              self.contacts, sub_dt)
+            if self.clot is not None:                # clot deforms/damages from contact load
+                occ = self.clot.update(wall.wall_load.numpy(), sub_dt)
+                if self.flow is not None:
+                    self.flow.occlusion = occ
             self.state_0, self.state_1 = self.state_1, self.state_0
 
     def body_positions(self) -> np.ndarray:

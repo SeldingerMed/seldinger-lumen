@@ -1,76 +1,85 @@
-"""Task #6: INSIST/Luraghi clot constitutive + two-way flow (doc §3.4.4, §3.4.3).
-
-Parameters grounded in Luraghi et al. (Interface Focus 2020): Ogden clot bulk
-(μ≈0.5 kPa, α≈0.3), clot–device friction ≈0.1, fragmentation during retrieval.
-Pure numpy (no newton needed).
-"""
+"""Task: real clot field — Ogden constitutive, finite extent, R-collapse,
+progressive damage, flow occlusion (doc §3.4.4)."""
 
 import numpy as np
+import pytest
 
-from lumen.newton.clot import ClotParams, ClotModel, ogden_stress, downstream_flow
+from lumen.newton.clot import ClotField, ClotParams, ogden_stress
+
+
+def _clot():
+    return ClotField(s_max=80.0, n_s=40, n_th=8, R_base=2.0, s0=35, s1=45,
+                     height=1.6, params=ClotParams())
+
+
+def _load_grid(c, total_per_cell):
+    wl = np.zeros(c.n_s * c.n_th)
+    W = wl.reshape(c.n_s, c.n_th)
+    W[c.mask, :] = total_per_cell / c.n_th               # spread over θ so each s sums to total
+    return wl
 
 
 def test_ogden_constitutive():
     p = ClotParams()
-    assert abs(ogden_stress(1.0, p)) < 1e-9            # zero at rest
-    assert ogden_stress(1.3, p) > 0                    # tension positive
-    assert ogden_stress(0.8, p) < 0                    # compression negative
-    # monotone increasing
+    assert abs(ogden_stress(1.0, p)) < 1e-9
+    assert ogden_stress(1.3, p) > 0 and ogden_stress(0.8, p) < 0
     s = [ogden_stress(l, p) for l in (0.8, 1.0, 1.2, 1.4)]
-    assert all(a < b for a, b in zip(s, s[1:]))
+    assert all(a < b for a, b in zip(s, s[1:]))          # monotone
 
 
-def _retrieve(v_retract, aspiration=0.0):
-    clot = ClotModel(s_clot=0.040, params=ClotParams(), engage_radius=3e-3)
-    s_tip, dt = 0.020, 1e-3
-    for _ in range(40):                                 # advance & engage
-        s_tip = min(s_tip + 0.0008, 0.041)
-        clot.step(s_tip, dt)
-    r = None
-    for _ in range(60):                                 # retract
-        s_tip -= v_retract * dt
-        r = clot.step(s_tip, dt, aspiration=aspiration)
-    return r
+def test_clot_has_finite_extent():
+    c = _clot()
+    assert c.o.max() == 1.6 and c.o[0] == 0.0            # occluded only in [s0,s1]
+    grid = c.occlusion_grid()
+    assert grid.shape == (40 * 8,) and grid.max() == 1.6
 
 
-def test_slow_retraction_retrieves_clot():
-    r = _retrieve(v_retract=0.1)
-    assert not r["fragmented"]
-    assert r["retrieved"] > 1e-3                        # clot pulled along with the device
+def test_compression_follows_ogden_curve_not_constant():
+    os = []
+    for L in (0.0, 5e-3, 2e-2, 5e-2):
+        c = _clot()
+        c.update(_load_grid(c, L), dt=1e-3)
+        os.append(c.o.max())
+    assert all(a >= b for a, b in zip(os, os[1:]))       # more load -> more compression
+    assert os[0] > os[1] > os[2]                         # genuinely varies (not a constant)
 
 
-def test_clot_does_not_teleport_to_tip():
-    # device pushes 5mm PAST the clot, then retracts: the clot must follow the
-    # device velocity, never snapping forward (retrieved must stay >= 0).
-    clot = ClotModel(s_clot=0.040, params=ClotParams(), engage_radius=3e-3)
-    s_tip, dt = 0.030, 1e-3
-    for _ in range(40):                                 # advance well past the clot
-        s_tip = min(s_tip + 0.0008, 0.045)
-        clot.step(s_tip, dt)
-    worst = 0.0
-    for _ in range(40):                                 # retract
-        s_tip -= 0.1 * dt
-        r = clot.step(s_tip, dt)
-        worst = min(worst, r["retrieved"])
-    assert worst >= -1e-9                               # never teleported forward
+def test_progressive_damage_then_fragmentation():
+    c = _clot()
+    over = 2.0 * c.p.failure_stress * c.p.area           # sustained over-failure contact load
+    wl = _load_grid(c, over)
+    Ds = []
+    for _ in range(30):
+        c.update(wl, dt=1e-2)
+        Ds.append(c.max_damage())
+    assert 0.0 < Ds[2] < Ds[10] < 1.0                    # PROGRESSIVE (not a boolean threshold)
+    assert Ds[-1] == 1.0 and c.o.max() == 0.0           # fully damaged -> occlusion cleared
 
 
-def test_fast_yank_fragments_clot():
-    r = _retrieve(v_retract=0.8)
-    assert r["fragmented"]                              # retrieval load exceeds failure
+def test_friction_uses_contact_normal_force_not_bulk_stress():
+    # #review — friction = μ · (actual contact normal force), not μ · bulk Ogden stress
+    c = _clot()
+    Fn = 0.05
+    assert abs(c.friction_resistance(_load_grid(c, Fn)) - c.p.friction_mu * (Fn * c.mask.sum())) < 1e-9
 
 
-def test_aspiration_rescues_retrieval():
-    # the same fast pull that fragments without aspiration succeeds with it
-    assert _retrieve(v_retract=0.8)["fragmented"]
-    r = _retrieve(v_retract=0.8, aspiration=0.03)
-    assert not r["fragmented"] and r["retrieved"] > 1e-3
-
-
-def test_two_way_flow_occlusion_and_aspiration():
-    assert downstream_flow(4.0, clot_present=False) == 4.0
-    assert downstream_flow(4.0, clot_present=True) < 0.5            # clot occludes
-    partial = downstream_flow(4.0, clot_present=True, aspiration_fraction=0.5)
-    assert downstream_flow(4.0, True) < partial < 4.0              # aspiration recovers flow
-    # #17 — aspiration_fraction is bounded to [0,1]: cannot exceed base flow
-    assert downstream_flow(4.0, True, aspiration_fraction=2.0) <= 4.0 + 1e-9
+def test_clot_occludes_lumen_and_drives_flow_in_sim():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+    from lumen.newton.sim import NewtonGuidewireSim
+    from lumen.newton.flow import NewtonFlow
+    M, L, R, n = 60, 120.0, 2.0, 11
+    vessel = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, L, M)], axis=1)
+    dev = np.stack([np.zeros(n), np.zeros(n), np.linspace(4, 4 + 2 * (n - 1), n)], axis=1)
+    flow = NewtonFlow()
+    sim = NewtonGuidewireSim(vessel, R, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+                             flow=flow, clot_segment=(55, 70), clot_height=1.6,
+                             device="cpu")
+    sim.step(dt=2.5e-2, substeps=2)
+    r0 = sim.solver._wall.r0_field.numpy().reshape(sim.solver._wall.n_s, sim.solver._wall.n_th)
+    s_grid = np.linspace(0, sim.solver._wall.s_max, sim.solver._wall.n_s)
+    in_clot = (s_grid >= 55) & (s_grid <= 70)
+    assert r0[in_clot].max() < R - 1.0                  # R-collapse reaches the contact kernel
+    assert r0[~in_clot].min() > R - 0.3                 # lumen open away from the clot
+    assert flow.occlusion > 0.5                          # clot occludes -> downstream flow drops
+    assert flow.downstream_Q() < flow.Q()
