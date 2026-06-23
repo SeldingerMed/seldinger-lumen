@@ -29,6 +29,9 @@ def wall_yield(load, R0, params: HGOParams):
     """Radial wall yield w solving HGO shell pressure(w) = load (the real constitutive
     inverse). Softer wall (smaller C10) -> larger w. Bisection on [0, 0.9·R0]."""
     lo, hi = 0.0, 0.9 * R0
+    if hgo_wall_pressure(hi, R0, params) < load:      # L1: load exceeds wall capacity -> fail loud
+        raise ValueError(f"load {load} exceeds HGO wall capacity at 0.9·R0 "
+                         f"(no rupture model); lower the load or stiffen the wall")
     for _ in range(40):
         mid = 0.5 * (lo + hi)
         if hgo_wall_pressure(mid, R0, params) < load:
@@ -47,7 +50,11 @@ def device_on_wall(C10, load=300.0, R0=2.0, k1_ratio=0.5, n=21, span=24.0,
     w = wall_yield(load, R0, params)
     z = np.linspace(-span / 2, span / 2, n)
     bump = np.exp(-(z / (contact_frac * span / 2)) ** 2)          # smooth contact patch
-    d = np.asarray(bulge_dir, float); d = d / (np.linalg.norm(d) + 1e-12)
+    d = np.asarray(bulge_dir, float)
+    nrm = np.linalg.norm(d)
+    if nrm < 1e-9:                                                # L2: a zero dir would silently
+        raise ValueError("bulge_dir must be non-zero")           # render a straight wire
+    d = d / nrm
     base = np.stack([np.zeros(n), np.zeros(n), z], axis=1)         # wire centred on z
     return base + np.outer(bump * w, d)                            # contact apex displaced by w
 
@@ -56,10 +63,10 @@ def estimate_wall_stiffness(targets, sensor, carms, init_C10=4.0e3, load=300.0,
                             R0=2.0, bulge_dir=(1.0, 0.0, 0.0), iters=30, **dev_kw):
     """Recover C10 from target fluoro image(s) by matching the imaged device bulge.
     Optimises in log-C10 (positive, well-scaled). Returns (C10, history)."""
-    if hasattr(carms, "rays"):
-        carms, targets = [carms], [targets]
-    elif np.ndim(targets) == 2:
-        targets = [targets]
+    carms = [carms] if hasattr(carms, "rays") else list(carms)       # bare CArm -> [CArm]
+    targets = [targets] if np.ndim(targets) == 2 else list(targets)  # bare image -> [image]
+    if len(carms) != len(targets):                                   # H1: no silent zip-truncation
+        raise ValueError(f"{len(carms)} carms vs {len(targets)} targets")
 
     def loss(x):
         nodes = device_on_wall(float(np.exp(x[0])), load=load, R0=R0,
@@ -94,6 +101,7 @@ def identifiability(true_C10, sensor, carms_by_view, C10_grid, load=300.0, R0=2.
     identifiable. Returns {view: loss_array} plus the curves' minima."""
     out = {}
     for view, carms in carms_by_view.items():
+        carms = [carms] if hasattr(carms, "rays") else list(carms)   # L8: accept a bare CArm
         nodes_t = device_on_wall(true_C10, load=load, R0=R0, bulge_dir=bulge_dir, **dev_kw)
         targets = [sensor.render(nodes_t, carm=c)[0] for c in carms]
         losses = []
