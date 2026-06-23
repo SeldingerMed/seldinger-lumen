@@ -68,6 +68,8 @@ class EpisodeMeta:
     def from_dict(cls, d: dict) -> "EpisodeMeta":
         d = dict(d)
         d["frame"] = Frame(**d["frame"]) if isinstance(d.get("frame"), dict) else Frame()
+        # L3: unknown keys are dropped on purpose (forward-compat reads); the coarse
+        # SCHEMA_VERSION pin in validate() is the gate against real cross-version skew.
         known = {k: d[k] for k in d if k in cls.__dataclass_fields__}
         return cls(**known)
 
@@ -160,6 +162,9 @@ class Episode:
 
     @classmethod
     def load(cls, root: str) -> "Episode":
+        # L7: load is intentionally UNCHECKED so a malformed manifest can be loaded to
+        # inspect/repair. save() is the write-side gate; corpus readers should call
+        # validate(ep, root) themselves (EpisodeDataset will, in L2.2).
         with open(os.path.join(root, "manifest.json")) as f:
             d = json.load(f)
         return cls(meta=EpisodeMeta.from_dict(d["meta"]),
@@ -188,6 +193,8 @@ def validate(ep: Episode, root: str | None = None) -> None:
     for i, s in enumerate(ep.steps):
         if not np.isfinite(s.t):
             raise ValueError(f"step {i}: non-finite t")
+        # L5: equal t is permitted on purpose (a held pose / sub-dt sample); only
+        # time going BACKWARDS is malformed.
         if s.t < last_t:
             raise ValueError(f"step {i}: time goes backwards ({s.t} < {last_t})")
         last_t = s.t
