@@ -62,10 +62,73 @@ def test_validate_rejects_malformed():
 
 def test_patient_provenance_is_valid_but_version_pinned():
     validate(Episode(meta=EpisodeMeta(provenance="patient(private)"), steps=[Step()],
-                     outcome=Outcome()))                         # valid value; firewall (not validate) blocks commit
+                     outcome=Outcome(steps=1)))                  # valid value; firewall (not validate) blocks commit
     with pytest.raises(ValueError):
         validate(Episode(meta=EpisodeMeta(version="lumen-episode/99"), steps=[Step()],
-                         outcome=Outcome()))
+                         outcome=Outcome(steps=1)))
+
+
+def test_validate_rejects_unsafe_and_inconsistent_refs():
+    dup = _episode(2); dup.steps[1].obs_ref = dup.steps[0].obs_ref       # H1: clobber
+    with pytest.raises(ValueError, match="duplicate obs_ref"):
+        validate(dup)
+    dup_n = _episode(2); dup_n.steps[1].kinematics["node_positions_ref"] = \
+        dup_n.steps[0].kinematics["node_positions_ref"]
+    with pytest.raises(ValueError, match="duplicate node_positions_ref"):
+        validate(dup_n)
+    for bad_ref in ("../evil.npy", "a/b.npy", "/etc/x.npy"):             # H2: traversal
+        ev = _episode(1); ev.steps[0].obs_ref = bad_ref
+        with pytest.raises(ValueError, match="bare filename"):
+            validate(ev)
+
+
+def test_validate_modality_ref_consistency():
+    drop = _episode(1); drop.steps[0].obs_ref = None                     # M1: fluoro needs a ref
+    with pytest.raises(ValueError, match="requires obs_ref"):
+        validate(drop)
+    spurious = _episode(1); spurious.steps[0].obs_modality = "none"      # none must not carry one
+    with pytest.raises(ValueError, match="obs_modality='none'"):
+        validate(spurious)
+
+
+def test_validate_outcome_and_tip_shape():
+    mism = _episode(3); mism.outcome.steps = 99                          # L1: count drift
+    with pytest.raises(ValueError, match="outcome.steps"):
+        validate(mism)
+    short = _episode(1); short.steps[0].kinematics["tip_mm"] = [0.0, 1.0]  # L2: not a 3-vector
+    with pytest.raises(ValueError, match="length-3"):
+        validate(short)
+    junk = _episode(1); junk.steps[0].kinematics["tip_mm"] = ["x", "y", "z"]  # numeric contract
+    with pytest.raises(ValueError, match="not numeric"):
+        validate(junk)
+
+
+def test_validate_root_mode_checks_files_exist(tmp_path):
+    ep = _episode(2)
+    ep.save(tmp_path)
+    validate(ep, root=tmp_path)                                          # all sidecars present
+    (tmp_path / "obs" / "001.npy").unlink()                              # delete one
+    with pytest.raises(ValueError, match="missing on disk"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_save_validates_and_guards_data_loss(tmp_path):
+    bad = _episode(2); bad.steps[1].t = -1.0                             # backwards time
+    with pytest.raises(ValueError):
+        bad.save(tmp_path / "a")                                         # save is the gate
+    lossy = _episode(1); lossy.steps[0].obs_modality = "none"            # obs set, ref dropped
+    lossy.steps[0].obs_ref = None
+    with pytest.raises(ValueError, match="obs set but obs_ref missing"):
+        lossy.save(tmp_path / "b")
+
+
+def test_load_obs_rejects_traversal(tmp_path):
+    ep = _episode(1)
+    ep.save(tmp_path)
+    back = Episode.load(tmp_path)
+    back.steps[0].obs_ref = "../../escape.npy"                           # tampered manifest
+    with pytest.raises(ValueError, match="escapes the obs directory"):
+        back.steps[0].load_obs(tmp_path)
 
 
 def _load_firewall():
@@ -82,8 +145,13 @@ def test_firewall_flags_patient_manifest(tmp_path, monkeypatch):
     # it flags ONLY the patient one — pinning that provenance sits where the firewall looks.
     _episode(provenance="procedural").save(tmp_path / "ok")
     _episode(provenance="patient(private)").save(tmp_path / "leak")
+    # a hand-edited file that hides provenance ONLY in a nested object must still be caught
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "manifest.json").write_text(
+        json.dumps({"meta": {"provenance": "patient(private)"}}))      # no top-level key
     fw = _load_firewall()
     monkeypatch.setattr(fw, "ROOT", tmp_path)
     problems = fw.check_provenance()
     assert any("leak" in p for p in problems)                    # patient manifest flagged
+    assert any("nested" in p for p in problems)                  # nested-only provenance also flagged
     assert not any("ok" in p for p in problems)                  # procedural manifest clean

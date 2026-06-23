@@ -35,6 +35,21 @@ from lumen.assets.schema import Frame
 SCHEMA_VERSION = "lumen-episode/0"
 
 
+def _check_ref(ref: str, i: int, name: str) -> None:
+    """Reject a sidecar ref that isn't a bare filename (path-traversal guard, H2)."""
+    if os.path.isabs(ref) or os.sep in ref or "/" in ref or "\\" in ref or ".." in ref:
+        raise ValueError(f"step {i}: {name} must be a bare filename, got {ref!r}")
+
+
+def _safe_path(root: str, ref: str) -> str:
+    """Resolve <root>/obs/<ref>, raising if it escapes the obs directory."""
+    base = os.path.realpath(os.path.join(root, "obs"))
+    full = os.path.realpath(os.path.join(base, ref))
+    if os.path.commonpath([base, full]) != base:
+        raise ValueError(f"sidecar ref escapes the obs directory: {ref!r}")
+    return full
+
+
 @dataclass
 class EpisodeMeta:
     frame: Frame = field(default_factory=Frame)   # declared coordinate convention (reused)
@@ -84,12 +99,12 @@ class Step:
         """Lazy-load this step's observation sidecar from episode dir `root`."""
         if self.obs_ref is None:
             return None
-        return np.load(os.path.join(root, "obs", self.obs_ref))
+        return np.load(_safe_path(root, self.obs_ref))      # escape-guarded (untrusted manifest)
 
     def load_nodes(self, root: str):
         """Lazy-load this step's device node positions (n,3) if recorded."""
         ref = self.kinematics.get("node_positions_ref")
-        return np.load(os.path.join(root, "obs", ref)) if ref else None
+        return np.load(_safe_path(root, ref)) if ref else None
 
 
 @dataclass
@@ -122,15 +137,26 @@ class Episode:
                 "outcome": self.outcome.to_dict()}
 
     def save(self, root: str) -> None:
-        os.makedirs(os.path.join(root, "obs"), exist_ok=True)
-        for s in self.steps:
-            if s.obs is not None and s.obs_ref:
-                np.save(os.path.join(root, "obs", s.obs_ref), np.asarray(s.obs))
+        validate(self)                                    # save is the declared enforcement gate
+        obs_dir = os.path.join(root, "obs")
+        os.makedirs(obs_dir, exist_ok=True)
+        for i, s in enumerate(self.steps):
+            if s.obs is not None:
+                if not s.obs_ref:                         # don't silently drop data
+                    raise ValueError(f"step {i}: obs set but obs_ref missing")
+                np.save(_safe_path(root, s.obs_ref), np.asarray(s.obs))
             ref = s.kinematics.get("node_positions_ref")
-            if s.node_positions is not None and ref:
-                np.save(os.path.join(root, "obs", ref), np.asarray(s.node_positions))
-        with open(os.path.join(root, "manifest.json"), "w") as f:
+            if s.node_positions is not None:
+                if not ref:
+                    raise ValueError(f"step {i}: node_positions set but node_positions_ref missing")
+                np.save(_safe_path(root, ref), np.asarray(s.node_positions))
+        # atomic manifest write: a crash mid-write must not leave an unloadable episode.
+        tmp = os.path.join(root, "manifest.json.tmp")
+        with open(tmp, "w") as f:
             json.dump(self.manifest(), f, indent=2)
+        os.replace(tmp, os.path.join(root, "manifest.json"))
+        # ponytail: stale sidecars from a prior save of a different episode aren't pruned;
+        # add an obs/ clear if a corpus ever re-saves different episodes into one dir.
 
     @classmethod
     def load(cls, root: str) -> "Episode":
@@ -141,14 +167,23 @@ class Episode:
                    outcome=Outcome.from_dict(d["outcome"]))
 
 
-def validate(ep: Episode) -> None:
-    """Raise ValueError if the episode is malformed (used by capture + tests)."""
+def validate(ep: Episode, root: str | None = None) -> None:
+    """Raise ValueError if the episode is malformed (used by save + capture + tests).
+
+    The in-memory checks are cheap. Pass `root` (the episode dir) to also verify that
+    every referenced sidecar file actually exists on disk."""
     if ep.meta.provenance not in ("procedural", "patient(private)"):
         raise ValueError(f"provenance must be 'procedural' or 'patient(private)', got {ep.meta.provenance!r}")
     if ep.meta.version != SCHEMA_VERSION:
         raise ValueError(f"version mismatch: expected {SCHEMA_VERSION}, got {ep.meta.version!r}")
     if not ep.steps:
         raise ValueError("episode has no steps")
+    if ep.outcome.steps != len(ep.steps):
+        raise ValueError(f"outcome.steps ({ep.outcome.steps}) != number of steps ({len(ep.steps)})")
+    if not np.isfinite(ep.outcome.final_dist):
+        raise ValueError("outcome.final_dist is non-finite")
+
+    obs_refs, node_refs = [], []
     last_t = -np.inf
     for i, s in enumerate(ep.steps):
         if not np.isfinite(s.t):
@@ -156,25 +191,53 @@ def validate(ep: Episode) -> None:
         if s.t < last_t:
             raise ValueError(f"step {i}: time goes backwards ({s.t} < {last_t})")
         last_t = s.t
-        tip = s.kinematics.get("tip_mm")
-        if tip is not None and not np.all(np.isfinite(tip)):
-            raise ValueError(f"step {i}: non-finite tip_mm {tip}")
         if s.obs_modality not in ("none", "fluoro", "luminal"):
             raise ValueError(f"step {i}: unknown obs_modality {s.obs_modality!r}")
-    if not np.isfinite(ep.outcome.final_dist):
-        raise ValueError("outcome.final_dist is non-finite")
+        if s.obs_modality in ("fluoro", "luminal") and not s.obs_ref:
+            raise ValueError(f"step {i}: obs_modality={s.obs_modality!r} requires obs_ref")
+        if s.obs_modality == "none" and s.obs_ref:
+            raise ValueError(f"step {i}: obs_modality='none' but obs_ref={s.obs_ref!r} set")
+        if s.obs_ref:
+            _check_ref(s.obs_ref, i, "obs_ref"); obs_refs.append(s.obs_ref)
+        nref = s.kinematics.get("node_positions_ref")
+        if nref:
+            _check_ref(nref, i, "node_positions_ref"); node_refs.append(nref)
+        tip = s.kinematics.get("tip_mm")
+        if tip is not None:
+            try:
+                arr = np.asarray(tip, dtype=float)          # ValueError-contract even on garbage
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"step {i}: tip_mm not numeric: {tip!r}") from e
+            if arr.shape != (3,):
+                raise ValueError(f"step {i}: tip_mm must be length-3, got {tip!r}")
+            if not np.all(np.isfinite(arr)):
+                raise ValueError(f"step {i}: non-finite tip_mm {tip}")
+    if len(set(obs_refs)) != len(obs_refs):                 # H1: a reused name clobbers earlier sidecars
+        raise ValueError("duplicate obs_ref across steps (would clobber sidecars)")
+    if len(set(node_refs)) != len(node_refs):
+        raise ValueError("duplicate node_positions_ref across steps (would clobber sidecars)")
+    if root is not None:                                    # closed-loop: referenced files must exist
+        for i, s in enumerate(ep.steps):
+            if s.obs_ref and not os.path.exists(_safe_path(root, s.obs_ref)):
+                raise ValueError(f"step {i}: obs_ref sidecar missing on disk: {s.obs_ref}")
+            nref = s.kinematics.get("node_positions_ref")
+            if nref and not os.path.exists(_safe_path(root, nref)):
+                raise ValueError(f"step {i}: node_positions_ref sidecar missing on disk: {nref}")
 
 
 if __name__ == "__main__":  # self-check: round-trip + validation
     import tempfile
 
-    ep = Episode(
-        meta=EpisodeMeta(asset_ref="straight.json", dt=5e-3, notes={"true_C10": 4000.0}),
-        steps=[Step(t=i * 5e-3, action={"insertion": 1.0},
-                    kinematics={"tip_mm": [0.0, 0.0, float(i)], "tip_s": float(i)},
-                    obs_modality="fluoro", obs_ref=f"{i:03d}.npy", obs=np.full((4, 4), float(i)))
-               for i in range(3)],
-        outcome=Outcome(success=True, final_dist=0.4, steps=3, label="straight"))
+    def _ep(n=3):
+        return Episode(
+            meta=EpisodeMeta(asset_ref="straight.json", dt=5e-3, notes={"true_C10": 4000.0}),
+            steps=[Step(t=i * 5e-3, action={"insertion": 1.0},
+                        kinematics={"tip_mm": [0.0, 0.0, float(i)], "tip_s": float(i)},
+                        obs_modality="fluoro", obs_ref=f"{i:03d}.npy", obs=np.full((4, 4), float(i)))
+                   for i in range(n)],
+            outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"))
+
+    ep = _ep()
     validate(ep)
     norm = lambda m: json.dumps(m, sort_keys=True)        # tuples<->lists via JSON, like on disk
     with tempfile.TemporaryDirectory() as d:
@@ -182,6 +245,21 @@ if __name__ == "__main__":  # self-check: round-trip + validation
         back = Episode.load(d)
         assert norm(back.manifest()) == norm(ep.manifest()), "manifest must round-trip"
         assert np.array_equal(back.steps[2].load_obs(d), np.full((4, 4), 2.0)), "sidecar must round-trip"
-    bad = Episode(meta=EpisodeMeta(provenance="patient(private)"), steps=[Step()], outcome=Outcome())
-    validate(bad)  # patient(private) is a VALID provenance value (the firewall, not validate, blocks commit)
+        validate(back, root=d)                            # root mode: every sidecar exists
+
+    def _rejects(ep, why):
+        try:
+            validate(ep)
+        except ValueError:
+            return
+        raise AssertionError(f"validate should reject: {why}")
+
+    dup = _ep(2); dup.steps[1].obs_ref = dup.steps[0].obs_ref
+    _rejects(dup, "duplicate obs_ref clobbers sidecars")
+    eviln = _ep(1); eviln.steps[0].obs_ref = "../evil.npy"
+    _rejects(eviln, "path-traversal obs_ref")
+    noref = _ep(1); noref.steps[0].obs_ref = None
+    _rejects(noref, "fluoro step without obs_ref")
+    validate(Episode(meta=EpisodeMeta(provenance="patient(private)"), steps=[Step()],
+                     outcome=Outcome(steps=1)))           # patient(private) is a VALID value (firewall blocks commit)
     print("episode schema self-check ok")

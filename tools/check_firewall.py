@@ -52,6 +52,20 @@ def check_no_banned() -> list[str]:
     return bad
 
 
+def _provenances(obj):
+    """Yield every value under any 'provenance' key, recursively (top-level OR nested,
+    e.g. an episode manifest's meta.provenance) — a hand-edited file can't hide it deeper."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "provenance" and isinstance(v, str):
+                yield v
+            else:
+                yield from _provenances(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            yield from _provenances(item)
+
+
 def check_provenance() -> list[str]:
     bad = []
     # scan EVERY .json anywhere in the repo (not a fixed allow-list of dirs)
@@ -62,10 +76,11 @@ def check_provenance() -> list[str]:
             d = json.loads(p.read_text())
         except (ValueError, OSError):
             continue
-        if isinstance(d, dict) and "provenance" in d:
-            if d.get("provenance") != "procedural":
+        for prov in _provenances(d):
+            if prov != "procedural":
                 bad.append(f"  non-procedural asset committed: {p.relative_to(ROOT)} "
-                           f"(provenance={d.get('provenance')!r})")
+                           f"(provenance={prov!r})")
+                break                                      # one report per file is enough
     return bad
 
 

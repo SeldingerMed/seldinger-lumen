@@ -20,7 +20,7 @@ top-level `provenance != "procedural"`.
 
 One directory per episode:
 
-```
+```text
 <episode>/
   manifest.json        # scalars: meta, per-step kinematics/actions/outcome, sidecar refs
   obs/
@@ -33,6 +33,12 @@ Observations are stored as `.npy` — lossless and dependency-free for both gray
 fluoroscopy and RGB luminal frames. A viewer PNG is an example-side extra, not part
 of the canonical load path. Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
 `Step.load_nodes(root)`) so a large corpus iterates without exhausting memory.
+
+`obs_ref` and `node_positions_ref` must be **bare filenames** (no path components,
+no `..`): they are resolved under `<episode>/obs/`, and `validate` / `load_*` reject
+anything that would escape it (a manifest is a trust boundary — it can arrive from
+elsewhere). `validate` also rejects duplicate refs across steps (a reused name would
+clobber an earlier step's sidecar).
 
 ## Manifest structure
 
