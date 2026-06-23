@@ -57,6 +57,9 @@ def probe_episode(true_C10, sensor, carms=None, view_axis=(0.0, 0.0, 1.0), load=
     else:
         carms = list(carms)
 
+    if not carms:
+        raise ValueError("at least one C-arm must be provided for calibration")
+
     # a probe is N VIEWS of one static scene, not a time series — t indexes the view and
     # dt=0. notes["episode_kind"] lets replay/summarize tell probes from navigation rollouts.
     steps = [Step(t=float(i), action={"load": float(load)}, kinematics={"view": i},
@@ -66,11 +69,11 @@ def probe_episode(true_C10, sensor, carms=None, view_axis=(0.0, 0.0, 1.0), load=
     meta = EpisodeMeta(
         asset_ref=asset_ref, dt=0.0, device={"R0": float(R0)},
         sensor=_fluoro_meta(sensor),       # documented renderer shape only — carms live in calib
-        notes={"episode_kind": "wall_probe",
+        notes={**(notes or {}),
+               "episode_kind": "wall_probe",
                "calib": {"true_C10": float(true_C10), "load": float(load), "R0": float(R0),
                          "bulge_dir": list(bulge_dir), "dev_kw": dict(dev_kw),
-                         "carms": [c.to_dict() for c in carms]},   # calibration-specific, not renderer
-               **(notes or {})})
+                         "carms": [c.to_dict() for c in carms]}})
     return Episode(meta=meta, steps=steps,
                    outcome=Outcome(success=True, final_dist=0.0, steps=len(steps), label=label))
 

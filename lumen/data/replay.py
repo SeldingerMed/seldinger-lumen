@@ -100,7 +100,7 @@ def summarize(dataset) -> dict:
     for ep in items:                                          # one streaming pass, no list()
         n += 1
         labels[ep.outcome.label] += 1
-        kind = ep.meta.notes.get("episode_kind", "navigation")
+        kind = ep.meta.notes.get("episode_kind", "navigation") if isinstance(ep.meta.notes, dict) else "navigation"
         kinds[kind] += 1
         if kind == "navigation":                             # nav metrics over nav episodes only
             nav += 1
