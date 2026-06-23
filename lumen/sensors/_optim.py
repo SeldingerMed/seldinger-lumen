@@ -23,6 +23,7 @@ def fd_minimize(f, x0, scale, iters=50, lr=0.4, h=1e-2, tol=1e-12, log=None):
     s = np.asarray(scale, dtype=float)
     best_x, best_f = x.copy(), f(x)
     hist = [best_f]
+    fails = 0
     for _ in range(iters):
         f0 = f(x)
         g = np.zeros_like(x)
@@ -43,9 +44,17 @@ def fd_minimize(f, x0, scale, iters=50, lr=0.4, h=1e-2, tol=1e-12, log=None):
                     best_f, best_x = ft, xt.copy()
                 break
             step *= 0.5
-        hist.append(f0)
+        # M1: hist tracks the best loss so far (monotone) -> hist[-1] == f(best_x)
+        hist.append(best_f)
         if log:
-            log({"iter": len(hist) - 1, "loss": f0, "grad": float(gn)})
+            log({"iter": len(hist) - 1, "loss": best_f, "grad": float(gn)})
         if not improved:
-            break
+            # M2: a single failed line search shrinks the step and retries; only give
+            # up after a few consecutive failures (a genuinely flat / sub-FD region).
+            fails += 1
+            lr *= 0.3
+            if fails >= 3:
+                break
+        else:
+            fails = 0
     return best_x, hist

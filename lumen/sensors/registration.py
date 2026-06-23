@@ -29,6 +29,8 @@ def _rodrigues(rvec):
 def apply_se3(nodes, pose):
     """Rigid pose on a node polyline: rotate (axis-angle pose[3:6]) about the centroid,
     then translate (pose[0:3]). Centroid-relative so rotation doesn't fling the device."""
+    if len(pose) != 6:                               # L3: [tx,ty,tz, rx,ry,rz]
+        raise ValueError(f"pose must have 6 elements, got {len(pose)}")
     nodes = np.asarray(nodes, float)
     R = _rodrigues(np.asarray(pose[3:6], float))
     c = nodes.mean(0)
@@ -49,10 +51,10 @@ def register(targets, device_nodes, sensor, carms, init_pose=None, iters=40, lr=
 
     `targets`/`carms` are lists (1 = mono, 2 = biplanar). Returns (pose, history).
     `pose` is [tx,ty,tz, rx,ry,rz]; apply with apply_se3."""
-    if hasattr(carms, "rays"):                       # a bare CArm -> single view
-        carms = [carms]
-    if np.ndim(targets) == 2:                         # a bare image -> single view
-        targets = [targets]
+    carms = [carms] if hasattr(carms, "rays") else list(carms)       # bare CArm -> [CArm]
+    targets = [targets] if np.ndim(targets) == 2 else list(targets)  # bare image -> [image]
+    if len(carms) != len(targets):                                   # H1: no silent zip-truncation
+        raise ValueError(f"{len(carms)} carms vs {len(targets)} targets")
     device_nodes = np.asarray(device_nodes, float)
     span = float(np.ptp(device_nodes, axis=0).max()) + 1e-9
     x0 = np.zeros(6) if init_pose is None else np.asarray(init_pose, float)
