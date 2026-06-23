@@ -10,9 +10,11 @@ from lumen.sensors.carm import CArm
 from lumen.sensors.device_as_sensor import (device_on_wall, estimate_wall_stiffness,
                                             identifiability, sensitivity, wall_yield)
 from lumen.sensors.fluoro import FluoroSensor
+from lumen.sensors.perception import detect_device_tip, device_centroid
 from lumen.sensors.registration import apply_se3, register
 
 __all__ = ["FluoroSensor", "CArm",
            "register", "apply_se3",                      # L1.1 registration
            "estimate_wall_stiffness", "sensitivity", "identifiability",
-           "device_on_wall", "wall_yield"]               # L1.2 device-as-sensor
+           "device_on_wall", "wall_yield",               # L1.2 device-as-sensor
+           "detect_device_tip", "device_centroid"]       # L1.3 perception front-end

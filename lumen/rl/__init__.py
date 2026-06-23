@@ -5,5 +5,7 @@ rollout (env e = candidate e), riding the fast tier's parallelism. Pure numpy.
 """
 
 from lumen.rl.cem import BatchedNav, make_policy, train_cem
+from lumen.rl.fluoro_nav import FluoroBatchedNav, fluoro_env_factory
 
-__all__ = ["train_cem", "make_policy", "BatchedNav"]
+__all__ = ["train_cem", "make_policy", "BatchedNav",
+           "FluoroBatchedNav", "fluoro_env_factory"]     # L1.3 image-based control
