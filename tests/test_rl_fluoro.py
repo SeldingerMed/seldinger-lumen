@@ -71,7 +71,7 @@ def test_image_obs_progress_signal_is_on_detector_and_spans():
         img, _ = sensor.render(_wire(tip_z - 15, tip_z), carm=carm)
         _, v, present = detect_device_tip(img, leading="max_v")
         assert present == 1.0
-        return abs(tv - v) / carm.nv
+        return (tv - v) / carm.nv
 
     assert progress(10.0) > 0.4                               # tip at inlet: far from target
     assert progress(target_z) < 0.15                          # tip at target: ~0 -> real signal
