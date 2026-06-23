@@ -47,6 +47,20 @@ class CArm:
         detector_center = source + a * sdd
         return cls(source=source, detector_center=detector_center, up=np.asarray(up, float), **kw)
 
+    def to_dict(self) -> dict:
+        """JSON-safe geometry (lists), for storing a view in an episode manifest."""
+        return {"source": np.asarray(self.source, float).tolist(),
+                "detector_center": np.asarray(self.detector_center, float).tolist(),
+                "up": None if self.up is None else np.asarray(self.up, float).tolist(),
+                "width": self.width, "height": self.height, "nu": self.nu, "nv": self.nv}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CArm":
+        return cls(source=np.asarray(d["source"], float),
+                   detector_center=np.asarray(d["detector_center"], float),
+                   up=None if d.get("up") is None else np.asarray(d["up"], float),
+                   width=d["width"], height=d["height"], nu=d["nu"], nv=d["nv"])
+
     def axes(self):
         """Detector orthonormal in-plane axes (u, v) and inward normal n (source→det)."""
         sd = np.asarray(self.detector_center) - np.asarray(self.source)
