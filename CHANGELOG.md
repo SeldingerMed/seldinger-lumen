@@ -12,6 +12,15 @@ does not yet promise [SemVer](https://semver.org/) stability.
   templates, CODEOWNERS, Dependabot, and a GitHub Pages site.
 - `FlowField`: a 1-D resistive-network blood-flow model along the centerline
   (pressure field `P(s)`, velocity field `v(s)`, aspiration as a pressure sink).
+- Layer 1 sensor stack: `FluoroSensor` (differentiable DRR fluoroscopy), 2D/3D
+  `register`, device-as-sensor wall-stiffness estimation, and an image-based RL
+  observation (`FluoroBatchedNav`).
+- Layer 1 (L1.4) realism seam `RealismParams` / `degrade`: calibratable detector
+  physics on the DRR — Poisson photon noise, detector PSF blur, scatter glow, and
+  beam hardening — off by default, threaded through `FluoroSensor.render(realism=…)`.
+- Layer 1 (L1.4) second observation modality `LuminalCamera`: a forward-looking
+  endoscopic RGB view from the device tip over the shared `R(s,θ)` lumen field,
+  proving the sensor-swap invariant (same scene, different sensor).
 
 ### Changed
 - Leaner README and corrected `ARCHITECTURE.md` references (`tube_vbd.py`).

@@ -2,8 +2,8 @@
 
 The endovascular instance of the modality-agnostic sensor swap point (doc §3.9): it
 turns a Layer-0 state (device node polyline; later the contrast lumen over R(s,θ)) into
-a projective X-ray — the *native* clinical observation, not RGB (doc §3.6, §4). A
-luminal-RGB sibling sensor will sit beside it for bronchoscopy/GI.
+a projective X-ray — the *native* clinical observation, not RGB (doc §3.6, §4). The
+luminal-RGB sibling (`luminal.LuminalCamera`) sits beside it for bronchoscopy/GI.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import numpy as np
 
 from lumen.sensors.carm import CArm
 from lumen.sensors.drr import radiograph, raycast
+from lumen.sensors.realism import degrade
 from lumen.sensors.volume import grid_for, voxelize_device
 
 
@@ -37,12 +38,19 @@ class FluoroSensor:
                                width=1.6 * span, height=1.6 * span,
                                nu=self.nu, nv=self.nv, **kw)
 
-    def render(self, nodes, radius=0.2, carm: CArm | None = None, beer_lambert=False):
+    def render(self, nodes, radius=0.2, carm: CArm | None = None, beer_lambert=False,
+               realism=None):
         """Render the device polyline to a DRR line-integral image (or a Beer–Lambert
-        radiograph if beer_lambert=True). Returns (image, carm)."""
+        radiograph if beer_lambert=True). Returns (image, carm).
+
+        Pass `realism` (a RealismParams) to apply the detector-physics seam (L1.4 —
+        Poisson noise, PSF, scatter, beam hardening) to the line integral before the
+        optional Beer–Lambert step; default None leaves the clean DRR unchanged."""
         nodes = np.asarray(nodes, float)
         carm = carm or self.default_carm(nodes)
         grid = grid_for(nodes, margin=self.margin, res=self.res)
         mu = voxelize_device(nodes, radius, grid, mu_device=self.mu_device, eps=self.eps)
         A = raycast(mu, grid, carm, n_samples=self.n_samples)
+        if realism is not None:
+            A = degrade(A, realism)
         return (radiograph(A) if beer_lambert else A), carm
