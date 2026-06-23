@@ -41,6 +41,8 @@ def grid_for(points, margin=8.0, res=64):
     p = np.asarray(points, float)
     lo, hi = p.min(0) - margin, p.max(0) + margin
     r = (res, res, res) if np.isscalar(res) else tuple(res)
+    if any(c <= 1 for c in r):
+        raise ValueError(f"all resolution components must be > 1, got {r}")
     return Grid(lo=lo, hi=hi, res=r)
 
 

@@ -57,6 +57,8 @@ class CArm:
         u = _unit(np.cross(n, up))
         if np.linalg.norm(np.cross(n, up)) < 1e-6:        # degenerate: up ∥ n
             u = _unit(np.cross(n, np.array([1.0, 0.0, 0.0])))
+            if np.linalg.norm(u) < 1e-6:      # secondary fallback: n ∥ x-axis
+                u = _unit(np.cross(n, np.array([0.0, 1.0, 0.0])))
         v = _unit(np.cross(u, n))
         return u, v, n
 

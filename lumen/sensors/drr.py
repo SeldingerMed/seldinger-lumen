@@ -59,6 +59,8 @@ def _ray_box(origin, dirs, lo, hi):
 
 def raycast(mu, grid: Grid, carm, n_samples=192):
     """Render the DRR line-integral image A (nv, nu) for a μ volume and C-arm."""
+    if n_samples <= 0:
+        raise ValueError(f"n_samples must be positive, got {n_samples}")
     lo, hi, sp = np.asarray(grid.lo), np.asarray(grid.hi), grid.spacing
     src, dirs = carm.rays()                                # src (3,), dirs (nv,nu,3)
     tnear, tfar, hit = _ray_box(src, dirs, lo, hi)         # (nv,nu)
