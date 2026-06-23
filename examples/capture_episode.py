@@ -26,7 +26,7 @@ def main(out_dir="episodes"):
                                  sensor=LuminalCamera(nu=64, nv=64), modality="luminal"),
     }
     for name, kw in cases.items():
-        ep = rollout_episode(max_steps=30, asset_ref=f"{name}.asset.json",
+        ep = rollout_episode(max_steps=30, asset_ref=f"{name}.asset.json", label=name,
                              notes={"case": name, "true_C10": 4000.0}, **kw)
         validate(ep)
         path = f"{out_dir}/{name}"

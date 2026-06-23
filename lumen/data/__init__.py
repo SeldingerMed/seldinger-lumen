@@ -9,8 +9,10 @@ patient corpus is the proprietary moat (§327) and stays private behind the same
 """
 
 from lumen.data.capture import EpisodeRecorder, rollout_episode
+from lumen.data.replay import EpisodeDataset, replay, summarize
 from lumen.data.schema import (SCHEMA_VERSION, Episode, EpisodeMeta, Outcome, Step,
                                validate)
 
 __all__ = ["Episode", "EpisodeMeta", "Step", "Outcome", "validate", "SCHEMA_VERSION",
-           "EpisodeRecorder", "rollout_episode"]
+           "EpisodeRecorder", "rollout_episode",
+           "EpisodeDataset", "replay", "summarize"]
