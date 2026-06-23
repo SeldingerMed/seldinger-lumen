@@ -36,14 +36,25 @@ def _trilinear(vals, lo, spacing, pts):
 
 
 def _ray_box(origin, dirs, lo, hi):
-    """Slab ray-box intersection. dirs (...,3) -> (tnear, tfar, hit)."""
-    inv = 1.0 / np.where(np.abs(dirs) < 1e-12, 1e-12, dirs)
-    t0 = (lo - origin) * inv
-    t1 = (hi - origin) * inv
-    tmin = np.maximum.reduce(np.minimum(t0, t1), axis=-1)
-    tmax = np.minimum.reduce(np.maximum(t0, t1), axis=-1)
+    """Slab ray-box intersection. dirs (...,3) -> (tnear, tfar, hit).
+
+    Textbook robust: a ray parallel to a slab (dir component 0) gets a ±inf interval
+    for that axis (1/0 -> ±inf), so the axis only constrains when the origin is
+    outside the slab. tnear/tfar are real distances (no 1e12 sentinels) so L1.1 can
+    safely reuse them for step-size / early-exit."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv = 1.0 / dirs                                   # parallel axis -> ±inf
+        t0 = (lo - origin) * inv
+        t1 = (hi - origin) * inv
+    lo_t = np.minimum(t0, t1)
+    hi_t = np.maximum(t0, t1)
+    # 0*inf -> nan only when the ray lies exactly on a face plane; non-constraining
+    lo_t = np.where(np.isnan(lo_t), -np.inf, lo_t)
+    hi_t = np.where(np.isnan(hi_t), np.inf, hi_t)
+    tmin = np.maximum.reduce(lo_t, axis=-1)
+    tmax = np.minimum.reduce(hi_t, axis=-1)
     tnear = np.maximum(tmin, 0.0)
-    return tnear, tmax, tmax > tnear
+    return tnear, tmax, (tmax > tnear) & np.isfinite(tnear)
 
 
 def raycast(mu, grid: Grid, carm, n_samples=192):
@@ -62,6 +73,7 @@ def raycast(mu, grid: Grid, carm, n_samples=192):
     return A * hit
 
 
-def radiograph(A, i0=1.0):
-    """Beer–Lambert intensity image from the DRR line integral (dense → dark)."""
-    return i0 * np.exp(-np.asarray(A))
+def radiograph(A):
+    """Beer–Lambert intensity from the DRR line integral (I0=1; dense → dark). A
+    calibrated I0/detector-response knob lands when sim-to-real calibration needs it."""
+    return np.exp(-np.asarray(A))

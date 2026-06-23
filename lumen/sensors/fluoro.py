@@ -16,16 +16,26 @@ from lumen.sensors.volume import grid_for, voxelize_device
 
 
 class FluoroSensor:
-    def __init__(self, mu_device=1.0, eps=0.6, res=64, n_samples=192, margin=8.0):
+    """`res` is the μ-VOLUME resolution; `nu`/`nv` are the DETECTOR (image) pixels —
+    independent knobs (raising one doesn't change the other)."""
+
+    def __init__(self, mu_device=1.0, eps=0.6, res=64, n_samples=192, margin=8.0,
+                 nu=128, nv=128):
         self.mu_device, self.eps = mu_device, eps
         self.res, self.n_samples, self.margin = res, n_samples, margin
+        self.nu, self.nv = nu, nv
 
     def default_carm(self, nodes, axis=(1.0, 0.0, 0.0), **kw):
-        """A C-arm centred on the device, viewing along `axis`."""
+        """A C-arm centred on the device, viewing along `axis`, sized to cover the
+        scene. `span` = device extent + 2·margin (matches grid_for's box). The factors
+        place the source 2·span back, the detector 4·span across the scene (so the
+        beam passes through it), and make the detector 1.6·span wide — a small FOV
+        margin so the projected scene fits with room to spare."""
         c = np.asarray(nodes, float).mean(0)
         span = float(np.ptp(np.asarray(nodes, float), axis=0).max()) + 2 * self.margin
         return CArm.looking_at(c, distance=2.0 * span, axis=axis, sdd=4.0 * span,
-                               width=1.6 * span, height=1.6 * span, **kw)
+                               width=1.6 * span, height=1.6 * span,
+                               nu=self.nu, nv=self.nv, **kw)
 
     def render(self, nodes, radius=0.2, carm: CArm | None = None, beer_lambert=False):
         """Render the device polyline to a DRR line-integral image (or a Beer–Lambert
