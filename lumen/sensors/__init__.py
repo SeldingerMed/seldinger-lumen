@@ -7,6 +7,12 @@ FluoroSensor (endovascular X-ray) first; a luminal-RGB sibling later.
 """
 
 from lumen.sensors.carm import CArm
+from lumen.sensors.device_as_sensor import (device_on_wall, estimate_wall_stiffness,
+                                            identifiability, sensitivity, wall_yield)
 from lumen.sensors.fluoro import FluoroSensor
+from lumen.sensors.registration import apply_se3, register
 
-__all__ = ["FluoroSensor", "CArm"]
+__all__ = ["FluoroSensor", "CArm",
+           "register", "apply_se3",                      # L1.1 registration
+           "estimate_wall_stiffness", "sensitivity", "identifiability",
+           "device_on_wall", "wall_yield"]               # L1.2 device-as-sensor
