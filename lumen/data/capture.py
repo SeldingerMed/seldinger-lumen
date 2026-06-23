@@ -150,7 +150,8 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                        device={"radius": radius, "n_nodes": n_nodes, "node_spacing": node_spacing,
                                "kappa": kappa, "d_hat": d_hat, "vbd_iterations": vbd_iterations},
                        sensor=_sensor_meta(sensor, modality),
-                       notes={"target_s": target_s, "target_frac": target_frac, **(notes or {})})
+                       notes={"episode_kind": "navigation",     # vs "wall_probe" (calibration)
+                              "target_s": target_s, "target_frac": target_frac, **(notes or {})})
     rec = EpisodeRecorder(sim, sensor=sensor, modality=modality, lumen=lumen, every=every,
                           dt=dt, substeps=substeps, view_axis=view_axis,
                           record_nodes=record_nodes, meta=meta)

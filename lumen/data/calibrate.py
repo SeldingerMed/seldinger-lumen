@@ -16,6 +16,8 @@ episodes are for calibration. Both are the same `lumen-episode/0` schema.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step
@@ -45,35 +47,50 @@ def probe_episode(true_C10, sensor, carms=None, view_axis=(0.0, 0.0, 1.0), load=
 
     nodes = device_on_wall(true_C10, load=load, R0=R0, bulge_dir=bulge_dir, **dev_kw)
     if carms is None:
+        # L3: a view along the bulge axis is depth-ambiguous (the §3.6 under-determined case)
+        if abs(float(np.dot(np.asarray(view_axis, float), np.asarray(bulge_dir, float)))) > 0.99:
+            warnings.warn("default view_axis is ~parallel to bulge_dir; this mono view is "
+                          "depth-ambiguous (under-determined) — add a second view", stacklevel=2)
         carms = [sensor.default_carm(nodes, axis=view_axis)]
     elif hasattr(carms, "rays"):
         carms = [carms]
     else:
         carms = list(carms)
 
-    steps = [Step(t=float(i), action={"load": float(load)},
-                  kinematics={"probe": "device_on_wall"},
+    # a probe is N VIEWS of one static scene, not a time series — t indexes the view and
+    # dt=0. notes["episode_kind"] lets replay/summarize tell probes from navigation rollouts.
+    steps = [Step(t=float(i), action={"load": float(load)}, kinematics={"view": i},
                   obs_modality="fluoro", obs_ref=f"{i:03d}.npy",
                   obs=sensor.render(nodes, carm=c)[0])
              for i, c in enumerate(carms)]
     meta = EpisodeMeta(
         asset_ref=asset_ref, dt=0.0, device={"R0": float(R0)},
-        sensor={**_fluoro_meta(sensor), "carms": [c.to_dict() for c in carms]},
-        notes={"calib": {"true_C10": float(true_C10), "load": float(load), "R0": float(R0),
-                         "bulge_dir": list(bulge_dir), "dev_kw": dict(dev_kw)},
+        sensor=_fluoro_meta(sensor),       # documented renderer shape only — carms live in calib
+        notes={"episode_kind": "wall_probe",
+               "calib": {"true_C10": float(true_C10), "load": float(load), "R0": float(R0),
+                         "bulge_dir": list(bulge_dir), "dev_kw": dict(dev_kw),
+                         "carms": [c.to_dict() for c in carms]},   # calibration-specific, not renderer
                **(notes or {})})
     return Episode(meta=meta, steps=steps,
                    outcome=Outcome(success=True, final_dist=0.0, steps=len(steps), label=label))
 
 
-def calibrate_from_episode(episode: Episode, root: str | None = None, sensor=None,
-                           init_C10: float = 4.0e3, iters: int = 30) -> dict:
+def calibrate_from_episode(episode: Episode, root: str | None = None,
+                           init_C10: float = 4.0e3, iters: int = 30,
+                           noise_std: float = 0.0, noise_seed: int = 0,
+                           identifiable_tol: float = 0.05) -> dict:
     """Recover wall stiffness from a wall-probe episode and report the sim2sim error.
 
     Reconstructs the forward model from the episode (sensor + C-arms + forward params),
     pulls the target frame(s) (in-memory `step.obs` if present, else the sidecar via
-    `root`), runs the L1.2 inverse, and returns recovered/true C10 + rel_error +
-    n_views + history."""
+    `root`), runs the L1.2 inverse, and returns recovered/true C10 + rel_error + n_views.
+
+    Noise-free recovery is necessary but NOT sufficient: the deterministic render makes
+    loss(true_C10)=0 exactly, so even an under-determined mono view "recovers" trivially.
+    Pass `noise_std>0` to probe identifiability honestly — it re-recovers from noised
+    targets and reports `rel_error_noisy` + `identifiable` (rel_error_noisy <
+    identifiable_tol). A mono out-of-plane view blows up under noise; biplanar holds
+    (the §3.6 gate). This is the honest closure, not the noise-free number."""
     from lumen.sensors.carm import CArm
     from lumen.sensors.device_as_sensor import estimate_wall_stiffness
 
@@ -81,9 +98,15 @@ def calibrate_from_episode(episode: Episode, root: str | None = None, sensor=Non
     if calib is None:
         raise ValueError("not a calibration probe episode (no meta.notes['calib']); a "
                          "navigation episode can't be inverted by the device-on-wall model")
+    carms_d = calib.get("carms")
+    if not carms_d:
+        raise ValueError("calibration episode has no stored C-arm views (calib['carms'])")
     root = root or getattr(episode, "root", None)
-    sensor = sensor or _fluoro_from_meta(episode.meta.sensor)
-    carms = [CArm.from_dict(c) for c in episode.meta.sensor["carms"]]
+    try:
+        sensor = _fluoro_from_meta(episode.meta.sensor)
+        carms = [CArm.from_dict(c) for c in carms_d]
+    except (KeyError, TypeError) as e:
+        raise ValueError(f"calibration episode is malformed (sensor/carms): {e}") from e
 
     def _target(s):
         if s.obs is not None:
@@ -96,13 +119,24 @@ def calibrate_from_episode(episode: Episode, root: str | None = None, sensor=Non
     if len(targets) != len(carms):
         raise ValueError(f"{len(targets)} target frames vs {len(carms)} carms")
 
-    recovered, hist = estimate_wall_stiffness(
-        targets, sensor, carms, init_C10=init_C10, load=calib["load"], R0=calib["R0"],
-        bulge_dir=tuple(calib["bulge_dir"]), iters=iters, **calib.get("dev_kw", {}))
+    fwd = dict(load=calib["load"], R0=calib["R0"], bulge_dir=tuple(calib["bulge_dir"]),
+               **calib.get("dev_kw", {}))
     true_C10 = float(calib["true_C10"])
-    return {"recovered_C10": float(recovered), "true_C10": true_C10,
-            "rel_error": abs(recovered - true_C10) / true_C10,
-            "n_views": len(carms), "history": hist}
+
+    def _recover(ts):
+        rec, hist = estimate_wall_stiffness(ts, sensor, carms, init_C10=init_C10, iters=iters, **fwd)
+        return float(rec), abs(rec - true_C10) / true_C10, hist
+
+    recovered, rel_error, hist = _recover(targets)
+    out = {"recovered_C10": recovered, "true_C10": true_C10, "rel_error": rel_error,
+           "n_views": len(carms), "history": hist}
+    if noise_std > 0:                              # honest identifiability probe (H1)
+        rng = np.random.default_rng(noise_seed)
+        noised = [t + rng.normal(0.0, noise_std, np.shape(t)) for t in targets]
+        rec_n, rel_n, _ = _recover(noised)
+        out.update(recovered_C10_noisy=rec_n, rel_error_noisy=rel_n, noise_std=noise_std,
+                   identifiable=bool(rel_n < identifiable_tol))
+    return out
 
 
 if __name__ == "__main__":  # self-check (needs warp/newton importable; math is numpy)
