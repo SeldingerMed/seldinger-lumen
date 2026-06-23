@@ -16,8 +16,14 @@ def _block():
 
 def test_default_realism_is_identity():
     A = _block()
-    assert np.allclose(degrade(A), A)
-    assert np.allclose(degrade(A, RealismParams()), A)
+    assert degrade(A) is A and np.array_equal(degrade(A), A)   # exact identity, returns input
+    assert np.array_equal(degrade(A, RealismParams()), A)
+
+
+def test_nonpositive_dose_rejected():
+    for bad in (0.0, -3.0):
+        with pytest.raises(ValueError):
+            RealismParams(i0=bad)                              # else exp/log -> NaN/inf
 
 
 def test_finite_dose_adds_noise_and_is_seed_reproducible():
@@ -89,11 +95,16 @@ def test_luminal_rejects_degenerate_device():
         LuminalCamera().render(frame, lumen, np.zeros((1, 3)))   # need >= 2 nodes for a direction
 
 
+def test_luminal_rejects_nonpositive_steps():
+    with pytest.raises(ValueError):
+        LuminalCamera(n_steps=0)                                 # else dtau = max_dist / 0
+
+
 def test_sensor_swap_shares_one_scene():
     # the invariant: fluoro and luminal consume the SAME scene objects (frame points,
     # lumen field, device polyline) with no anatomy- or core-side change.
     asset = procedural.straight_tube(80.0, 4.0)
     frame, lumen, dev = _tip_setup(asset)
     rgb = LuminalCamera(nu=16, nv=16, n_steps=48).render(frame, lumen, dev)
-    xray, _ = FluoroSensor(res=20, nu=24, nv=24, n_samples=50).render(frame.points)
+    xray, _ = FluoroSensor(res=20, nu=24, nv=24, n_samples=50).render(dev)  # SAME device polyline
     assert rgb.ndim == 3 and xray.ndim == 2             # two modalities, one scene
