@@ -35,6 +35,18 @@ def test_round_trip_manifest_and_sidecars(tmp_path):
     assert (tmp_path / "manifest.json").exists() and (tmp_path / "obs" / "000.npy").exists()
 
 
+def test_load_rejects_disagreeing_toplevel_mirror(tmp_path):
+    # the top-level version/provenance mirror is a checksum on the canonical meta.*;
+    # a hand-edited manifest where they disagree must fail loud (trust boundary — a
+    # top-level "procedural" must not be able to hide a patient meta).
+    _episode().save(tmp_path)
+    man = json.loads((tmp_path / "manifest.json").read_text())
+    man["provenance"] = "patient(private)"                       # top-level now lies vs meta
+    (tmp_path / "manifest.json").write_text(json.dumps(man))
+    with pytest.raises(ValueError, match="disagrees with"):
+        Episode.load(tmp_path)
+
+
 def test_lazy_obs_not_loaded_on_manifest_load(tmp_path):
     ep = _episode()
     ep.save(tmp_path)

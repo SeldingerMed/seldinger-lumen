@@ -132,8 +132,9 @@ class Episode:
     outcome: Outcome = field(default_factory=Outcome)
 
     def manifest(self) -> dict:
-        # provenance at TOP LEVEL so the firewall (scans all *.json for a top-level
-        # provenance key) covers episode manifests with no special-casing.
+        # version/provenance are mirrored at TOP LEVEL (convenient for `jq`/grep and
+        # consistent with the asset schema, whose provenance is top-level). meta.* is
+        # canonical; load() checksums the two against each other so they can't drift.
         return {"version": self.meta.version, "provenance": self.meta.provenance,
                 "meta": self.meta.to_dict(), "steps": [s.to_dict() for s in self.steps],
                 "outcome": self.outcome.to_dict()}
@@ -162,14 +163,24 @@ class Episode:
 
     @classmethod
     def load(cls, root: str) -> "Episode":
-        # L7: load is intentionally UNCHECKED so a malformed manifest can be loaded to
-        # inspect/repair. save() is the write-side gate; corpus readers should call
-        # validate(ep, root) themselves (EpisodeDataset will, in L2.2).
+        # L7: load is intentionally UNCHECKED on the SEMANTIC contract (time/modality/
+        # refs) so a malformed manifest can be loaded to inspect/repair; save() and the
+        # corpus reader run validate(). The ONE structural thing load enforces is that
+        # the top-level version/provenance mirror agrees with the canonical meta.* — a
+        # disagreement means a hand-edited/merged manifest, and silently trusting either
+        # copy would be a trust-boundary hole (e.g. top-level "procedural" hiding a
+        # patient meta). meta is canonical; the mirror is a checksum.
         with open(os.path.join(root, "manifest.json")) as f:
             d = json.load(f)
-        return cls(meta=EpisodeMeta.from_dict(d["meta"]),
-                   steps=[Step.from_dict(s) for s in d["steps"]],
-                   outcome=Outcome.from_dict(d["outcome"]))
+        ep = cls(meta=EpisodeMeta.from_dict(d["meta"]),
+                 steps=[Step.from_dict(s) for s in d["steps"]],
+                 outcome=Outcome.from_dict(d["outcome"]))
+        for key in ("version", "provenance"):
+            top, nested = d.get(key), getattr(ep.meta, key)
+            if top is not None and top != nested:
+                raise ValueError(f"manifest top-level {key}={top!r} disagrees with "
+                                 f"meta.{key}={nested!r} (tampered or merged manifest)")
+        return ep
 
 
 def validate(ep: Episode, root: str | None = None) -> None:
