@@ -14,3 +14,6 @@ examples/assets/
 
 # proprietary design bible — local reference only, not for the open release
 plan.md
+
+# captured episodes (procedural; regenerate via examples/capture_episode.py)
+episodes/
