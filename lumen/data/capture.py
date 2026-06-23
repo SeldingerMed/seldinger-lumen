@@ -116,7 +116,7 @@ def _state_obs(frame, sim, R, L, target_s):
 
 def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                     target_frac=0.7, max_insertion=2.0, max_steps=40, success_tol=2.5,
-                    every=1, substeps=4, dt=5e-3, device=None, asset_ref="",
+                    every=1, substeps=4, dt=5e-3, device=None, asset_ref="", label=None,
                     notes=None, sim_kwargs=None, record_nodes=True, view_axis=(1.0, 0.0, 0.0)):
     """Build a sim from `asset`, drive it to the target with `policy` (None = constant
     forward insertion), record every step, and return a validated `Episode`.
@@ -170,7 +170,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
             break
 
     ep = rec.episode(Outcome(success=success, final_dist=float(dist), steps=len(rec.steps),
-                             label=asset.edges[0].id))
+                             label=label or asset.edges[0].id))   # caller label aids corpus summaries
     validate(ep)                                        # M2: fail loud rather than return a bad episode
     return ep
 
