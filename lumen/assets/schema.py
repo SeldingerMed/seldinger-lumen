@@ -28,6 +28,11 @@ class Frame:
     spacing_mm: tuple = (1.0, 1.0, 1.0)
     origin_mm: tuple = (0.0, 0.0, 0.0)
 
+    def __post_init__(self):
+        # JSON round-trips tuples to lists; coerce back so `spacing_mm == (...)` holds
+        self.spacing_mm = tuple(self.spacing_mm)
+        self.origin_mm = tuple(self.origin_mm)
+
 
 @dataclass
 class Node:

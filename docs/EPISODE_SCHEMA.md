@@ -1,0 +1,95 @@
+# Episode schema (`lumen-episode/0`)
+
+The Layer 2 data standard: a captured intervention as a time-synchronized log of
+**device kinematics + the paired observation + outcome**, in a declared coordinate
+frame. There is no Open X-Embodiment for endovascular intervention; this is the
+schema meant to become that standard.
+
+It is the time-series sibling of the [asset schema](../lumen/assets/schema.py)
+(`lumen-asset/0`, which carries *geometry*). Both are emitted by two ends behind
+one seam:
+
+- the open `lumen.data.capture` recorder → `provenance = "procedural"`
+- a private patient-capture pipeline → `provenance = "patient(private)"`
+
+Patient-derived episodes never live in this repo. The firewall
+(`tools/check_firewall.py`) scans every `*.json` and fails the build on any
+top-level `provenance != "procedural"`.
+
+## On-disk layout
+
+One directory per episode:
+
+```text
+<episode>/
+  manifest.json        # scalars: meta, per-step kinematics/actions/outcome, sidecar refs
+  obs/
+    000.npy            # paired observation for step 0 (fluoro grayscale or luminal RGB)
+    000_nodes.npy      # device node positions (n,3) for step 0   [optional]
+    ...
+```
+
+Observations are stored as `.npy` — lossless and dependency-free for both grayscale
+fluoroscopy and RGB luminal frames. A viewer PNG is an example-side extra, not part
+of the canonical load path. Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
+`Step.load_nodes(root)`) so a large corpus iterates without exhausting memory.
+
+`obs_ref` and `node_positions_ref` must be **bare filenames** (no path components,
+no `..`): they are resolved under `<episode>/obs/`, and `validate` / `load_*` reject
+anything that would escape it (a manifest is a trust boundary — it can arrive from
+elsewhere). `validate` also rejects duplicate refs across steps (a reused name would
+clobber an earlier step's sidecar).
+
+## Manifest structure
+
+```jsonc
+{
+  "version": "lumen-episode/0",
+  "provenance": "procedural",          // TOP-LEVEL — where the firewall looks
+  "meta": {
+    "frame": { "name": "voxel_scaled", "spacing_mm": [...], "origin_mm": [...] },
+    "asset_ref": "straight.json",      // the lumen-asset/0 geometry this ran on
+    "device": { "radius": 0.2, ... },  // device knobs
+    "sensor": { "modality": "fluoro", "nu": 128, ... },
+    "dt": 0.005,
+    "notes": { "true_C10": 4000.0 },   // free-form; sim2sim ground truth lives here
+    "provenance": "procedural",
+    "version": "lumen-episode/0"
+  },
+  "steps": [
+    {
+      "t": 0.0,
+      "action": { "insertion": 1.0, "twist": 0.0, "aspiration": 0.0 },
+      "kinematics": { "tip_mm": [x,y,z], "tip_s": 0.0, "tip_r": 0.1, "max_r": 0.2,
+                      "node_positions_ref": "000_nodes.npy" },
+      "obs_modality": "fluoro",        // "fluoro" | "luminal" | "none"
+      "obs_ref": "000.npy",
+      "force": null                     // measured where instrumented; null for procedural
+    }
+  ],
+  "outcome": { "success": true, "final_dist": 0.4, "steps": 40,
+               "retrieval": null, "label": "straight" }
+}
+```
+
+## What it deliberately does NOT carry
+
+Wall mechanics (HGO stiffness/fragility) are the **calibration target**, not an
+input — they stay private (§8), exactly as in the asset schema. An episode carries
+geometry references, observations, kinematics, and outcome; recovering the physics
+from those is the job of the calibration harness (`lumen.data.calibrate`).
+
+## Python API
+
+```python
+from lumen.data import Episode, EpisodeMeta, Step, Outcome, validate
+
+ep = Episode(meta=EpisodeMeta(asset_ref="straight.json", dt=5e-3), steps=[...], outcome=...)
+validate(ep)            # shape / monotonic-time / finite / provenance / version checks
+ep.save("episodes/ep_0001")
+back = Episode.load("episodes/ep_0001")
+frame = back.steps[10].load_obs("episodes/ep_0001")   # lazy sidecar read
+```
+
+Versioning: `SCHEMA_VERSION` bumps on any breaking change to the manifest shape;
+`validate` pins the version so stale episodes fail loudly rather than silently.
