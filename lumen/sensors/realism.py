@@ -42,6 +42,10 @@ class RealismParams:
     read_noise: float = 0.0       # additive Gaussian electronic noise, counts
     seed: int | None = None       # RNG seed for the stochastic terms (reproducible)
 
+    def __post_init__(self):
+        if self.i0 is not None and self.i0 <= 0:      # else exp/log on a non-positive dose -> NaN/inf
+            raise ValueError(f"i0 (photon budget) must be positive or None, got {self.i0}")
+
 
 def _gaussian_kernel(sigma):
     radius = max(1, int(round(3 * sigma)))
@@ -71,6 +75,8 @@ def degrade(A, params: RealismParams | None = None):
     noise) -> back to attenuation. With default params this is the identity."""
     p = params or RealismParams()
     A = np.asarray(A, float)
+    if not (p.beam_hardening or p.scatter_frac or p.psf_sigma or p.read_noise) and p.i0 is None:
+        return A                                      # all effects off -> exact identity (and cheap)
     Ad = A / (1.0 + p.beam_hardening * A) if p.beam_hardening else A
     i0 = float(p.i0) if p.i0 is not None else 1.0    # arbitrary scale when noiseless
     intensity = i0 * np.exp(-Ad)                      # primary transmitted photons

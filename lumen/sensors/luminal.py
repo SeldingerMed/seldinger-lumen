@@ -45,6 +45,10 @@ class LuminalCamera:
     ambient: float = 0.15                      # floor so grazing walls aren't pure black
     tissue_color: tuple = field(default_factory=lambda: (0.80, 0.30, 0.25))  # reddish
 
+    def __post_init__(self):
+        if self.n_steps <= 0:                  # else dtau = max_dist / n_steps blows up
+            raise ValueError(f"n_steps must be positive, got {self.n_steps}")
+
     def render(self, frame: CenterlineFrame, lumen, device_nodes,
                tip_pos=None, tip_dir=None, up=None):
         """Render the lumen interior to an (nv, nu, 3) RGB image in [0, 1].
