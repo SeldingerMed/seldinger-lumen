@@ -98,7 +98,7 @@ def identifiability(true_C10, sensor, carms_by_view, C10_grid, load=300.0, R0=2.
                     bulge_dir=(1.0, 0.0, 0.0), **dev_kw):
     """Loss(C10) curves for each view set (e.g. {'mono':[c1], 'biplanar':[c1,c2]}),
     with targets generated at `true_C10`. A sharper, single-minimum curve = more
-    identifiable. Returns {view: loss_array} plus the curves' minima."""
+    identifiable. Returns {view: loss_array}."""
     out = {}
     for view, carms in carms_by_view.items():
         carms = [carms] if hasattr(carms, "rays") else list(carms)   # L8: accept a bare CArm
