@@ -20,8 +20,7 @@ def main(root="episodes"):
         return
     print(f"corpus: {summarize(ds)}\n")
     for ep in ds:
-        steps = list(replay(ep))
-        first_obs = next((obs for *_, obs in steps if obs is not None), None)
+        first_obs = next((obs for *_, obs in replay(ep) if obs is not None), None)  # lazy
         shape = None if first_obs is None else first_obs.shape
         print(f"{ep.outcome.label:18s}  steps={ep.outcome.steps:2d}  "
               f"success={ep.outcome.success!s:5s}  final_dist={ep.outcome.final_dist:6.2f}  "

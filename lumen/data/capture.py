@@ -170,7 +170,8 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
             break
 
     ep = rec.episode(Outcome(success=success, final_dist=float(dist), steps=len(rec.steps),
-                             label=label or asset.edges[0].id))   # caller label aids corpus summaries
+                             # explicit None check: keep an intentional "" label, don't fall back
+                             label=(label if label is not None else asset.edges[0].id)))
     validate(ep)                                        # M2: fail loud rather than return a bad episode
     return ep
 

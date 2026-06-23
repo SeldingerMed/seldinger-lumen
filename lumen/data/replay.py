@@ -13,14 +13,19 @@ Each yielded `Episode` gets a runtime `.root` attribute (its directory) so
 
 from __future__ import annotations
 
+import os
 import pathlib
+import warnings
 from collections import Counter
 
 import numpy as np
 
 from lumen.data.schema import Episode, validate
 
-_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", "obs"}
+# dirs to skip when someone points root at a big tree (e.g. the repo). NOT "obs":
+# rglob only matches manifest.json, which an episode's obs/ sidecar dir never holds,
+# so skipping "obs" only hid a legitimate episode dir literally named "obs".
+_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 
 
 class EpisodeDataset:
@@ -34,17 +39,26 @@ class EpisodeDataset:
     def __init__(self, root, validate_on_load: bool = True):
         self.root = str(root)
         self.validate_on_load = validate_on_load
+        if not os.path.isdir(self.root):     # a typo'd path silently yielding 0 episodes is a footgun
+            warnings.warn(f"EpisodeDataset root {self.root!r} is not a directory; 0 episodes",
+                          stacklevel=2)
+        # dirs snapshotted at construction; rebuild the dataset to pick up new captures.
         self.dirs = [str(p.parent) for p in sorted(pathlib.Path(self.root).rglob("manifest.json"))
                      if not any(part in _SKIP for part in p.parts)]
 
     def __len__(self) -> int:
         return len(self.dirs)
 
-    def __getitem__(self, i: int) -> Episode:
+    def __getitem__(self, i):
+        if isinstance(i, slice):                              # PyTorch-dataset idiom ds[:10]
+            return [self[j] for j in range(*i.indices(len(self)))]
         d = self.dirs[i]
-        ep = Episode.load(d)
-        if self.validate_on_load:
-            validate(ep, root=d)
+        try:                                                 # turn KeyError/JSONDecodeError/validate
+            ep = Episode.load(d)                             # failures into a clear, path-tagged error
+            if self.validate_on_load:
+                validate(ep, root=d)
+        except Exception as e:
+            raise ValueError(f"episode at {d} failed to load/validate: {e}") from e
         ep.root = d                      # runtime handle for lazy obs (not serialized)
         return ep
 
@@ -60,23 +74,34 @@ def replay(episode: Episode, root: str | None = None):
     root = root or getattr(episode, "root", None)
     for s in episode.steps:
         obs = s.load_obs(root) if (root and s.obs_ref) else None
-        yield s.t, s.action, s.kinematics, obs
+        # copy the dicts: a consumer mutating them in place must not corrupt the
+        # Episode for the next replay (the Step holds them by reference).
+        yield s.t, dict(s.action), dict(s.kinematics), obs
 
 
 def summarize(dataset) -> dict:
     """Corpus-level summary (success rate, mean steps/final_dist, label counts) — the
     leaderboard-shaped dict (no dedicated leaderboard writer exists yet). Accepts an
-    EpisodeDataset or any iterable of Episodes."""
-    eps = list(dataset)
-    n = len(eps)
+    EpisodeDataset or any iterable of Episodes.
+
+    Single-pass and manifest-only: the outcome lives in the manifest, so for an
+    EpisodeDataset this reads manifests WITHOUT loading sidecars or full validation —
+    a 10k-episode corpus costs 10k small JSON reads, not 10k sidecar checks."""
+    items = ((Episode.load(d) for d in dataset.dirs)
+             if isinstance(dataset, EpisodeDataset) else dataset)
+    n = succ = steps = dist = 0
+    labels: Counter = Counter()
+    for ep in items:                                          # one streaming pass, no list()
+        n += 1
+        succ += bool(ep.outcome.success)
+        steps += ep.outcome.steps
+        dist += ep.outcome.final_dist
+        labels[ep.outcome.label] += 1
     if n == 0:
         return {"episodes": 0, "success_rate": 0.0, "mean_steps": 0.0,
                 "mean_final_dist": 0.0, "labels": {}}
-    return {"episodes": n,
-            "success_rate": float(np.mean([e.outcome.success for e in eps])),
-            "mean_steps": float(np.mean([e.outcome.steps for e in eps])),
-            "mean_final_dist": float(np.mean([e.outcome.final_dist for e in eps])),
-            "labels": dict(Counter(e.outcome.label for e in eps))}
+    return {"episodes": n, "success_rate": succ / n, "mean_steps": steps / n,
+            "mean_final_dist": dist / n, "labels": dict(labels)}
 
 
 if __name__ == "__main__":  # self-check (pure numpy — no Newton needed)

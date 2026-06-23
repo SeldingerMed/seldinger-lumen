@@ -70,3 +70,48 @@ def test_empty_corpus(tmp_path):
     ds = EpisodeDataset(tmp_path)
     assert len(ds) == 0 and list(ds) == []
     assert summarize(ds)["episodes"] == 0                   # no crash on an empty corpus
+
+
+def test_discovers_nested_and_obs_named_dirs(tmp_path):
+    _ep("deep", 2).save(tmp_path / "x" / "y" / "deep")     # nested discovery
+    _ep("obs", 2).save(tmp_path / "obs")                   # a dir literally named "obs" (H1)
+    ds = EpisodeDataset(tmp_path)
+    assert len(ds) == 2
+    assert {ep.outcome.label for ep in ds} == {"deep", "obs"}
+
+
+def test_corrupt_manifest_raises_path_tagged_valueerror(tmp_path):
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "manifest.json").write_text('{"not": "an episode"}')
+    ds = EpisodeDataset(tmp_path)
+    with pytest.raises(ValueError, match="failed to load/validate"):
+        ds[0]                                              # KeyError -> clear path-tagged ValueError
+
+
+def test_slice_indexing_returns_list(tmp_path):
+    for k in range(3):
+        _ep(f"c{k}", 2).save(tmp_path / f"c{k}")
+    ds = EpisodeDataset(tmp_path)
+    sl = ds[:2]
+    assert isinstance(sl, list) and len(sl) == 2 and all(isinstance(e, Episode) for e in sl)
+
+
+def test_replay_dicts_are_copies(tmp_path):
+    ds = _corpus(tmp_path)
+    ep = ds[0]
+    a, b = list(replay(ep)), list(replay(ep))
+    assert a[0][1] is not b[0][1]                          # M4: action dicts are distinct objects
+    a[0][2]["tip_s"] = -999.0                              # mutating a replay must not corrupt the next
+    assert b[0][2]["tip_s"] != -999.0
+
+
+def test_summarize_does_not_read_sidecars(tmp_path):
+    _ep("straight", 3, True).save(tmp_path / "a")
+    (tmp_path / "a" / "obs" / "001.npy").unlink()          # delete a sidecar
+    # validate_on_load would raise here, but summarize is manifest-only -> still works
+    assert summarize(EpisodeDataset(tmp_path))["episodes"] == 1
+
+
+def test_nonexistent_root_warns(tmp_path):
+    with pytest.warns(UserWarning, match="not a directory"):
+        EpisodeDataset(tmp_path / "nope")
