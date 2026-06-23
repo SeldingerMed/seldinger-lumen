@@ -8,6 +8,7 @@ patient corpus is the proprietary moat (§327) and stays private behind the same
 `Episode` seam — never in this repo (firewall: provenance == "procedural").
 """
 
+from lumen.data.calibrate import calibrate_from_episode, probe_episode
 from lumen.data.capture import EpisodeRecorder, rollout_episode
 from lumen.data.replay import EpisodeDataset, replay, summarize
 from lumen.data.schema import (SCHEMA_VERSION, Episode, EpisodeMeta, Outcome, Step,
@@ -15,4 +16,5 @@ from lumen.data.schema import (SCHEMA_VERSION, Episode, EpisodeMeta, Outcome, St
 
 __all__ = ["Episode", "EpisodeMeta", "Step", "Outcome", "validate", "SCHEMA_VERSION",
            "EpisodeRecorder", "rollout_episode",
-           "EpisodeDataset", "replay", "summarize"]
+           "EpisodeDataset", "replay", "summarize",
+           "probe_episode", "calibrate_from_episode"]

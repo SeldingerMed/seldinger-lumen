@@ -66,10 +66,25 @@ Apache-2.0 clean-room. Enforced by `tools/check_firewall.py` in CI:
 1. **No CathSim** (CC-BY-NC-SA-4.0) anywhere — it would contaminate the license.
 2. **No patient data** — every committed asset is `provenance="procedural"`.
 
-The seam to the private world is `lumen.assets.schema.Asset`. A patient pipeline
-in `seldinger-ml` emits that schema (with `provenance="patient(private)"`) and
-keeps it out of this repo. Real-data HGO calibration, clot models, the GNN flow
-surrogate, and trained policies all stay private and layer *on top of* this core.
+There are now two seams to the private world, both firewall-guarded:
+`lumen.assets.schema.Asset` (geometry, `lumen-asset/0`) and
+`lumen.data.schema.Episode` (a captured intervention — kinematics + paired
+observation + outcome, `lumen-episode/0`). A patient pipeline in `seldinger-ml`
+emits both (with `provenance="patient(private)"`) and keeps them out of this repo.
+Real-data HGO calibration, clot models, the GNN flow surrogate, and trained
+policies all stay private and layer *on top of* this core.
+
+## Invariant 6 — Layer 2 ships the standard + machinery, not the corpus
+
+Layer 2's *value* is the paired real-data corpus — that is the proprietary moat
+and stays private (§5). The open repo ships the **data standard** (`Episode`) and
+the **machinery** proven end-to-end on procedural data: synthetic capture
+(`lumen.data.capture`), corpus iteration/replay (`lumen.data.replay`), and the
+sim2sim calibration loop (`lumen.data.calibrate`, which closes §3.6 — recover wall
+stiffness from an episode's fluoro, error-checked against the stored ground truth).
+Real patient capture plugs into the *same* `Episode` seam; nothing about it lives
+here. External open datasets (Guide3D et al., §4.2) are a documented future
+adapter seam — licensing/firewall-gated, not vendored.
 
 ## Coordinate frames
 

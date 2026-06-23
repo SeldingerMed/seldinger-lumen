@@ -21,6 +21,13 @@ does not yet promise [SemVer](https://semver.org/) stability.
 - Layer 1 (L1.4) second observation modality `LuminalCamera`: a forward-looking
   endoscopic RGB view from the device tip over the shared `R(s,θ)` lumen field,
   proving the sensor-swap invariant (same scene, different sensor).
+- Layer 2 data standard & capture (`lumen.data`): the `lumen-episode/0` schema
+  (`Episode` — kinematics + paired observation + outcome; `docs/EPISODE_SCHEMA.md`);
+  synthetic capture (`EpisodeRecorder` / `rollout_episode`); corpus iteration and
+  replay (`EpisodeDataset` / `replay` / `summarize`); and sim2sim wall-stiffness
+  calibration that closes the §3.6 loop on an episode (`probe_episode` /
+  `calibrate_from_episode`). Firewall-guarded like the asset seam; the real corpus
+  stays private.
 
 ### Changed
 - Leaner README and corrected `ARCHITECTURE.md` references (`tube_vbd.py`).

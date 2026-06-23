@@ -115,3 +115,14 @@ def test_summarize_does_not_read_sidecars(tmp_path):
 def test_nonexistent_root_warns(tmp_path):
     with pytest.warns(UserWarning, match="not a directory"):
         EpisodeDataset(tmp_path / "nope")
+
+
+def test_summarize_segregates_probe_from_navigation(tmp_path):
+    _ep("straight", 3, True).save(tmp_path / "nav")        # navigation (no kind -> default)
+    probe = _ep("wall_probe", 2, True)                     # a wall-probe masquerading as success
+    probe.meta.notes["episode_kind"] = "wall_probe"
+    probe.save(tmp_path / "probe")
+    s = summarize(EpisodeDataset(tmp_path))
+    assert s["episodes"] == 2 and s["navigation"] == 1     # only the nav episode is "navigation"
+    assert s["kinds"] == {"navigation": 1, "wall_probe": 1}
+    assert s["success_rate"] == 1.0                        # probe's success doesn't inflate it (over nav only)

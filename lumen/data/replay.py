@@ -86,22 +86,32 @@ def summarize(dataset) -> dict:
 
     Single-pass and manifest-only: the outcome lives in the manifest, so for an
     EpisodeDataset this reads manifests WITHOUT loading sidecars or full validation —
-    a 10k-episode corpus costs 10k small JSON reads, not 10k sidecar checks."""
+    a 10k-episode corpus costs 10k small JSON reads, not 10k sidecar checks.
+
+    Kind-aware: success_rate / mean_steps / mean_final_dist are computed over
+    NAVIGATION episodes only (the metrics are meaningless for wall-probe calibration
+    episodes, whose "steps" are views). `kinds` counts each notes["episode_kind"]
+    (default "navigation" for episodes that predate the discriminator)."""
     items = ((Episode.load(d) for d in dataset.dirs)
              if isinstance(dataset, EpisodeDataset) else dataset)
-    n = succ = steps = dist = 0
+    n = nav = succ = steps = dist = 0
     labels: Counter = Counter()
+    kinds: Counter = Counter()
     for ep in items:                                          # one streaming pass, no list()
         n += 1
-        succ += bool(ep.outcome.success)
-        steps += ep.outcome.steps
-        dist += ep.outcome.final_dist
         labels[ep.outcome.label] += 1
-    if n == 0:
-        return {"episodes": 0, "success_rate": 0.0, "mean_steps": 0.0,
-                "mean_final_dist": 0.0, "labels": {}}
-    return {"episodes": n, "success_rate": succ / n, "mean_steps": steps / n,
-            "mean_final_dist": dist / n, "labels": dict(labels)}
+        kind = ep.meta.notes.get("episode_kind", "navigation") if isinstance(ep.meta.notes, dict) else "navigation"
+        kinds[kind] += 1
+        if kind == "navigation":                             # nav metrics over nav episodes only
+            nav += 1
+            succ += bool(ep.outcome.success)
+            steps += ep.outcome.steps
+            dist += ep.outcome.final_dist
+    base = {"episodes": n, "navigation": nav, "labels": dict(labels), "kinds": dict(kinds)}
+    if nav == 0:
+        return {**base, "success_rate": 0.0, "mean_steps": 0.0, "mean_final_dist": 0.0}
+    return {**base, "success_rate": succ / nav, "mean_steps": steps / nav,
+            "mean_final_dist": dist / nav}
 
 
 if __name__ == "__main__":  # self-check (pure numpy — no Newton needed)

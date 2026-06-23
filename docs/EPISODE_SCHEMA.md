@@ -52,7 +52,7 @@ clobber an earlier step's sidecar).
     "device": { "radius": 0.2, ... },  // device knobs
     "sensor": { "modality": "fluoro", "nu": 128, ... },
     "dt": 0.005,
-    "notes": { "true_C10": 4000.0 },   // free-form; sim2sim ground truth lives here
+    "notes": { "episode_kind": "navigation", "true_C10": 4000.0 },  // free-form; see below
     "provenance": "procedural",
     "version": "lumen-episode/0"
   },
@@ -71,6 +71,19 @@ clobber an earlier step's sidecar).
                "retrieval": null, "label": "straight" }
 }
 ```
+
+## Episode kinds
+
+`notes["episode_kind"]` discriminates how an episode was produced (default
+`"navigation"` for episodes predating the field):
+
+- **`"navigation"`** — a rollout (L2.1): `steps` are timesteps, `outcome.success`/
+  `final_dist` are navigation metrics. `summarize` computes its rates over these.
+- **`"wall_probe"`** — a calibration probe (L2.3): `steps` are *views* of one static
+  scene (so `t` indexes the view and `dt=0`), not a time series. The calibration
+  block lives in `notes["calib"]` — `{true_C10, load, R0, bulge_dir, dev_kw, carms}`,
+  where `carms` are the serialized `CArm` views (a calibration-specific extension, not
+  part of `meta.sensor`). `summarize` excludes probes from navigation rates.
 
 ## What it deliberately does NOT carry
 
