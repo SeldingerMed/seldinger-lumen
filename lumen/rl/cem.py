@@ -17,12 +17,14 @@ import numpy as np
 
 from lumen.core.frame import CenterlineFrame
 
-THETA_DIM = 6                                  # 5 weights + 1 bias (linear policy)
+THETA_DIM = 6                                  # default: 5 obs weights + 1 bias (state obs)
 
 
 def linear_action(obs, theta):
-    """obs (K,5), theta (K,6) -> action (K,) in [-1,1]."""
-    return np.clip(np.sum(theta[:, :5] * obs, axis=1) + theta[:, 5], -1.0, 1.0)
+    """Linear policy over a d-dim obs: action = clip(W·obs + b). theta is (K, d+1)
+    (d weights + bias); d is inferred from obs so this works for state OR image obs."""
+    d = obs.shape[1]
+    return np.clip(np.sum(theta[:, :d] * obs, axis=1) + theta[:, d], -1.0, 1.0)
 
 
 class BatchedNav:
@@ -44,6 +46,7 @@ class BatchedNav:
         self.sim = NewtonGuidewireSim(vessel, R, dev, radius=0.2, kappa=3e3, d_hat=0.3,
                                       lumen_field=lumen_field, n_envs=K, vbd_iterations=8,
                                       device=device)
+        self.obs_dim = 5                                         # [s/L, r/R, sinθ, cosθ, remaining]
 
     def _tip_obs(self):
         tips = self.sim.env_positions()[:, -1, :]               # (K,3)
@@ -92,13 +95,18 @@ class BatchedNav:
 
 def train_cem(vessel=None, R=None, lumen_field=None, anatomies=None, pop=64,
               elite_frac=0.25, iters=25, target_frac=0.7, max_insertion=2.0,
-              seed=0, device="cpu", log=None):
+              seed=0, device="cpu", log=None, env_factory=None, warm_start=(4, 2.0)):
     """CEM over the linear policy; population evaluated in one batched rollout/iter.
 
     `anatomies` (list of (vessel, R, lumen_field)) trains with domain randomisation —
     each candidate is scored by its MEAN return across all anatomies, so the policy
     must generalise (a single straight-tube fit overfits and fails a stenosis). If
-    omitted, trains on the single (vessel, R, lumen_field). Returns (best_theta, history)."""
+    omitted, trains on the single (vessel, R, lumen_field).
+
+    `env_factory(vessel, R, lumen_field, pop) -> env` builds the rollout env (default
+    state-obs BatchedNav; pass a fluoro-obs builder for image-based control). The
+    policy dimension is taken from env.obs_dim. `warm_start=(idx, val)` seeds the
+    progress feature. Returns (best_theta, history)."""
     if pop <= 0:
         raise ValueError(f"pop must be greater than 0, got {pop}")
     if iters <= 0:
@@ -111,15 +119,21 @@ def train_cem(vessel=None, R=None, lumen_field=None, anatomies=None, pop=64,
     rng = np.random.default_rng(seed)
     if anatomies is None:
         anatomies = [(vessel, R, lumen_field)]
-    envs = [BatchedNav(v, r, pop, target_frac=target_frac, max_insertion=max_insertion,
-                       lumen_field=lf, device=device) for (v, r, lf) in anatomies]
-    mu = np.zeros(THETA_DIM, np.float32)
-    mu[4] = 2.0                                                 # warm-start near "push toward target"
-    sigma = np.full(THETA_DIM, 1.5, np.float32)
+    if env_factory is None:
+        def env_factory(v, r, lf, pop):
+            return BatchedNav(v, r, pop, target_frac=target_frac,
+                              max_insertion=max_insertion, lumen_field=lf, device=device)
+    envs = [env_factory(v, r, lf, pop) for (v, r, lf) in anatomies]
+    theta_dim = envs[0].obs_dim + 1                             # obs weights + bias
+    mu = np.zeros(theta_dim, np.float32)
+    wi, wv = warm_start
+    if wi is not None and wi < theta_dim:
+        mu[wi] = wv                                             # warm-start the progress feature
+    sigma = np.full(theta_dim, 1.5, np.float32)
     n_elite = max(2, int(elite_frac * pop))
     best_theta, best_ret, hist = mu.copy(), -1e9, []
     for it in range(iters):
-        theta = (mu[None, :] + sigma[None, :] * rng.standard_normal((pop, THETA_DIM))
+        theta = (mu[None, :] + sigma[None, :] * rng.standard_normal((pop, theta_dim))
                  ).astype(np.float32)
         theta[0] = mu                                          # keep the current mean in the pop
         rets, succs = [], []

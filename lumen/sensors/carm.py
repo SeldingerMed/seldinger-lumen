@@ -72,6 +72,24 @@ class CArm:
                 + gu[..., None] * u[None, None, :]
                 + gv[..., None] * v[None, None, :])
 
+    def project(self, point):
+        """Project a 3-D world point to detector pixel coords (u, v) — where the ray
+        source→point pierces the detector plane. Inverse of pixel_points' mapping;
+        may fall outside [0,nu)×[0,nv) if the point projects off the detector."""
+        u, v, n = self.axes()
+        S = np.asarray(self.source, float)
+        DC = np.asarray(self.detector_center, float)
+        p = np.asarray(point, float)
+        denom = float(np.dot(p - S, n))
+        if abs(denom) < 1e-12:                            # ray parallel to the detector
+            return np.nan, np.nan
+        t = float(np.dot(DC - S, n)) / denom
+        H = S + t * (p - S)                              # detector-plane hit
+        du, dv = float(np.dot(H - DC, u)), float(np.dot(H - DC, v))
+        u_pix = (du / self.width + 0.5) * self.nu - 0.5
+        v_pix = (dv / self.height + 0.5) * self.nv - 0.5
+        return u_pix, v_pix
+
     def rays(self):
         """(origin (3,), directions (nv,nu,3) unit) from the source to each pixel."""
         src = np.asarray(self.source, float)
