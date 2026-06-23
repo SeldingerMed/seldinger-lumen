@@ -20,14 +20,19 @@ from __future__ import annotations
 
 import numpy as np
 
-from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step
+from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step, validate
+
+
+class SimDiverged(RuntimeError):
+    """The Layer-0 sim produced non-finite node positions (blew up); the step is garbage."""
 
 
 def _sensor_meta(sensor, modality) -> dict:
     if sensor is None:
         return {"modality": modality}
-    if modality == "fluoro":
-        return {"modality": modality, "res": sensor.res, "nu": sensor.nu, "nv": sensor.nv}
+    if modality == "fluoro":   # res + n_samples are render knobs a replay must reproduce
+        return {"modality": modality, "res": sensor.res, "n_samples": sensor.n_samples,
+                "nu": sensor.nu, "nv": sensor.nv}
     if modality == "luminal":
         return {"modality": modality, "fov_deg": sensor.fov_deg, "nu": sensor.nu, "nv": sensor.nv}
     return {"modality": modality}
@@ -47,6 +52,10 @@ class EpisodeRecorder:
             raise ValueError(f"modality={modality!r} needs a sensor (renderer)")
         if modality == "luminal" and lumen is None:
             raise ValueError("luminal modality needs the lumen field")
+        if getattr(sim, "n_envs", 1) != 1:                # H1: capture is single-env; a batched
+            raise ValueError(                             # sim's body_positions concatenates all
+                f"EpisodeRecorder needs a single-env sim, got n_envs={sim.n_envs} "
+                "(body_positions would mix envs; tip/render would be wrong)")
         self.sim = sim
         self.frame = sim.contact_frame              # the Layer-0 centerline frame
         self.sensor, self.modality, self.lumen = sensor, modality, lumen
@@ -69,6 +78,8 @@ class EpisodeRecorder:
                       aspiration=float(action.get("aspiration", 0.0)))
         i = len(self.steps)
         nodes = np.asarray(self.sim.body_positions())
+        if not np.all(np.isfinite(nodes)):               # M3: guard divergence at the source,
+            raise SimDiverged(f"non-finite node positions at step {i}")  # not via a later validate
         pr = self.frame.project(nodes[-1])
         kin = {"tip_mm": [float(x) for x in nodes[-1]], "tip_s": float(pr.s),
                "tip_r": float(pr.r), "max_r": float(self.sim.node_radii().max())}
@@ -108,63 +119,74 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                     every=1, substeps=4, dt=5e-3, device=None, asset_ref="",
                     notes=None, sim_kwargs=None, record_nodes=True, view_axis=(1.0, 0.0, 0.0)):
     """Build a sim from `asset`, drive it to the target with `policy` (None = constant
-    forward insertion), record every step, and return a finished `Episode`.
+    forward insertion), record every step, and return a validated `Episode`.
 
-    `policy(obs)->action` consumes the 5-D state obs and returns insertion in [-1, 1]
-    (compatible with `lumen.rl.cem.make_policy`)."""
+    `policy(obs)->action` consumes the 5-D STATE obs and returns insertion in [-1, 1]
+    (compatible with a state-obs `lumen.rl.cem.make_policy`). An image-obs policy (L1.3)
+    needs an image-obs rollout — future work; the episode here still STORES the image obs.
+    Raises if the rollout can't produce a valid episode (e.g. the sim diverges on step 0)."""
     from lumen.core.frame import CenterlineFrame
     from lumen.newton.sim import NewtonGuidewireSim
 
+    if not asset.edges:
+        raise ValueError("asset has no edges to roll out")
     pts, lumen = asset.edge_arrays(asset.edges[0])
     vessel = np.asarray(pts)
     R = float(np.asarray(lumen.R).mean())
     frame = CenterlineFrame(vessel)
     L = float(frame.length)
     target_s = target_frac * L
+    # device + contact knobs recorded in meta.device so a replay/calibration harness can
+    # reproduce the sim (M1 — these affect the kinematics, not just the geometry).
+    radius, n_nodes, node_spacing = 0.2, 10, 2.0
+    kappa, d_hat, vbd_iterations = 3e3, 0.3, 8
     p0, t0, m1 = frame.points[0], frame.tangents[0], frame.m1[0]
-    device_points = (p0 + 0.5 * R * m1)[None, :] + np.arange(10)[:, None] * 2.0 * t0[None, :]
-    sim = NewtonGuidewireSim(vessel, R, device_points, radius=0.2, kappa=3e3, d_hat=0.3,
-                             lumen_field=lumen, vbd_iterations=8, device=device,
+    device_points = (p0 + 0.5 * R * m1)[None, :] + np.arange(n_nodes)[:, None] * node_spacing * t0[None, :]
+    sim = NewtonGuidewireSim(vessel, R, device_points, radius=radius, kappa=kappa, d_hat=d_hat,
+                             lumen_field=lumen, vbd_iterations=vbd_iterations, device=device,
                              **(sim_kwargs or {}))
 
-    meta = EpisodeMeta(asset_ref=asset_ref, dt=dt, device={"radius": 0.2, "n_nodes": 10},
+    meta = EpisodeMeta(asset_ref=asset_ref, dt=dt,
+                       device={"radius": radius, "n_nodes": n_nodes, "node_spacing": node_spacing,
+                               "kappa": kappa, "d_hat": d_hat, "vbd_iterations": vbd_iterations},
                        sensor=_sensor_meta(sensor, modality),
                        notes={"target_s": target_s, "target_frac": target_frac, **(notes or {})})
     rec = EpisodeRecorder(sim, sensor=sensor, modality=modality, lumen=lumen, every=every,
                           dt=dt, substeps=substeps, view_axis=view_axis,
                           record_nodes=record_nodes, meta=meta)
 
-    success, dist = False, abs(float(frame.project(np.asarray(sim.body_positions())[-1]).s) - target_s)
+    success = False
+    dist = abs(float(frame.project(np.asarray(sim.body_positions())[-1]).s) - target_s)
     for _ in range(max_steps):
         obs = _state_obs(frame, sim, R, L, target_s)
         a = 1.0 if policy is None else float(np.asarray(policy(obs)).reshape(-1)[0])
-        step = rec.record_step({"insertion": float(np.clip(a, -1.0, 1.0)) * max_insertion})
-        if not np.all(np.isfinite(step.kinematics["tip_mm"])):     # diverged: drop the bad step
-            rec.steps.pop(); rec._t -= dt
+        try:
+            step = rec.record_step({"insertion": float(np.clip(a, -1.0, 1.0)) * max_insertion})
+        except SimDiverged:                            # recorder guards divergence; dist stays last-good
             break
         dist = abs(step.kinematics["tip_s"] - target_s)
         if dist < success_tol:
             success = True
             break
 
-    label = asset.edges[0].id if asset.edges else ""
-    return rec.episode(Outcome(success=success, final_dist=float(dist),
-                               steps=len(rec.steps), label=label))
+    ep = rec.episode(Outcome(success=success, final_dist=float(dist), steps=len(rec.steps),
+                             label=asset.edges[0].id))
+    validate(ep)                                        # M2: fail loud rather than return a bad episode
+    return ep
 
 
 if __name__ == "__main__":  # self-check (needs newton+warp): capture, save, reload, validate
     import tempfile
 
     from lumen.assets import procedural
-    from lumen.data.schema import validate
     from lumen.sensors import FluoroSensor
 
     asset = procedural.straight_tube(80.0, 2.0)
     ep = rollout_episode(asset, sensor=FluoroSensor(res=20, nu=24, nv=24, n_samples=40),
-                         max_steps=6, every=1, notes={"true_C10": 4000.0})
-    validate(ep)
+                         max_steps=6, every=1, notes={"true_C10": 4000.0})       # validates internally
     assert ep.steps and ep.outcome.steps == len(ep.steps)
     assert ep.steps[-1].kinematics["tip_s"] >= ep.steps[0].kinematics["tip_s"]   # advanced
+    assert ep.meta.device["kappa"] == 3e3 and "n_samples" in ep.meta.sensor      # M1 + sensor knobs
     with tempfile.TemporaryDirectory() as d:
         ep.save(d)
         back = Episode.load(d)

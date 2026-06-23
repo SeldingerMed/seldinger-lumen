@@ -10,6 +10,7 @@ pytest.importorskip("newton")
 
 from lumen.assets import procedural                      # noqa: E402
 from lumen.data import Episode, EpisodeRecorder, rollout_episode, validate  # noqa: E402
+from lumen.data.capture import SimDiverged              # noqa: E402
 from lumen.sensors import FluoroSensor, LuminalCamera    # noqa: E402
 
 
@@ -54,13 +55,45 @@ def test_every_skips_render_but_keeps_kinematics():
     assert all("tip_mm" in s.kinematics for s in ep.steps)           # but kinematics every step
 
 
-def test_recorder_rejects_bad_modality_config():
+def test_meta_records_device_and_sensor_knobs():
+    asset = procedural.straight_tube(80.0, 2.0)
+    ep = rollout_episode(asset, sensor=FluoroSensor(res=16, nu=20, nv=20, n_samples=30),
+                         max_steps=3)
+    # M1: a replay/calibration harness needs the contact knobs that shape the kinematics
+    for k in ("radius", "n_nodes", "node_spacing", "kappa", "d_hat", "vbd_iterations"):
+        assert k in ep.meta.device
+    assert ep.meta.sensor["n_samples"] == 30           # render knob recorded
+
+
+def _build_sim(n_envs=1):
+    from lumen.newton.sim import NewtonGuidewireSim
     asset = procedural.straight_tube(80.0, 2.0)
     pts, lumen = asset.edge_arrays(asset.edges[0])
-    from lumen.newton.sim import NewtonGuidewireSim
     sim = NewtonGuidewireSim(np.asarray(pts), float(np.asarray(lumen.R).mean()),
-                             np.asarray(pts)[:8], lumen_field=lumen, vbd_iterations=4)
+                             np.asarray(pts)[:8], lumen_field=lumen, vbd_iterations=4,
+                             n_envs=n_envs)
+    return sim, lumen
+
+
+def test_recorder_rejects_bad_modality_config():
+    sim, _ = _build_sim()
     with pytest.raises(ValueError):
         EpisodeRecorder(sim, sensor=None, modality="fluoro")        # renderer required
     with pytest.raises(ValueError):
         EpisodeRecorder(sim, sensor=LuminalCamera(), modality="luminal", lumen=None)  # lumen required
+
+
+def test_recorder_rejects_multi_env_sim():
+    sim, _ = _build_sim(n_envs=3)                       # H1: batched sim would mix envs
+    with pytest.raises(ValueError, match="single-env"):
+        EpisodeRecorder(sim, sensor=FluoroSensor(res=16, nu=20, nv=20))
+
+
+def test_recorder_guards_divergence(monkeypatch):
+    sim, lumen = _build_sim()
+    rec = EpisodeRecorder(sim, sensor=FluoroSensor(res=16, nu=20, nv=20), modality="fluoro")
+    nan_nodes = np.full((8, 3), np.nan)
+    monkeypatch.setattr(sim, "body_positions", lambda: nan_nodes)   # M3: force a blown-up sim
+    with pytest.raises(SimDiverged):
+        rec.record_step({"insertion": 1.0})
+    assert rec.steps == []                              # the garbage step is NOT appended
