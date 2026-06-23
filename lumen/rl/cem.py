@@ -6,9 +6,10 @@ candidate e — so policy search rides the same parallelism that makes the fast 
 fast. Gradient-free, pure numpy (no torch): right-sized for a small policy and a
 natural fit for the non-differentiable fast tier.
 
-Policy: linear, action = clip(W·obs + b, -1, 1) over the 5-D NavEnv obs. It can
-represent the proportional baseline (W=[0,0,0,0,4]) and improve on it by using the
-tip-radius / position features to back off before contact.
+Policy: linear, action = clip(W·obs + b, -1, 1). With the 5-D state NavEnv obs it can
+represent the proportional baseline (W=[0,0,0,0,4]) and improve on it via the tip-radius
+feature; with the 4-D image obs (FluoroBatchedNav, L1.3) it acts on image-space features
+instead. The policy is obs-dim-agnostic (width inferred from the obs).
 """
 
 from __future__ import annotations
@@ -106,7 +107,8 @@ def train_cem(vessel=None, R=None, lumen_field=None, anatomies=None, pop=64,
     `env_factory(vessel, R, lumen_field, pop) -> env` builds the rollout env (default
     state-obs BatchedNav; pass a fluoro-obs builder for image-based control). The
     policy dimension is taken from env.obs_dim. `warm_start=(idx, val)` seeds the
-    progress feature. Returns (best_theta, history)."""
+    progress feature. (When env_factory is passed, target_frac/max_insertion are that
+    factory's concern — the ones here are ignored.) Returns (best_theta, history)."""
     if pop <= 0:
         raise ValueError(f"pop must be greater than 0, got {pop}")
     if iters <= 0:

@@ -81,8 +81,8 @@ class CArm:
         DC = np.asarray(self.detector_center, float)
         p = np.asarray(point, float)
         denom = float(np.dot(p - S, n))
-        if abs(denom) < 1e-12:                            # ray parallel to the detector
-            return np.nan, np.nan
+        if denom <= 1e-12:                                # behind/at the source or parallel
+            return np.nan, np.nan                         # (point not in the forward beam)
         t = float(np.dot(DC - S, n)) / denom
         H = S + t * (p - S)                              # detector-plane hit
         du, dv = float(np.dot(H - DC, u)), float(np.dot(H - DC, v))
