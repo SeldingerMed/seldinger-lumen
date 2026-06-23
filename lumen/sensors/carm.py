@@ -29,7 +29,7 @@ class CArm:
     ``up``; ``width``/``height`` are physical detector extents, ``nu``/``nv`` pixels."""
     source: np.ndarray                       # X-ray source point (3,)
     detector_center: np.ndarray              # detector centre (3,)
-    up: np.ndarray = None                    # world up hint for the detector v-axis
+    up: np.ndarray | None = None             # world up hint for the detector v-axis
     width: float = 60.0
     height: float = 60.0
     nu: int = 128
@@ -49,7 +49,10 @@ class CArm:
 
     def axes(self):
         """Detector orthonormal in-plane axes (u, v) and inward normal n (source→det)."""
-        n = _unit(np.asarray(self.detector_center) - np.asarray(self.source))
+        sd = np.asarray(self.detector_center) - np.asarray(self.source)
+        if np.linalg.norm(sd) < 1e-9:        # fail loud on a degenerate geometry (L1)
+            raise ValueError("C-arm source and detector_center coincide; no view direction")
+        n = _unit(sd)
         up = self.up if self.up is not None else np.array([0.0, 0.0, 1.0])
         u = _unit(np.cross(n, up))
         if np.linalg.norm(np.cross(n, up)) < 1e-6:        # degenerate: up ∥ n

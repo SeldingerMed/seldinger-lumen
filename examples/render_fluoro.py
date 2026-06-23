@@ -34,8 +34,11 @@ def main():
     a = np.linspace(0, np.pi / 2, 40)
     wire = np.stack([30 * np.sin(a) + 3 * np.sin(6 * a), 2 * np.cos(3 * a),
                      30 * (1 - np.cos(a))], axis=1)
-    A, _ = FluoroSensor(mu_device=1.2, res=96, n_samples=260).render(wire, radius=0.6,
-                                                                     beer_lambert=True)
+    # render the DRR line integral A (device = high attenuation); min-max is the
+    # standard DRR display (A has no fixed range) and shows the device BRIGHT. For the
+    # clinical Beer-Lambert look (dark device on a bright field) use beer_lambert=True
+    # and scale I*255 directly (I is already in [0,1]).
+    A, _ = FluoroSensor(mu_device=1.2, res=96, n_samples=260).render(wire, radius=0.6)
     u8 = (255 * (A - A.min()) / (float(A.max() - A.min()) + 1e-9)).astype(np.uint8)
     write_png(out, np.ascontiguousarray(np.flipud(u8)))
     print(f"wrote {out}  ({u8.shape[1]}x{u8.shape[0]})")

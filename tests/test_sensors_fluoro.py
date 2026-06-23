@@ -23,10 +23,41 @@ def test_straight_wire_projects_to_a_thin_line():
     assert A.max() > 0.1
     lit = A > 0.5 * A.max()
     ys, xs = np.where(lit)
-    # a single straight wire -> a thin line: narrow in one detector axis, long in the other
-    assert (xs.max() - xs.min()) <= 8                  # thin across
-    assert (ys.max() - ys.min()) >= 0.5 * A.shape[0]   # spans along
-    assert lit.mean() < 0.15                            # most of the field is empty
+    x_span, y_span = xs.max() - xs.min(), ys.max() - ys.min()
+    # a single straight wire -> a THIN LINE: long in one detector axis, narrow in the
+    # other. Aspect ratio (not just "thin") would catch a focus-blurred blob too.
+    assert x_span <= 8                                  # thin across
+    assert y_span >= 0.6 * A.shape[0]                   # spans along
+    assert y_span > 6 * (x_span + 1)                    # clearly a line, not a blob
+    assert lit.mean() < 0.1                             # most of the field is empty
+
+
+def test_single_node_device_renders_a_sphere_not_blank():
+    # H1: a degenerate one-node device must still render (sphere), not silently blank
+    A, _ = FluoroSensor(mu_device=1.0, res=48, n_samples=120).render(
+        np.array([[0.0, 0.0, 0.0]]), radius=2.0)
+    assert A.max() > 0.1
+    import pytest
+    with pytest.raises(ValueError):                     # but zero nodes is an error
+        from lumen.sensors.volume import grid_for, voxelize_device
+        g = grid_for(np.zeros((2, 3)), res=16)
+        voxelize_device(np.zeros((0, 3)), 1.0, g)
+
+
+def test_carm_up_parallel_to_view_falls_back_to_valid_axes():
+    # L7: up ∥ view direction must still yield an orthonormal detector basis
+    carm = CArm.looking_at([0, 0, 0], axis=(0, 0, 1), up=(0, 0, 1), nu=8, nv=8)
+    u, v, n = carm.axes()
+    for w in (u, v, n):
+        assert abs(np.linalg.norm(w) - 1.0) < 1e-6
+    assert abs(u @ v) < 1e-6 and abs(u @ n) < 1e-6 and abs(v @ n) < 1e-6
+
+
+def test_degenerate_carm_raises():
+    # L1: coincident source/detector has no view direction -> fail loud
+    import pytest
+    with pytest.raises(ValueError):
+        CArm(source=np.zeros(3), detector_center=np.zeros(3)).axes()
 
 
 def test_attenuation_scales_linearly_with_mu():
