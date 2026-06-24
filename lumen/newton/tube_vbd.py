@@ -462,6 +462,16 @@ class TubeVBDSolver(SolverVBD):
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tree_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
         self._tree_enabled = True
+        # base actuation (centerline-following insertion) follows the ENTRY edge (edge 0,
+        # the trunk); branch-following base actuation past a junction is the steering
+        # problem (future). These _tube_* arrays feed _actuate_base only — the tube
+        # CONTACT kernel stays off (only _tree_enabled drives contact).
+        f0 = tree.edges[0].frame
+        self._tube_P = _wp.array(f0.points.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_Tg = _wp.array(f0.tangents.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_cum_s = _wp.array(f0.cum_s.astype(_np.float32), dtype=_wp.float32, device=dev)
+        self._tube_M = len(f0.points)
+        self._tube_s_max = float(f0.length)
 
     def step(self, state_in, state_out, control, contacts, dt):
         super().step(state_in, state_out, control, contacts, dt)
