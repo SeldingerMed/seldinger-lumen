@@ -59,7 +59,10 @@ class VascularTree:
         if not asset.edges:
             raise ValueError("asset has no edges")
         self.edges = [_Edge(e, asset) for e in asset.edges]
-        self.blend_len = float(blend_len)
+        blend_len = float(blend_len)
+        if blend_len < 0:
+            raise ValueError(f"blend_len must be >= 0, got {blend_len}")
+        self.blend_len = blend_len
         self._node_pos = {n.id: np.asarray(n.position_mm, float) for n in asset.nodes}
         # degree = how many edges touch a node; >1 marks a junction
         self._degree: dict[str, int] = {}
@@ -69,9 +72,14 @@ class VascularTree:
 
     # --- junction radius -----------------------------------------------------
     def _edge_end_R(self, e: _Edge, node_id: str) -> float:
-        """Edge e's lumen radius at the end that touches node_id (s=0 or s=L)."""
+        """Edge e's lumen radius at the end that touches node_id (s=0 or s=L).
+
+        Averages over theta to properly account for non-axisymmetric sections."""
         s_end = 0.0 if node_id == e.node_a else e.frame.length
-        return float(e.lf.eval(s_end, 0.0))               # axisymmetric query at the shared end
+        # sample the full end-section profile to capture angular variation
+        theta_samples = np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
+        radii = [e.lf.eval(s_end, th) for th in theta_samples]
+        return float(np.mean(radii))
 
     def _junction_R(self, node_id: str) -> float:
         """Widest meeting vessel at a node — the lumen bulges to at least this at the

@@ -75,3 +75,9 @@ def test_empty_asset_rejected():
     asset.edges = []
     with pytest.raises(ValueError, match="no edges"):
         VascularTree(asset)
+
+
+def test_negative_blend_len_rejected():
+    asset = procedural.straight_tube(10.0, 1.0)
+    with pytest.raises(ValueError, match="blend_len must be >= 0"):
+        VascularTree(asset, blend_len=-1.0)
