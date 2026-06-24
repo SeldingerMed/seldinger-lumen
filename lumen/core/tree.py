@@ -87,7 +87,13 @@ class VascularTree:
         return max(self._edge_end_R(e, node_id)
                    for e in self.edges if node_id in (e.node_a, e.node_b))
 
-    def _blended_R(self, ei: int, s: float, theta: float) -> float:
+    def blended_R(self, ei: int, s: float, theta: float) -> float:
+        """Branch-blended lumen radius at (edge ei, s, theta) — public so the contact
+        baker (set_tree_contact) reads it without reaching into a private method.
+
+        ponytail: linear taper (C0; the gap is continuous but its slope kinks at
+        blend_len). Smoothstep (3w²−2w³) if a penalty-force kink ever shows in
+        dynamics."""
         e = self.edges[ei]
         R_edge = float(e.lf.eval(s, theta))
         if self.blend_len <= 0:
@@ -107,14 +113,20 @@ class VascularTree:
         """Project a world point onto the nearest edge; R/gap are branch-blended.
 
         Nearest = smallest radial distance r (the point belongs to whichever lumen
-        contains it); near a junction the blended R keeps the gap continuous."""
+        contains it); near a junction the blended R keeps the gap MAGNITUDE continuous.
+        ponytail ceiling: at a Y the min-r winner can be the wrong branch, so the
+        contact NORMAL e_r may point off the true lumen's axis within the junction
+        band — fine for navigation, revisit (min-gap ownership / averaged normals) if
+        junction contact accuracy matters. Also, like CenterlineFrame, a point past an
+        open vessel end clips to the tip (reported inside); the contact kernel culls
+        open ends, but tree.gap does not flag axial-beyond."""
         p = np.asarray(p, float)
         best_i, best_pr = 0, None
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)
             if best_pr is None or pr.r < best_pr.r:
                 best_i, best_pr = i, pr
-        R = self._blended_R(best_i, best_pr.s, best_pr.theta)
+        R = self.blended_R(best_i, best_pr.s, best_pr.theta)
         return TreeProjection(edge_id=self.edges[best_i].id, edge_index=best_i,
                               s=best_pr.s, theta=best_pr.theta, r=best_pr.r,
                               e_r=best_pr.e_r, R=R, gap=R - best_pr.r)
