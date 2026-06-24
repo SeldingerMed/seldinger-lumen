@@ -133,3 +133,104 @@ def accumulate_tube_barrier(
             c_t = mu * fn / (denom * dt)
             ident = wp.mat33(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
             body_hessian_ll[bid] = body_hessian_ll[bid] + c_t * (ident - wp.outer(er, er))
+
+
+@wp.kernel
+def accumulate_tree_barrier(
+    color_group: wp.array(dtype=wp.int32),
+    wire_mask: wp.array(dtype=wp.int32),
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    P: wp.array(dtype=wp.vec3),               # all edges' centerline vertices, concatenated
+    Tg: wp.array(dtype=wp.vec3),
+    M1: wp.array(dtype=wp.vec3),
+    cum_s: wp.array(dtype=wp.float32),        # per-edge cumulative arc-length (each edge starts at 0)
+    edge_vstart: wp.array(dtype=wp.int32),    # [n_edges] first vertex index of each edge in P
+    edge_vcount: wp.array(dtype=wp.int32),    # [n_edges] vertex count per edge
+    edge_smax: wp.array(dtype=wp.float32),    # [n_edges] arc length per edge
+    edge_start_junc: wp.array(dtype=wp.int32),  # [n_edges] 1 if the edge's start node is a junction
+    edge_end_junc: wp.array(dtype=wp.int32),    # [n_edges] 1 if the edge's end node is a junction
+    n_edges: int,
+    R0_grid: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] branch-BLENDED radius (rigid)
+    n_s: int, n_th: int,
+    kappa: float, d_hat: float, mode: int,
+    mu_along: float, mu_across: float, gamma_fric: float, dt: float,
+    body_forces: wp.array(dtype=wp.vec3),
+    body_hessian_ll: wp.array(dtype=wp.mat33),
+    wall_load: wp.array(dtype=wp.float32),    # [n_edges*n_s*n_th] (out)
+):
+    """Tree variant of the tube barrier: each wire node finds its nearest segment
+    ACROSS ALL EDGES, then reads that edge's blended rigid radius block. The §3.5.2
+    branch blending is pre-baked into R0_grid at build time, so the kernel stays
+    simple. Junction ends are NOT culled (a node there is transitioning between edges),
+    unlike open vessel ends. Single-env, rigid wall (deformable tree wall is future)."""
+    t = wp.tid()
+    bid = color_group[t]
+    if wire_mask[bid] == 0:
+        return
+    p = wp.transform_get_translation(body_q[bid])
+    best = float(1.0e30)
+    bj = int(0)
+    bu = float(0.0)
+    be = int(0)
+    for e in range(n_edges):
+        v0 = edge_vstart[e]
+        nv = edge_vcount[e]
+        for k in range(nv - 1):
+            j = v0 + k
+            a = P[j]
+            ab = P[j + 1] - a
+            L2 = wp.dot(ab, ab)
+            u = wp.clamp(wp.dot(p - a, ab) / L2, 0.0, 1.0)
+            dd = p - (a + u * ab)
+            d2 = wp.dot(dd, dd)
+            if d2 < best:
+                best = d2
+                bj = j
+                bu = u
+                be = e
+    v0 = edge_vstart[be]
+    vend = v0 + edge_vcount[be] - 1
+    # open vessel end -> no contact; but a JUNCTION end is not open (node transits edges)
+    if edge_start_junc[be] == 0 and wp.dot(p - P[v0], Tg[v0]) < 0.0:
+        return
+    if edge_end_junc[be] == 0 and wp.dot(p - P[vend], Tg[vend]) > 0.0:
+        return
+    a = P[bj]
+    foot = a + bu * (P[bj + 1] - a)
+    tang = wp.normalize(Tg[bj] + bu * (Tg[bj + 1] - Tg[bj]))
+    radial = (p - foot) - wp.dot(p - foot, tang) * tang
+    r = wp.length(radial)
+    er = radial / (r + 1.0e-9)
+    s = cum_s[bj] + bu * (cum_s[bj + 1] - cum_s[bj])
+    i_s = wp.clamp(int(s / edge_smax[be] * float(n_s - 1) + 0.5), 0, n_s - 1)
+    m1 = M1[bj] - wp.dot(M1[bj], tang) * tang
+    m1 = m1 / (wp.length(m1) + 1.0e-9)
+    m2 = wp.cross(tang, m1)
+    theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
+    th01 = (theta + 3.14159265) / 6.2831853
+    i_th = int(th01 * float(n_th)) % n_th
+    cell = be * (n_s * n_th) + i_s * n_th + i_th
+    R_eff = R0_grid[cell]                      # rigid: blended R baked in (w field is future)
+    dwall = R_eff - r
+    if dwall < d_hat:
+        bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)
+        body_forces[bid] = body_forces[bid] + bp * er
+        body_hessian_ll[bid] = body_hessian_ll[bid] + bpp * wp.outer(er, er)
+        fn = -bp
+        wp.atomic_add(wall_load, cell, fn)
+        if mu_across > 0.0 or mu_along > 0.0:
+            v_lin = wp.spatial_bottom(body_qd[bid])
+            v_t = v_lin - wp.dot(v_lin, er) * er
+            vt_mag = wp.length(v_t)
+            circ = wp.normalize(wp.cross(tang, er))
+            fiber = wp.cos(gamma_fric) * circ + wp.sin(gamma_fric) * tang
+            tdir = v_t / vt_mag if vt_mag > 1.0e-9 else circ
+            ca = wp.dot(tdir, fiber)
+            mu = mu_across + (mu_along - mu_across) * ca * ca
+            eps_v = 1.0e-2
+            denom = wp.sqrt(vt_mag * vt_mag + eps_v * eps_v)
+            body_forces[bid] = body_forces[bid] - (mu * fn / denom) * v_t
+            c_t = mu * fn / (denom * dt)
+            ident = wp.mat33(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+            body_hessian_ll[bid] = body_hessian_ll[bid] + c_t * (ident - wp.outer(er, er))

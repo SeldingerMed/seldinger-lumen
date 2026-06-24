@@ -27,7 +27,7 @@ from newton._src.solvers.vbd.rigid_vbd_kernels import (
     update_duals_joint,
 )
 
-from lumen.newton.tube_barrier_kernel import accumulate_tube_barrier
+from lumen.newton.tube_barrier_kernel import accumulate_tree_barrier, accumulate_tube_barrier
 
 
 class TubeVBDSolver(SolverVBD):
@@ -188,6 +188,22 @@ class TubeVBDSolver(SolverVBD):
                             self._tube_gamma_fric, dt],
                     outputs=[self.body_forces, self.body_hessian_ll,
                              self._tube_wall_load],
+                    device=self.device,
+                )
+            if getattr(self, "_tree_enabled", False):
+                wp.launch(
+                    kernel=accumulate_tree_barrier,
+                    dim=color_group.size,
+                    inputs=[color_group, self._tree_wire_mask, state_in.body_q,
+                            state_in.body_qd,
+                            self._tree_P, self._tree_Tg, self._tree_M1, self._tree_cum_s,
+                            self._tree_vstart, self._tree_vcount, self._tree_smax,
+                            self._tree_start_junc, self._tree_end_junc, self._tree_n_edges,
+                            self._tree_R0, self._tree_ns, self._tree_nth,
+                            self._tree_kappa, self._tree_d_hat, self._tree_mode,
+                            self._tree_mu_along, self._tree_mu_across,
+                            self._tree_gamma_fric, dt],
+                    outputs=[self.body_forces, self.body_hessian_ll, self._tree_wall_load],
                     device=self.device,
                 )
             wp.launch(
@@ -393,6 +409,56 @@ class TubeVBDSolver(SolverVBD):
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tube_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
         self._tube_enabled = True
+
+    def set_tree_contact(self, tree, wire_body_ids, kappa=2.0e3, d_hat=0.3,
+                         barrier_mode="compliant", n_s=40, n_th=16,
+                         mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0):
+        """Multi-edge (vascular-tree) contact: each wire node contacts its nearest edge,
+        with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
+        here so the kernel stays simple). Single-env, rigid wall — the deformable tree
+        wall (per-edge HGO) is future work. `tree` is a ``lumen.core.VascularTree``."""
+        dev = self.device
+        P, Tg, M1, cum_s = [], [], [], []
+        vstart, vcount, smax, sj, ej = [], [], [], [], []
+        ss = _np.linspace(0.0, 1.0, n_s)              # fractional s; scaled per edge below
+        th = -_np.pi + (_np.arange(n_th) + 0.5) / n_th * 2.0 * _np.pi
+        R0_blocks = []
+        off = 0
+        for i, e in enumerate(tree.edges):
+            f = e.frame
+            vstart.append(off)
+            vcount.append(len(f.points))
+            off += len(f.points)
+            smax.append(float(f.length))
+            sj.append(1 if tree.is_junction(e.node_a) else 0)
+            ej.append(1 if tree.is_junction(e.node_b) else 0)
+            P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
+            # bake the branch-blended R(s,θ) for this edge into its grid block
+            block = _np.array([[tree._blended_R(i, float(sf) * f.length, float(t)) for t in th]
+                               for sf in ss])
+            R0_blocks.append(block.ravel())
+        self._tree_P = _wp.array(_np.concatenate(P).astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tree_Tg = _wp.array(_np.concatenate(Tg).astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tree_M1 = _wp.array(_np.concatenate(M1).astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tree_cum_s = _wp.array(_np.concatenate(cum_s).astype(_np.float32), dtype=_wp.float32, device=dev)
+        self._tree_vstart = _wp.array(_np.array(vstart, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_vcount = _wp.array(_np.array(vcount, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_smax = _wp.array(_np.array(smax, _np.float32), dtype=_wp.float32, device=dev)
+        self._tree_start_junc = _wp.array(_np.array(sj, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_end_junc = _wp.array(_np.array(ej, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_n_edges = len(tree.edges)
+        self._tree_R0 = _wp.array(_np.concatenate(R0_blocks).astype(_np.float32),
+                                  dtype=_wp.float32, device=dev)
+        self._tree_wall_load = _wp.zeros(self._tree_n_edges * n_s * n_th, dtype=_wp.float32, device=dev)
+        self._tree_ns, self._tree_nth = int(n_s), int(n_th)
+        self._tree_kappa, self._tree_d_hat = float(kappa), float(d_hat)
+        self._tree_mode = 1 if barrier_mode == "log" else 0
+        self._tree_mu_along, self._tree_mu_across = float(mu_along), float(mu_across)
+        self._tree_gamma_fric = float(_np.radians(gamma_fric_deg))
+        mask = _np.zeros(self.model.body_count, dtype=_np.int32)
+        mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
+        self._tree_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
+        self._tree_enabled = True
 
     def step(self, state_in, state_out, control, contacts, dt):
         super().step(state_in, state_out, control, contacts, dt)
