@@ -5,7 +5,7 @@ import pytest
 
 from lumen.assets import procedural
 from lumen.core import VascularTree
-from lumen.envs.tree_nav import _route_polyline
+from lumen.envs.tree_nav import _HAS_GYM, _route_polyline
 
 
 # ---- route graph helpers (pure numpy) ----------------------------------------
@@ -39,6 +39,20 @@ def test_route_between_leaves_goes_through_apex():
     assert [tree.edges[i].id for i in route] == ["left", "right"]
 
 
+def test_empty_route_polyline_is_single_point():
+    tree = VascularTree(procedural.bifurcation())
+    poly = _route_polyline(tree, [], "trunk_in")           # start == target -> []
+    assert poly.shape == (1, 3)
+
+
+def test_env_rejects_target_equal_start():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+    from lumen.envs import TreeNavEnv
+    with pytest.raises(ValueError, match="differ from start"):
+        TreeNavEnv(procedural.bifurcation(), target_node="trunk_in", device="cpu")
+
+
 # ---- the env (needs the Layer-0 tree sim) ------------------------------------
 def test_tree_nav_env_builds_steps_and_progresses():
     pytest.importorskip("warp")
@@ -46,19 +60,21 @@ def test_tree_nav_env_builds_steps_and_progresses():
     from lumen.envs import TreeNavEnv
 
     env = TreeNavEnv(procedural.bifurcation(trunk=50.0, branch=50.0, angle_deg=25.0),
-                     target_node="left_out", max_steps=30, device="cpu")
+                     target_node="left_out", max_steps=40, device="cpu")
     obs, _ = env.reset()
     assert obs.shape == (5,) and np.isfinite(obs).all()
-    s0 = env._tip()[0]
+    if _HAS_GYM:
+        assert env.action_space.shape == (1,) and env.observation_space.shape == (5,)
     last = None
-    for _ in range(20):
-        obs, r, term, trunc, info = env.step(1.0)           # push forward
+    for _ in range(35):
+        obs, r, term, trunc, info = env.step(1.0)           # push forward along the route
         assert np.isfinite(obs).all()
         last = info
         if term or trunc:
             break
-    # the wire advances along the route (up the trunk at least) and stays in the lumen
-    assert env._tip()[0] > s0 + 10.0                        # real forward route progress
+    # the wire advances PAST the trunk (50mm) into the branch — the route-following base
+    # actuation fix (it would clamp at the apex if the base only followed the trunk).
+    assert env._features()["s"] > 52.0                      # crossed the junction into the branch
     assert last["max_r"] <= env.R + 0.3 + 0.15             # held within the lumen band
-    # honest: reaching the branch LEAF needs steering/branch-selection (not asserted) —
-    # this pins the env + route pipeline, not learned vessel choice.
+    # honest: this pins the route pipeline + route-following actuation; it does NOT claim
+    # learned branch SELECTION (the route is prescribed; the policy controls insertion).

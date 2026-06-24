@@ -412,11 +412,17 @@ class TubeVBDSolver(SolverVBD):
 
     def set_tree_contact(self, tree, wire_body_ids, kappa=2.0e3, d_hat=0.3,
                          barrier_mode="compliant", n_s=40, n_th=16,
-                         mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0):
+                         mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
+                         actuation_centerline=None):
         """Multi-edge (vascular-tree) contact: each wire node contacts its nearest edge,
         with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
         here so the kernel stays simple). Single-env, rigid wall — the deformable tree
-        wall (per-edge HGO) is future work. `tree` is a ``lumen.core.VascularTree``."""
+        wall (per-edge HGO) is future work. `tree` is a ``lumen.core.VascularTree``.
+
+        `actuation_centerline` is the path the kinematic base follows for insertion
+        (centerline-following). Pass the full route polyline (trunk→target branch) so the
+        base can be pushed PAST the junction into a branch; default = the entry edge (the
+        base stops at the apex — only trunk targets reachable)."""
         if getattr(self, "_tube_enabled", False):     # one contact model per solver, never both
             raise RuntimeError("tube contact already set on this solver; cannot also enable tree "
                                "contact (the barriers would double up)")
@@ -462,16 +468,20 @@ class TubeVBDSolver(SolverVBD):
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tree_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
         self._tree_enabled = True
-        # base actuation (centerline-following insertion) follows the ENTRY edge (edge 0,
-        # the trunk); branch-following base actuation past a junction is the steering
-        # problem (future). These _tube_* arrays feed _actuate_base only — the tube
-        # CONTACT kernel stays off (only _tree_enabled drives contact).
-        f0 = tree.edges[0].frame
-        self._tube_P = _wp.array(f0.points.astype(_np.float32), dtype=_wp.vec3, device=dev)
-        self._tube_Tg = _wp.array(f0.tangents.astype(_np.float32), dtype=_wp.vec3, device=dev)
-        self._tube_cum_s = _wp.array(f0.cum_s.astype(_np.float32), dtype=_wp.float32, device=dev)
-        self._tube_M = len(f0.points)
-        self._tube_s_max = float(f0.length)
+        # base actuation (centerline-following insertion) follows the route polyline if
+        # given (so the base can be pushed past a junction into a branch), else the entry
+        # edge. These _tube_* arrays feed _actuate_base ONLY — the tube CONTACT kernel
+        # stays off (only _tree_enabled drives contact).
+        if actuation_centerline is not None:
+            from lumen.core.frame import CenterlineFrame
+            fa = CenterlineFrame(_np.asarray(actuation_centerline, float))
+        else:
+            fa = tree.edges[0].frame
+        self._tube_P = _wp.array(fa.points.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_Tg = _wp.array(fa.tangents.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_cum_s = _wp.array(fa.cum_s.astype(_np.float32), dtype=_wp.float32, device=dev)
+        self._tube_M = len(fa.points)
+        self._tube_s_max = float(fa.length)
 
     def step(self, state_in, state_out, control, contacts, dt):
         super().step(state_in, state_out, control, contacts, dt)

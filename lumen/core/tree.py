@@ -141,14 +141,15 @@ class VascularTree:
         """Edge indices forming the path from `start_node` to `target_node` (BFS over the
         edge graph). Raises if unreachable. Used to define a navigation target down a
         specific branch."""
+        from collections import deque
         adj: dict[str, list[tuple[int, str]]] = {}
         for i, e in enumerate(self.edges):
             adj.setdefault(e.node_a, []).append((i, e.node_b))
             adj.setdefault(e.node_b, []).append((i, e.node_a))
         seen = {start_node}
-        queue: list[tuple[str, list[int]]] = [(start_node, [])]
+        queue: deque[tuple[str, list[int]]] = deque([(start_node, [])])
         while queue:
-            node, path = queue.pop(0)
+            node, path = queue.popleft()         # deque: O(1) pop, not list.pop(0)'s O(n)
             if node == target_node:
                 return path
             for ei, other in adj.get(node, []):
