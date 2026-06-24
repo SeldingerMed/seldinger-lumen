@@ -8,5 +8,6 @@ specifics live in ``lumen.profiles``.
 
 from lumen.core.frame import CenterlineFrame, Projection
 from lumen.core.lumen_field import LumenField
+from lumen.core.tree import TreeProjection, VascularTree
 
-__all__ = ["CenterlineFrame", "Projection", "LumenField"]
+__all__ = ["CenterlineFrame", "Projection", "LumenField", "VascularTree", "TreeProjection"]
