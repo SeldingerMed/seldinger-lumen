@@ -417,6 +417,9 @@ class TubeVBDSolver(SolverVBD):
         with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
         here so the kernel stays simple). Single-env, rigid wall — the deformable tree
         wall (per-edge HGO) is future work. `tree` is a ``lumen.core.VascularTree``."""
+        if getattr(self, "_tube_enabled", False):     # one contact model per solver, never both
+            raise RuntimeError("tube contact already set on this solver; cannot also enable tree "
+                               "contact (the barriers would double up)")
         dev = self.device
         P, Tg, M1, cum_s = [], [], [], []
         vstart, vcount, smax, sj, ej = [], [], [], [], []
@@ -434,7 +437,7 @@ class TubeVBDSolver(SolverVBD):
             ej.append(1 if tree.is_junction(e.node_b) else 0)
             P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
             # bake the branch-blended R(s,θ) for this edge into its grid block
-            block = _np.array([[tree._blended_R(i, float(sf) * f.length, float(t)) for t in th]
+            block = _np.array([[tree.blended_R(i, float(sf) * f.length, float(t)) for t in th]
                                for sf in ss])
             R0_blocks.append(block.ravel())
         self._tree_P = _wp.array(_np.concatenate(P).astype(_np.float32), dtype=_wp.vec3, device=dev)

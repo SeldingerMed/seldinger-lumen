@@ -173,6 +173,8 @@ def accumulate_tree_barrier(
     bj = int(0)
     bu = float(0.0)
     be = int(0)
+    # O(n_edges × verts) nearest-segment scan, no spatial cull — fine for procedural
+    # small trees; add a per-edge bbox skip before use on full anatomical meshes.
     for e in range(n_edges):
         v0 = edge_vstart[e]
         nv = edge_vcount[e]
@@ -208,7 +210,7 @@ def accumulate_tree_barrier(
     m1 = m1 / (wp.length(m1) + 1.0e-9)
     m2 = wp.cross(tang, m1)
     theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
-    th01 = (theta + 3.14159265) / 6.2831853
+    th01 = (theta + wp.pi) / (2.0 * wp.pi)
     i_th = int(th01 * float(n_th)) % n_th
     cell = be * (n_s * n_th) + i_s * n_th + i_th
     R_eff = R0_grid[cell]                      # rigid: blended R baked in (w field is future)
