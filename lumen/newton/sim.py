@@ -106,6 +106,18 @@ class NewtonGuidewireSim:
             self.cath_bodies.extend(cath)
             self.cath_bases.append(cath[0])
         self._contact_bodies = self.bodies + self.cath_bodies   # both rods hit the wall
+        if self.coaxial:
+            # the guidewire and catheter are coupled by the radial constraint (L0d.2b),
+            # NOT by capsule contact — disable Newton body-body collision between the two
+            # rods so the catheter slides freely over the guidewire (else it drags it).
+            shape_of: dict[int, list[int]] = {}
+            for s, bod in enumerate(builder.shape_body):
+                shape_of.setdefault(int(bod), []).append(s)
+            gw_shapes = [s for bod in self.bodies for s in shape_of.get(bod, [])]
+            cath_shapes = [s for bod in self.cath_bodies for s in shape_of.get(bod, [])]
+            for sa in gw_shapes:
+                for sb in cath_shapes:
+                    builder.add_shape_collision_filter_pair(sa, sb)
         builder.color()
         self.model = builder.finalize(device=self.device)
 
