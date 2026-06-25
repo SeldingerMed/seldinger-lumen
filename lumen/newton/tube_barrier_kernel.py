@@ -63,6 +63,14 @@ def accumulate_coaxial_coupling(
             best = d2
             bk = k
             bu = u
+    # a guidewire node axially BEYOND either catheter opening has telescoped out — it's
+    # free there, not riding inside, so no coupling (CodeRabbit #22).
+    c0 = wp.transform_get_translation(body_q[cath_ids[0]])
+    c1 = wp.transform_get_translation(body_q[cath_ids[1]])
+    cn = wp.transform_get_translation(body_q[cath_ids[n_cath - 1]])
+    cm = wp.transform_get_translation(body_q[cath_ids[n_cath - 2]])
+    if wp.dot(p - c0, c1 - c0) < 0.0 or wp.dot(p - cn, cn - cm) > 0.0:
+        return
     a = wp.transform_get_translation(body_q[cath_ids[bk]])
     b = wp.transform_get_translation(body_q[cath_ids[bk + 1]])
     foot = a + bu * (b - a)

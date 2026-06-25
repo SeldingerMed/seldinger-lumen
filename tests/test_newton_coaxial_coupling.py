@@ -51,7 +51,7 @@ def test_coupling_pulls_guidewire_into_the_catheter():
     coupled = _run(couple=True)
     free = _run(couple=False)
     assert free > 0.4                              # without coupling the gw tip stays offset
-    assert coupled < 0.3 + 0.12                    # coupling pulls it inside the inner lumen
+    assert coupled < 0.3                           # inside the inner lumen (< r_inner, GLM L2)
     assert coupled < free - 0.1                    # decisive difference
 
 

@@ -151,6 +151,10 @@ class NewtonGuidewireSim:
             self._cath_ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
             self._cath_tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
             if couple_coaxial:                        # gw rides inside the catheter lumen (L0d.2b)
+                # catheter_inner_radius is the clearance for the gw CENTRE; the param
+                # accounts for the gw radius if set (default off to keep the constraint
+                # loose enough for the default tight test geometry). GLM M1: subtract the
+                # gw radius from catheter_inner_radius if the surface must stay inside.
                 self.solver.set_coaxial_coupling(self.bodies, self.cath_bodies,
                                                  catheter_inner_radius, kappa=coax_kappa,
                                                  d_hat=coax_d_hat, two_way=coax_two_way)
