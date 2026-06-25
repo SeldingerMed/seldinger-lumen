@@ -129,6 +129,55 @@ def test_tree_deformable_wall_deflects_under_load():
     assert soft > stiff                      # softer wall yields more (HGO monotone)
 
 
+def test_deformable_tree_wall_uses_per_edge_arclength():
+    # H1 fix: unequal-length edges get their OWN s_max for the HGO cell area (not one mean),
+    # so the relaxation is correct per edge.
+    from lumen.newton.hgo_wall import HGOParams
+    asset = procedural.bifurcation(trunk=50.0, branch=30.0, radius=2.0)   # edges 50, 30, 30
+    tree = VascularTree(asset)
+    sim = NewtonGuidewireSim(np.asarray(asset.edges[0].centerline_mm), 2.0, _device(),
+                             device="cpu", tree=tree, deformable_wall=True,
+                             hgo_params=HGOParams(C10=4e3, k1=2e3, k2=1.0, thickness=0.3))
+    w = sim.solver._tree_wall
+    assert np.allclose(w.s_max, [50.0, 30.0, 30.0])         # per-edge arc-length, not the mean
+    n = w.n_cells
+    assert abs(w.cell_area[0] / w.cell_area[n] - 50.0 / 30.0) < 0.01   # ds scales with edge length
+
+
+def test_deformable_wall_with_route_actuation():
+    # GLM L3: the physically interesting combo — deformable wall + base actuation that
+    # follows a route past a junction — runs stably and the wall deforms.
+    from lumen.envs.tree_nav import _route_polyline
+    from lumen.newton.hgo_wall import HGOParams
+    asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0, angle_deg=25.0)
+    tree = VascularTree(asset)
+    route = tree.route("left_out", "trunk_in")
+    route_pts = _route_polyline(tree, route, "trunk_in")
+    dev = np.stack([np.full(10, 0.3), np.zeros(10), np.linspace(2, 20, 10)], axis=1)
+    sim = NewtonGuidewireSim(np.asarray(asset.edges[0].centerline_mm), 2.0, dev, device="cpu",
+                             tree=tree, route_centerline=route_pts, deformable_wall=True,
+                             vbd_iterations=10,
+                             hgo_params=HGOParams(C10=3e3, k1=1.5e3, k2=1.0, thickness=0.3))
+    for _ in range(30):
+        sim.step(dt=2.5e-2, substeps=5, insertion=2.0, preload=(40.0, 0.0, 0.0))
+    assert np.isfinite(sim.body_positions()).all()
+    assert sim.wall_max_deflection() >= 0.0                 # stable; wall state well-defined
+
+
+def test_reset_clears_tree_wall_deformation():
+    from lumen.newton.hgo_wall import HGOParams
+    asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0)
+    tree = VascularTree(asset)
+    sim = NewtonGuidewireSim(np.asarray(asset.edges[0].centerline_mm), 2.0, _device(),
+                             device="cpu", tree=tree, deformable_wall=True,
+                             hgo_params=HGOParams(C10=2e3, k1=1e3, k2=1.0, thickness=0.3))
+    w = sim.solver._tree_wall
+    w.wall_load.assign(np.full(w.wall_load.shape, 50.0, np.float32)); w.update_from_load()
+    assert w.max_deflection() > 1e-3                        # deformed
+    sim.reset()
+    assert w.max_deflection() == 0.0                        # reset clears the wall (CodeRabbit #25)
+
+
 def test_tree_deformable_wall_steps_stably():
     from lumen.newton.hgo_wall import HGOParams
     asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0)

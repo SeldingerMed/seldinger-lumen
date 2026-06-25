@@ -171,9 +171,11 @@ class NewtonGuidewireSim:
             w.w[:] = 0.0
             w.w_field.zero_()
             w.wall_load.zero_()
-        tl = getattr(self.solver, "_tree_wall_load", None)   # tree path: clear stale contact load
-        if tl is not None:
-            tl.zero_()
+        tw = getattr(self.solver, "_tree_wall", None)        # tree path: clear wall deformation + load
+        if tw is not None:
+            tw.w[:] = 0.0
+            tw.w_field.zero_()
+            tw.wall_load.zero_()
         if self.clot is not None:
             self.clot.o = self.clot.o0.copy()
             self.clot.D[:] = 0.0

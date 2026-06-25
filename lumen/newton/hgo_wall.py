@@ -196,9 +196,16 @@ class WallField:
             # one block (n) tiled across envs (shared vessel), OR a full per-block grid
             # (n_envs*n) used as-is — the latter lets each block/edge have its own R0
             # (a vascular tree, where edges differ in radius; L0d.1d).
-            assert base.size in (n, self.n_envs * n), "R0 must be n_s*n_th or n_envs*n_s*n_th"
+            if base.size not in (n, self.n_envs * n):
+                raise ValueError(f"R0 must be n_s*n_th ({n}) or n_envs*n_s*n_th "
+                                 f"({self.n_envs * n}); got {base.size}")
         self.R0_grid = base if base.size == self.n_envs * n else np.tile(base, self.n_envs)
-        self.cell_area = (s_max / n_s) * (self.R0_grid * 2.0 * np.pi / n_th)    # per cell
+        # s_max may be a scalar (one vessel) OR a per-block array [n_envs] (a tree, whose
+        # edges differ in length) — the cell area uses each block's own arc-length so the
+        # HGO relaxation is correct per edge.
+        s_per_block = np.broadcast_to(np.asarray(s_max, float), (self.n_envs,))
+        ds_per_cell = np.repeat(s_per_block, n) / n_s
+        self.cell_area = ds_per_cell * (self.R0_grid * 2.0 * np.pi / n_th)      # per cell
         total = self.n_envs * n
         self.w = np.zeros(total, dtype=np.float64)
         if wp is not None:

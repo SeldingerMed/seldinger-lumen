@@ -419,10 +419,9 @@ class TubeVBDSolver(SolverVBD):
         """Multi-edge (vascular-tree) contact: each wire node contacts its nearest edge,
         with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
         here so the kernel stays simple). Single-env. `deformable_wall=True` gives each
-        edge an HGO wall (w field shared with the barrier, like the single tube, §3.5.6);
-        the per-edge grid uses one representative s_max (exact for equal-length edges, an
-        approximation otherwise — per-edge cell area is a refinement). `tree` is a
-        ``lumen.core.VascularTree``.
+        edge an HGO wall (w field shared with the barrier, like the single tube, §3.5.6),
+        with each edge's OWN arc-length feeding its cell area (correct for unequal-length
+        edges). `tree` is a ``lumen.core.VascularTree``.
 
         `actuation_centerline` is the path the kinematic base follows for insertion
         (centerline-following). Pass the full route polyline (trunk→target branch) so the
@@ -465,9 +464,9 @@ class TubeVBDSolver(SolverVBD):
         # is the blended base R0; w_field is the shared deformation the barrier reads and
         # the contact load relaxes. rigid (deformable_wall=False) just leaves w≡0.
         from lumen.newton.hgo_wall import WallField
-        rep_s_max = float(_np.mean(smax))         # representative; exact for equal-length edges
         self._tree_wall = WallField(R0=_np.concatenate(R0_blocks).astype(_np.float32),
-                                    s_max=rep_s_max, n_s=n_s, n_th=n_th, params=hgo_params,
+                                    s_max=_np.asarray(smax, float),   # per-edge arc-length (H1 fix)
+                                    n_s=n_s, n_th=n_th, params=hgo_params,
                                     device=dev, n_envs=self._tree_n_edges)
         self._tree_R0 = self._tree_wall.r0_field
         self._tree_w = self._tree_wall.w_field
