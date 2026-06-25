@@ -221,6 +221,10 @@ class NewtonGuidewireSim:
             if self.n_envs != 1:
                 raise NotImplementedError("aneurysm flow diversion is single-env (the sac "
                                           "reads the host pressure field)")
+            s_max = self.solver._wall.s_max
+            if not (0.0 <= aneurysm.s_neck <= s_max):    # else np.interp silently clamps
+                raise ValueError(f"aneurysm s_neck ({aneurysm.s_neck}) is outside the "
+                                 f"vessel arc-length [0, {s_max:.1f}]")
             from lumen.newton.aneurysm import AneurysmSac
             self.aneurysm_sac = AneurysmSac(aneurysm, visc=flow.p.visc)
         elif flow_diverter is not None:
@@ -450,14 +454,23 @@ class NewtonGuidewireSim:
         return self.solver.wall_max_deflection()      # tree-aware (per-edge HGO wall, L0d.1d)
 
     # --- aneurysm flow-diversion outputs (None if no aneurysm) ----------------
+    # inflow/turnover are CUMULATIVE over the current window (since reset/sac_mark);
+    # diversion is the CURRENT (static) neck coverage. Call sac_mark() at deployment
+    # to isolate the post-deployment inflow/turnover from the pre-deployment phase.
     def sac_inflow_peak(self) -> float:
-        """Peak neck inflow jet into the sac (a flow diverter lowers it)."""
+        """Peak neck inflow jet over the current window (a flow diverter lowers it)."""
         return self.aneurysm_sac.inflow_peak() if self.aneurysm_sac is not None else 0.0
 
     def sac_turnover_time(self) -> float:
-        """Sac washout time (a flow diverter lengthens it -> stasis -> thrombosis)."""
+        """Sac washout time over the current window (a diverter lengthens it -> stasis)."""
         return self.aneurysm_sac.turnover_time() if self.aneurysm_sac is not None else float("inf")
 
     def sac_diversion(self) -> float:
-        """Effective neck coverage of the deployed flow diverter (0 if none/missed)."""
+        """Current effective neck coverage of the deployed flow diverter (0 if none/missed)."""
         return self.aneurysm_sac.last_diversion if self.aneurysm_sac is not None else 0.0
+
+    def sac_mark(self) -> None:
+        """Open a fresh aneurysm measurement window (call at flow-diverter deployment),
+        keeping the sac-pressure equilibrium — so post-deployment stasis is isolated."""
+        if self.aneurysm_sac is not None:
+            self.aneurysm_sac.mark_window()

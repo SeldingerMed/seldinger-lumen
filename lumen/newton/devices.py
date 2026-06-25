@@ -44,7 +44,11 @@ class FlowDiverter:
     inflow. ``diversion`` is the effective neck blockage = the metal coverage times
     how much of the neck the deployed span actually overlaps (placement matters —
     a diverter that misses the neck does nothing). Feeds ``AneurysmSac.update`` as
-    the resistance-raising factor."""
+    the resistance-raising factor.
+
+    ponytail: the deployed placement (``deployed_center``/``span``) is PRESCRIBED,
+    not read from the live guidewire/catheter rod — coupling the diverter's actual
+    deployed position to the rod sim is the accurate-tier extension (§3.4.4)."""
 
     deployed_center: float          # arc-length of the deployment centre [mm]
     span: float = 20.0              # deployed length [mm]

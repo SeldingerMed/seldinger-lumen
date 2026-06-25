@@ -45,6 +45,40 @@ def test_diverter_cuts_inflow_and_lengthens_turnover():
     assert i_dense < i_div and t_dense > t_div
 
 
+def _run(sac, diversion, k0, n, dt, hr=1.5, P0=100.0, dP=40.0):
+    """Drive an existing sac for n steps continuing the phase clock from step k0."""
+    for k in range(k0, k0 + n):
+        sac.update(P0 + dP * math.sin(2 * math.pi * hr * k * dt), dt, diversion=diversion)
+    return k0 + n
+
+
+def test_measurement_window_isolates_post_deployment():
+    # the realistic workflow: observe the open aneurysm, DEPLOY the diverter, then
+    # measure the post-deployment stasis. mark_window() must isolate the second phase
+    # (M1/M2) — without it the running peak/turnover would stay blended with phase 1.
+    an = Aneurysm(s_neck=50.0)
+    sac = AneurysmSac(an)
+    dt = 8 / 1.5 / 400
+    k = _run(sac, 0.0, 0, 200, dt)                  # phase 1: open neck
+    pre_peak, pre_turn = sac.inflow_peak(), sac.turnover_time()
+    sac.mark_window()                               # "deploy" the diverter here
+    P_kept = sac.P_sac                              # equilibrium preserved (not reset)
+    _run(sac, 0.6, k, 200, dt)                      # phase 2: throttled neck
+    assert sac.P_sac is not None and P_kept is not None
+    assert sac.inflow_peak() < 0.7 * pre_peak       # window shows the POST-deploy peak
+    assert sac.turnover_time() > 1.3 * pre_turn     # ...and the post-deploy stasis
+
+
+def test_rc_integration_is_stable_for_a_compliant_sac_and_large_dt():
+    # L1: a very compliant sac (large C_sac) shrinks the stability limit 2·R·C; the
+    # internal sub-stepping must keep explicit Euler finite even at a coarse caller dt.
+    an = Aneurysm(s_neck=50.0, sac_volume=5000.0, wall_stiffness=50.0)   # huge C_sac
+    sac = AneurysmSac(an)
+    for k in range(200):
+        sac.update(100.0 + 40.0 * math.sin(2 * math.pi * 1.5 * k * 0.2), 0.2)  # coarse dt
+    assert math.isfinite(sac.P_sac) and math.isfinite(sac.inflow_peak())
+
+
 def test_sac_inflow_is_pulse_driven_not_a_charging_transient():
     # lazy-init seats P_sac at the first lumen pressure, so the metric is the cyclic
     # exchange, not the one-off charge-up — a steady (no-pulse) lumen drives ~no inflow.
@@ -111,3 +145,6 @@ def test_aneurysm_requires_flow_field_and_single_env():
     with pytest.raises(NotImplementedError, match="single-env"):        # batched
         NewtonGuidewireSim(vessel, 2.0, dev, flow=FlowField(), n_envs=2,
                            aneurysm=Aneurysm(s_neck=40.0), device="cpu")
+    with pytest.raises(ValueError, match="outside the vessel"):         # s_neck past the end (L2)
+        NewtonGuidewireSim(vessel, 2.0, dev, flow=FlowField(),
+                           aneurysm=Aneurysm(s_neck=200.0), device="cpu")
