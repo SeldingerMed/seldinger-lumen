@@ -14,8 +14,9 @@ from lumen.newton.hgo_wall import HGOParams
 from lumen.newton.clot import ClotField, ClotParams
 from lumen.newton.devices import Stentriever, FlowDiverter
 from lumen.newton.aneurysm import Aneurysm, AneurysmSac
+from lumen.newton.throughput import measure_throughput
 
 __all__ = ["NewtonGuidewireSim", "TubeVBDSolver", "NewtonFlow", "FlowParams",
            "FlowField", "FlowFieldParams",
            "HGOParams", "ClotField", "ClotParams", "Stentriever",
-           "FlowDiverter", "Aneurysm", "AneurysmSac"]
+           "FlowDiverter", "Aneurysm", "AneurysmSac", "measure_throughput"]

@@ -48,6 +48,13 @@ subclass overriding only the per-color rigid-body iteration).
 
 - **Fast tier** (`lumen/newton`, Newton VBD): batched, for RL throughput. Newton
   VBD is not autograd-differentiable; that is by design (doc §3.5.7).
+  - **Throughput.** The bible's target (§3.3) is `>=1e4` aggregate env-steps/s on a
+    workstation GPU for single-device navigation. The batched step is round-trip-free
+    (~97% Newton-VBD-kernel time; per-substep co-sim runs through on-device kernels,
+    no host sync), so per-env cost falls sharply with batch size — verify with
+    `python examples/benchmark_throughput.py --device cuda`. `test_throughput` pins
+    that amortization on CPU as a regression guard: a stray `.numpy()` in the hot
+    loop (a device→host sync) would serialize the envs and is what this catches.
 - **Accurate tier** (`lumen/accurate`): cross-validation, penetration-free IPC, and
   gradients for offline calibration.
   - `accurate/ipc.py` — a *built-in, self-contained* penetration-free IPC reference
