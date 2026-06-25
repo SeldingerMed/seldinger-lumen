@@ -78,8 +78,50 @@ def probe_episode(true_C10, sensor, carms=None, view_axis=(0.0, 0.0, 1.0), load=
                    outcome=Outcome(success=True, final_dist=0.0, steps=len(steps), label=label))
 
 
+def joint_probe_episode(true_C10, true_mu, sensor, carms=None, view_axis=(0.0, 0.0, 1.0),
+                        load=300.0, R0=2.0, bulge_dir=(1.0, 0.0, 0.0), push=6.0,
+                        normal_load=300.0, k_axial=120.0, asset_ref="",
+                        label="wall_friction_probe", notes=None, **dev_kw):
+    """Generate a wall+friction probe episode: a device that both presses the wall (bulge
+    ∝ 1/C10) and is pushed against friction (axial lag ∝ mu), imaged from one or more
+    C-arms. Stores both ground-truth params + the forward knobs so `calibrate_from_episode`
+    recovers (C10, mu) jointly — the M2 'wall/friction' seam on Layer-2 data."""
+    from lumen.sensors.device_as_sensor import device_wall_and_friction
+
+    nodes = device_wall_and_friction(true_C10, true_mu, load=load, R0=R0, bulge_dir=bulge_dir,
+                                     push=push, normal_load=normal_load, k_axial=k_axial, **dev_kw)
+    if carms is None:
+        if abs(float(np.dot(np.asarray(view_axis, float), np.asarray(bulge_dir, float)))) > 0.99:
+            warnings.warn("default view_axis is ~parallel to bulge_dir; this mono view is "
+                          "depth-ambiguous (under-determined) — add a second view", stacklevel=2)
+        carms = [sensor.default_carm(nodes, axis=view_axis)]
+    elif hasattr(carms, "rays"):
+        carms = [carms]
+    else:
+        carms = list(carms)
+    if not carms:
+        raise ValueError("at least one C-arm must be provided for calibration")
+
+    steps = [Step(t=float(i), action={"load": float(load), "push": float(push)},
+                  kinematics={"view": i}, obs_modality="fluoro", obs_ref=f"{i:03d}.npy",
+                  obs=sensor.render(nodes, carm=c)[0])
+             for i, c in enumerate(carms)]
+    meta = EpisodeMeta(
+        asset_ref=asset_ref, dt=0.0, device={"R0": float(R0)},
+        sensor=_fluoro_meta(sensor),
+        notes={**(notes or {}),
+               "episode_kind": "wall_friction_probe",
+               "calib": {"true_C10": float(true_C10), "true_mu": float(true_mu),
+                         "load": float(load), "R0": float(R0), "bulge_dir": list(bulge_dir),
+                         "push": float(push), "normal_load": float(normal_load),
+                         "k_axial": float(k_axial), "dev_kw": dict(dev_kw),
+                         "carms": [c.to_dict() for c in carms]}})
+    return Episode(meta=meta, steps=steps,
+                   outcome=Outcome(success=True, final_dist=0.0, steps=len(steps), label=label))
+
+
 def calibrate_from_episode(episode: Episode, root: str | None = None,
-                           init_C10: float = 4.0e3, iters: int = 30,
+                           init_C10: float = 4.0e3, init_mu: float = 0.3, iters: int = 30,
                            noise_std: float = 0.0, noise_seed: int = 0,
                            identifiable_tol: float = 0.05) -> dict:
     """Recover wall stiffness from a wall-probe episode and report the sim2sim error.
@@ -122,6 +164,10 @@ def calibrate_from_episode(episode: Episode, root: str | None = None,
     if len(targets) != len(carms):
         raise ValueError(f"{len(targets)} target frames vs {len(carms)} carms")
 
+    if "true_mu" in calib:        # joint wall+friction probe -> recover (C10, mu) together
+        return _calibrate_joint(calib, targets, sensor, carms, init_C10, init_mu, iters,
+                                noise_std, noise_seed, identifiable_tol)
+
     fwd = dict(load=calib["load"], R0=calib["R0"], bulge_dir=tuple(calib["bulge_dir"]),
                **calib.get("dev_kw", {}))
     true_C10 = float(calib["true_C10"])
@@ -139,6 +185,36 @@ def calibrate_from_episode(episode: Episode, root: str | None = None,
         rec_n, rel_n, _ = _recover(noised)
         out.update(recovered_C10_noisy=rec_n, rel_error_noisy=rel_n, noise_std=noise_std,
                    identifiable=bool(rel_n < identifiable_tol))
+    return out
+
+
+def _calibrate_joint(calib, targets, sensor, carms, init_C10, init_mu, iters,
+                     noise_std, noise_seed, identifiable_tol):
+    """Joint (C10, mu) recovery branch of calibrate_from_episode (wall+friction probe)."""
+    from lumen.sensors.device_as_sensor import estimate_wall_and_friction
+
+    fwd = dict(load=calib["load"], R0=calib["R0"], bulge_dir=tuple(calib["bulge_dir"]),
+               push=calib["push"], normal_load=calib["normal_load"], k_axial=calib["k_axial"],
+               **calib.get("dev_kw", {}))
+    true_C10, true_mu = float(calib["true_C10"]), float(calib["true_mu"])
+
+    def _recover(ts):
+        C10, mu, hist = estimate_wall_and_friction(ts, sensor, carms, init_C10=init_C10,
+                                                   init_mu=init_mu, iters=iters, **fwd)
+        return float(C10), float(mu), hist
+
+    C10, mu, hist = _recover(targets)
+    out = {"recovered_C10": C10, "true_C10": true_C10, "rel_error_C10": abs(C10 - true_C10) / true_C10,
+           "recovered_mu": mu, "true_mu": true_mu, "abs_error_mu": abs(mu - true_mu),
+           "n_views": len(carms), "history": hist}
+    if noise_std > 0:                              # honest joint-identifiability probe under noise
+        rng = np.random.default_rng(noise_seed)
+        noised = [t + rng.normal(0.0, noise_std, np.shape(t)) for t in targets]
+        C10n, mun, _ = _recover(noised)
+        rel_C10_n, abs_mu_n = abs(C10n - true_C10) / true_C10, abs(mun - true_mu)
+        out.update(recovered_C10_noisy=C10n, recovered_mu_noisy=mun, noise_std=noise_std,
+                   rel_error_C10_noisy=rel_C10_n, abs_error_mu_noisy=abs_mu_n,
+                   identifiable=bool(rel_C10_n < identifiable_tol and abs_mu_n < identifiable_tol))
     return out
 
 
