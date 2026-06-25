@@ -27,7 +27,8 @@ from newton._src.solvers.vbd.rigid_vbd_kernels import (
     update_duals_joint,
 )
 
-from lumen.newton.tube_barrier_kernel import accumulate_tube_barrier
+from lumen.newton.tube_barrier_kernel import (accumulate_coaxial_coupling,
+                                              accumulate_tree_barrier, accumulate_tube_barrier)
 
 
 class TubeVBDSolver(SolverVBD):
@@ -81,6 +82,8 @@ class TubeVBDSolver(SolverVBD):
         self.body_hessian_ll.zero_()
         if getattr(self, "_tube_enabled", False):
             self._tube_wall_load.zero_()      # holds this iteration's wall contact load
+        if getattr(self, "_tree_enabled", False):
+            self._tree_wall_load.zero_()
 
         body_color_groups = model.body_color_groups
 
@@ -188,6 +191,32 @@ class TubeVBDSolver(SolverVBD):
                             self._tube_gamma_fric, dt],
                     outputs=[self.body_forces, self.body_hessian_ll,
                              self._tube_wall_load],
+                    device=self.device,
+                )
+            if getattr(self, "_tree_enabled", False):
+                wp.launch(
+                    kernel=accumulate_tree_barrier,
+                    dim=color_group.size,
+                    inputs=[color_group, self._tree_wire_mask, state_in.body_q,
+                            state_in.body_qd,
+                            self._tree_P, self._tree_Tg, self._tree_M1, self._tree_cum_s,
+                            self._tree_vstart, self._tree_vcount, self._tree_smax,
+                            self._tree_start_junc, self._tree_end_junc, self._tree_n_edges,
+                            self._tree_R0, self._tree_w, self._tree_ns, self._tree_nth,
+                            self._tree_kappa, self._tree_d_hat, self._tree_mode,
+                            self._tree_mu_along, self._tree_mu_across,
+                            self._tree_gamma_fric, dt],
+                    outputs=[self.body_forces, self.body_hessian_ll, self._tree_wall_load],
+                    device=self.device,
+                )
+            if getattr(self, "_coax_enabled", False):
+                wp.launch(
+                    kernel=accumulate_coaxial_coupling,
+                    dim=color_group.size,
+                    inputs=[color_group, self._coax_gw_mask, state_in.body_q,
+                            self._coax_cath_ids, self._coax_n_cath, self._coax_r_inner,
+                            self._coax_kappa, self._coax_d_hat, self._coax_two_way],
+                    outputs=[self.body_forces, self.body_hessian_ll],
                     device=self.device,
                 )
             wp.launch(
@@ -394,11 +423,125 @@ class TubeVBDSolver(SolverVBD):
         self._tube_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
         self._tube_enabled = True
 
+    def set_coaxial_coupling(self, gw_body_ids, cath_body_ids, r_inner,
+                             kappa=2.0e3, d_hat=0.3, two_way=True, gw_radius=0.0):
+        """Constrain the guidewire to ride inside the catheter's inner lumen (radius
+        `r_inner`), reading the catheter's LIVE centerline each AVBD iteration so the gw
+        follows the catheter as it bends, sliding freely axially (L0d.2b). `two_way`
+        (L0d.2d) deposits the equal-opposite reaction on the catheter (responsive).
+
+        `gw_radius` keeps the guidewire SURFACE (centre + radius), not just its centre,
+        inside the lumen: the barrier limit is r_inner − gw_radius, and the band d_hat
+        is clamped to half that clearance (so it stays a near-wall barrier, not a
+        constant central pull)."""
+        if len(cath_body_ids) < 2:
+            raise ValueError("coaxial coupling needs a catheter centerline of >= 2 nodes")
+        dev = self.device
+        mask = _np.zeros(self.model.body_count, dtype=_np.int32)
+        mask[_np.asarray(gw_body_ids, dtype=_np.int32)] = 1
+        self._coax_gw_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
+        self._coax_cath_ids = _wp.array(_np.asarray(cath_body_ids, _np.int32),
+                                        dtype=_wp.int32, device=dev)
+        self._coax_n_cath = len(cath_body_ids)
+        r_eff = max(float(r_inner) - float(gw_radius), 1.0e-2)   # gw surface stays inside
+        self._coax_r_inner = r_eff
+        self._coax_kappa = float(kappa)
+        self._coax_d_hat = min(float(d_hat), 0.5 * r_eff)        # proper near-wall band
+        self._coax_two_way = 1 if two_way else 0
+        self._coax_enabled = True
+    def set_tree_contact(self, tree, wire_body_ids, kappa=2.0e3, d_hat=0.3,
+                         barrier_mode="compliant", n_s=40, n_th=16,
+                         mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
+                         actuation_centerline=None, deformable_wall=False, hgo_params=None):
+        """Multi-edge (vascular-tree) contact: each wire node contacts its nearest edge,
+        with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
+        here so the kernel stays simple). Single-env. `deformable_wall=True` gives each
+        edge an HGO wall (w field shared with the barrier, like the single tube, §3.5.6),
+        with each edge's OWN arc-length feeding its cell area (correct for unequal-length
+        edges). `tree` is a ``lumen.core.VascularTree``.
+
+        `actuation_centerline` is the path the kinematic base follows for insertion
+        (centerline-following). Pass the full route polyline (trunk→target branch) so the
+        base can be pushed PAST the junction into a branch; default = the entry edge (the
+        base stops at the apex — only trunk targets reachable)."""
+        if getattr(self, "_tube_enabled", False):     # one contact model per solver, never both
+            raise RuntimeError("tube contact already set on this solver; cannot also enable tree "
+                               "contact (the barriers would double up)")
+        dev = self.device
+        P, Tg, M1, cum_s = [], [], [], []
+        vstart, vcount, smax, sj, ej = [], [], [], [], []
+        ss = _np.linspace(0.0, 1.0, n_s)              # fractional s; scaled per edge below
+        th = -_np.pi + (_np.arange(n_th) + 0.5) / n_th * 2.0 * _np.pi
+        R0_blocks = []
+        off = 0
+        for i, e in enumerate(tree.edges):
+            f = e.frame
+            vstart.append(off)
+            vcount.append(len(f.points))
+            off += len(f.points)
+            smax.append(float(f.length))
+            sj.append(1 if tree.is_junction(e.node_a) else 0)
+            ej.append(1 if tree.is_junction(e.node_b) else 0)
+            P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
+            # bake the branch-blended R(s,θ) for this edge into its grid block
+            block = _np.array([[tree.blended_R(i, float(sf) * f.length, float(t)) for t in th]
+                               for sf in ss])
+            R0_blocks.append(block.ravel())
+        self._tree_P = _wp.array(_np.concatenate(P).astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tree_Tg = _wp.array(_np.concatenate(Tg).astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tree_M1 = _wp.array(_np.concatenate(M1).astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tree_cum_s = _wp.array(_np.concatenate(cum_s).astype(_np.float32), dtype=_wp.float32, device=dev)
+        self._tree_vstart = _wp.array(_np.array(vstart, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_vcount = _wp.array(_np.array(vcount, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_smax = _wp.array(_np.array(smax, _np.float32), dtype=_wp.float32, device=dev)
+        self._tree_start_junc = _wp.array(_np.array(sj, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_end_junc = _wp.array(_np.array(ej, _np.int32), dtype=_wp.int32, device=dev)
+        self._tree_n_edges = len(tree.edges)
+        # one HGO wall over all edges (each edge is a block, like a batched env). r0_field
+        # is the blended base R0; w_field is the shared deformation the barrier reads and
+        # the contact load relaxes. rigid (deformable_wall=False) just leaves w≡0.
+        from lumen.newton.hgo_wall import WallField
+        self._tree_wall = WallField(R0=_np.concatenate(R0_blocks).astype(_np.float32),
+                                    s_max=_np.asarray(smax, float),   # per-edge arc-length (H1 fix)
+                                    n_s=n_s, n_th=n_th, params=hgo_params,
+                                    device=dev, n_envs=self._tree_n_edges)
+        self._tree_R0 = self._tree_wall.r0_field
+        self._tree_w = self._tree_wall.w_field
+        self._tree_wall_load = self._tree_wall.wall_load
+        self._tree_deformable = bool(deformable_wall)
+        self._tree_ns, self._tree_nth = int(n_s), int(n_th)
+        self._tree_kappa, self._tree_d_hat = float(kappa), float(d_hat)
+        self._tree_mode = 1 if barrier_mode == "log" else 0
+        self._tree_mu_along, self._tree_mu_across = float(mu_along), float(mu_across)
+        self._tree_gamma_fric = float(_np.radians(gamma_fric_deg))
+        mask = _np.zeros(self.model.body_count, dtype=_np.int32)
+        mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
+        self._tree_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
+        self._tree_enabled = True
+        # base actuation (centerline-following insertion) follows the route polyline if
+        # given (so the base can be pushed past a junction into a branch), else the entry
+        # edge. These _tube_* arrays feed _actuate_base ONLY — the tube CONTACT kernel
+        # stays off (only _tree_enabled drives contact).
+        if actuation_centerline is not None:
+            from lumen.core.frame import CenterlineFrame
+            fa = CenterlineFrame(_np.asarray(actuation_centerline, float))
+        else:
+            fa = tree.edges[0].frame
+        self._tube_P = _wp.array(fa.points.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_Tg = _wp.array(fa.tangents.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_cum_s = _wp.array(fa.cum_s.astype(_np.float32), dtype=_wp.float32, device=dev)
+        self._tube_M = len(fa.points)
+        self._tube_s_max = float(fa.length)
+
     def step(self, state_in, state_out, control, contacts, dt):
         super().step(state_in, state_out, control, contacts, dt)
         # staggered HGO co-sim: relax the shared-R wall to the contact load it just saw
         if getattr(self, "_tube_enabled", False) and self._tube_deformable:
             self._wall.update_from_load()
+        if getattr(self, "_tree_enabled", False) and getattr(self, "_tree_deformable", False):
+            self._tree_wall.update_from_load()      # per-edge HGO relaxation
 
     def wall_max_deflection(self):
+        if getattr(self, "_tree_enabled", False):
+            return self._tree_wall.max_deflection()
         return self._wall.max_deflection() if getattr(self, "_wall", None) else 0.0

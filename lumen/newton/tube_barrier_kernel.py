@@ -22,6 +22,78 @@ from __future__ import annotations
 import warp as wp
 
 
+@wp.kernel
+def accumulate_coaxial_coupling(
+    color_group: wp.array(dtype=wp.int32),
+    gw_mask: wp.array(dtype=wp.int32),         # 1 for guidewire bodies (the ones constrained)
+    body_q: wp.array(dtype=wp.transform),
+    cath_ids: wp.array(dtype=wp.int32),        # catheter body indices, ordered along the rod
+    n_cath: int,
+    r_inner: float,                            # catheter inner-lumen radius the gw rides within
+    kappa: float, d_hat: float, two_way: int,
+    body_forces: wp.array(dtype=wp.vec3),
+    body_hessian_ll: wp.array(dtype=wp.mat33),
+):
+    """Sliding coaxial coupling (L0d.2b): keep each guidewire node within the catheter's
+    inner lumen. The catheter centerline is read LIVE from body_q (no host rebuild) — so
+    as the catheter bends, the gw is barriered to follow, while sliding freely along the
+    axis (no tangential force). Structurally the tube barrier, but the 'wall' is the
+    dynamic catheter axis and the barrier pulls INWARD (gw stays inside, r < r_inner).
+
+    two_way=1 (L0d.2d): the catheter feels the equal-opposite reaction — the contact
+    force is split (Newton's third law) onto the two catheter nodes of the nearest
+    segment by the barycentric weight, so a stiff guidewire pushes/straightens the
+    catheter (a responsive catheter, not a rigid tube). two_way=0 is the one-way model."""
+    t = wp.tid()
+    bid = color_group[t]
+    if gw_mask[bid] == 0:
+        return
+    p = wp.transform_get_translation(body_q[bid])
+    best = float(1.0e30)
+    bk = int(0)
+    bu = float(0.0)
+    for k in range(n_cath - 1):
+        a = wp.transform_get_translation(body_q[cath_ids[k]])
+        ab = wp.transform_get_translation(body_q[cath_ids[k + 1]]) - a
+        L2 = wp.dot(ab, ab)
+        u = wp.clamp(wp.dot(p - a, ab) / (L2 + 1.0e-12), 0.0, 1.0)
+        dd = p - (a + u * ab)
+        d2 = wp.dot(dd, dd)
+        if d2 < best:
+            best = d2
+            bk = k
+            bu = u
+    # a guidewire node axially BEYOND either catheter opening has telescoped out — it's
+    # free there, not riding inside, so no coupling (CodeRabbit #22).
+    c0 = wp.transform_get_translation(body_q[cath_ids[0]])
+    c1 = wp.transform_get_translation(body_q[cath_ids[1]])
+    cn = wp.transform_get_translation(body_q[cath_ids[n_cath - 1]])
+    cm = wp.transform_get_translation(body_q[cath_ids[n_cath - 2]])
+    if wp.dot(p - c0, c1 - c0) < 0.0 or wp.dot(p - cn, cn - cm) > 0.0:
+        return
+    a = wp.transform_get_translation(body_q[cath_ids[bk]])
+    b = wp.transform_get_translation(body_q[cath_ids[bk + 1]])
+    foot = a + bu * (b - a)
+    tang = wp.normalize(b - a)
+    radial = (p - foot) - wp.dot(p - foot, tang) * tang
+    r = wp.length(radial)
+    er = radial / (r + 1.0e-9)
+    dwall = r_inner - r                          # clearance to the catheter inner wall
+    if dwall < d_hat:
+        bp = -kappa * (d_hat - dwall)            # compliant barrier, pulls inward (bp<0, er outward)
+        f = bp * er
+        body_forces[bid] = body_forces[bid] + f
+        body_hessian_ll[bid] = body_hessian_ll[bid] + kappa * wp.outer(er, er)
+        if two_way == 1:                         # catheter feels -f, split by the barycentric u,
+            ca = cath_ids[bk]                    # WITH the Hessian (implicit, else it overshoots)
+            cb = cath_ids[bk + 1]
+            h = kappa * wp.outer(er, er)
+            wp.atomic_add(body_forces, ca, -(1.0 - bu) * f)
+            wp.atomic_add(body_forces, cb, -bu * f)
+            wp.atomic_add(body_hessian_ll, ca, (1.0 - bu) * h)
+            wp.atomic_add(body_hessian_ll, cb, bu * h)
+
+
 @wp.func
 def _barrier_dd(d: float, d_hat: float, kappa: float, mode: int):
     """Return (b'(d), b''(d)) for the wall-distance barrier (see module docstring)."""
@@ -130,6 +202,110 @@ def accumulate_tube_barrier(
             # friction (tangent-space) Hessian, PSD, added so the AVBD solve treats
             # friction implicitly (#19). v_t ≈ Δx/dt, so the position-Hessian of the
             # velocity-based friction force carries a 1/dt factor (L7).
+            c_t = mu * fn / (denom * dt)
+            ident = wp.mat33(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+            body_hessian_ll[bid] = body_hessian_ll[bid] + c_t * (ident - wp.outer(er, er))
+
+
+@wp.kernel
+def accumulate_tree_barrier(
+    color_group: wp.array(dtype=wp.int32),
+    wire_mask: wp.array(dtype=wp.int32),
+    body_q: wp.array(dtype=wp.transform),
+    body_qd: wp.array(dtype=wp.spatial_vector),
+    P: wp.array(dtype=wp.vec3),               # all edges' centerline vertices, concatenated
+    Tg: wp.array(dtype=wp.vec3),
+    M1: wp.array(dtype=wp.vec3),
+    cum_s: wp.array(dtype=wp.float32),        # per-edge cumulative arc-length (each edge starts at 0)
+    edge_vstart: wp.array(dtype=wp.int32),    # [n_edges] first vertex index of each edge in P
+    edge_vcount: wp.array(dtype=wp.int32),    # [n_edges] vertex count per edge
+    edge_smax: wp.array(dtype=wp.float32),    # [n_edges] arc length per edge
+    edge_start_junc: wp.array(dtype=wp.int32),  # [n_edges] 1 if the edge's start node is a junction
+    edge_end_junc: wp.array(dtype=wp.int32),    # [n_edges] 1 if the edge's end node is a junction
+    n_edges: int,
+    R0_grid: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] branch-BLENDED base radius R0(s,θ)
+    w_field: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] radial deformation (0 if rigid)
+    n_s: int, n_th: int,
+    kappa: float, d_hat: float, mode: int,
+    mu_along: float, mu_across: float, gamma_fric: float, dt: float,
+    body_forces: wp.array(dtype=wp.vec3),
+    body_hessian_ll: wp.array(dtype=wp.mat33),
+    wall_load: wp.array(dtype=wp.float32),    # [n_edges*n_s*n_th] (out)
+):
+    """Tree variant of the tube barrier: each wire node finds its nearest segment
+    ACROSS ALL EDGES, then reads that edge's blended rigid radius block. The §3.5.2
+    branch blending is pre-baked into R0_grid at build time, so the kernel stays
+    simple. Junction ends are NOT culled (a node there is transitioning between edges),
+    unlike open vessel ends. Single-env, rigid wall (deformable tree wall is future)."""
+    t = wp.tid()
+    bid = color_group[t]
+    if wire_mask[bid] == 0:
+        return
+    p = wp.transform_get_translation(body_q[bid])
+    best = float(1.0e30)
+    bj = int(0)
+    bu = float(0.0)
+    be = int(0)
+    # O(n_edges × verts) nearest-segment scan, no spatial cull — fine for procedural
+    # small trees; add a per-edge bbox skip before use on full anatomical meshes.
+    for e in range(n_edges):
+        v0 = edge_vstart[e]
+        nv = edge_vcount[e]
+        for k in range(nv - 1):
+            j = v0 + k
+            a = P[j]
+            ab = P[j + 1] - a
+            L2 = wp.dot(ab, ab)
+            u = wp.clamp(wp.dot(p - a, ab) / L2, 0.0, 1.0)
+            dd = p - (a + u * ab)
+            d2 = wp.dot(dd, dd)
+            if d2 < best:
+                best = d2
+                bj = j
+                bu = u
+                be = e
+    v0 = edge_vstart[be]
+    vend = v0 + edge_vcount[be] - 1
+    # open vessel end -> no contact; but a JUNCTION end is not open (node transits edges)
+    if edge_start_junc[be] == 0 and wp.dot(p - P[v0], Tg[v0]) < 0.0:
+        return
+    if edge_end_junc[be] == 0 and wp.dot(p - P[vend], Tg[vend]) > 0.0:
+        return
+    a = P[bj]
+    foot = a + bu * (P[bj + 1] - a)
+    tang = wp.normalize(Tg[bj] + bu * (Tg[bj + 1] - Tg[bj]))
+    radial = (p - foot) - wp.dot(p - foot, tang) * tang
+    r = wp.length(radial)
+    er = radial / (r + 1.0e-9)
+    s = cum_s[bj] + bu * (cum_s[bj + 1] - cum_s[bj])
+    i_s = wp.clamp(int(s / edge_smax[be] * float(n_s - 1) + 0.5), 0, n_s - 1)
+    m1 = M1[bj] - wp.dot(M1[bj], tang) * tang
+    m1 = m1 / (wp.length(m1) + 1.0e-9)
+    m2 = wp.cross(tang, m1)
+    theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
+    th01 = (theta + wp.pi) / (2.0 * wp.pi)
+    i_th = int(th01 * float(n_th)) % n_th
+    cell = be * (n_s * n_th) + i_s * n_th + i_th
+    R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: blended base R0 + HGO deformation
+    dwall = R_eff - r
+    if dwall < d_hat:
+        bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)
+        body_forces[bid] = body_forces[bid] + bp * er
+        body_hessian_ll[bid] = body_hessian_ll[bid] + bpp * wp.outer(er, er)
+        fn = -bp
+        wp.atomic_add(wall_load, cell, fn)
+        if mu_across > 0.0 or mu_along > 0.0:
+            v_lin = wp.spatial_bottom(body_qd[bid])
+            v_t = v_lin - wp.dot(v_lin, er) * er
+            vt_mag = wp.length(v_t)
+            circ = wp.normalize(wp.cross(tang, er))
+            fiber = wp.cos(gamma_fric) * circ + wp.sin(gamma_fric) * tang
+            tdir = v_t / vt_mag if vt_mag > 1.0e-9 else circ
+            ca = wp.dot(tdir, fiber)
+            mu = mu_across + (mu_along - mu_across) * ca * ca
+            eps_v = 1.0e-2
+            denom = wp.sqrt(vt_mag * vt_mag + eps_v * eps_v)
+            body_forces[bid] = body_forces[bid] - (mu * fn / denom) * v_t
             c_t = mu * fn / (denom * dt)
             ident = wp.mat33(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
             body_hessian_ll[bid] = body_hessian_ll[bid] + c_t * (ident - wp.outer(er, er))

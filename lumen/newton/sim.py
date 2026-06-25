@@ -39,7 +39,10 @@ class NewtonGuidewireSim:
                  vbd_iterations: int = 10, device: str | None = None,
                  catheter_points=None, catheter_radius: float = 0.4,
                  catheter_stretch_stiffness: float = 2.0e4,
-                 catheter_bend_stiffness: float = 1.5e2):
+                 catheter_bend_stiffness: float = 1.5e2,
+                 couple_coaxial: bool = True, catheter_inner_radius: float = 0.3,
+                 coax_kappa: float = 2.0e3, coax_d_hat: float = 0.1,
+                 coax_two_way: bool = True, tree=None, route_centerline=None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
@@ -104,21 +107,56 @@ class NewtonGuidewireSim:
             self.cath_bodies.extend(cath)
             self.cath_bases.append(cath[0])
         self._contact_bodies = self.bodies + self.cath_bodies   # both rods hit the wall
+        if self.coaxial:
+            # the guidewire and catheter are coupled by the radial constraint (L0d.2b),
+            # NOT by capsule contact — disable Newton body-body collision between the two
+            # rods so the catheter slides freely over the guidewire (else it drags it).
+            shape_of: dict[int, list[int]] = {}
+            for s, bod in enumerate(builder.shape_body):
+                shape_of.setdefault(int(bod), []).append(s)
+            gw_shapes = [s for bod in self.bodies for s in shape_of.get(bod, [])]
+            cath_shapes = [s for bod in self.cath_bodies for s in shape_of.get(bod, [])]
+            for sa in gw_shapes:
+                for sb in cath_shapes:
+                    builder.add_shape_collision_filter_pair(sa, sb)
         builder.color()
         self.model = builder.finalize(device=self.device)
 
         self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
-        # single-env coaxial: pass n_per_env = ALL bodies so every body maps to env 0
-        # (env = body_id // n_per_env); non-coaxial keeps the per-env guidewire blocking.
-        n_per_env_contact = len(self._contact_bodies) if self.coaxial else self.n_per_env
-        self.solver.set_tube_contact(vessel_centerline, R, self._contact_bodies,
-                                     kappa=kappa, d_hat=d_hat,
-                                     barrier_mode=barrier_mode,
-                                     deformable_wall=deformable_wall,
-                                     hgo_params=hgo_params, mu_along=mu_along,
-                                     mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
-                                     lumen_field=lumen_field,
-                                     n_envs=self.n_envs, n_per_env=n_per_env_contact)
+        self.tree = tree
+        if tree is not None:                          # multi-edge vascular tree (single-env)
+            if self.coaxial:
+                raise NotImplementedError("a coaxial assembly inside a vascular tree is not "
+                                          "combined yet (tree contact is single-rod)")
+            if self.n_envs != 1:
+                raise NotImplementedError("tree contact is single-env (batched trees are future)")
+            # the tree uses each edge's own lumen field for the base R0, so a sim-level
+            # lumen_field doesn't apply; flow/clot project a single centerline. deformable_
+            # wall + hgo_params ARE supported (per-edge HGO wall, L0d.1d).
+            if lumen_field is not None:
+                raise NotImplementedError("tree contact takes R0 from each edge's lumen "
+                                          "field; a sim-level lumen_field doesn't apply")
+            if flow is not None or clot_segment is not None:
+                raise NotImplementedError(
+                    "tree + flow/clot is not wired (flow drag / clot grids use a single "
+                    "centerline, not the edge graph)")
+            self.solver.set_tree_contact(tree, self.bodies, kappa=kappa, d_hat=d_hat,
+                                         barrier_mode=barrier_mode, mu_along=mu_along,
+                                         mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
+                                         actuation_centerline=route_centerline,
+                                         deformable_wall=deformable_wall, hgo_params=hgo_params)
+        else:
+            # single-env coaxial passes n_per_env = ALL bodies so every body maps to env 0
+            # (env = body_id // n_per_env); non-coaxial keeps the per-env guidewire blocking.
+            n_per_env_contact = len(self._contact_bodies) if self.coaxial else self.n_per_env
+            self.solver.set_tube_contact(vessel_centerline, R, self._contact_bodies,
+                                         kappa=kappa, d_hat=d_hat,
+                                         barrier_mode=barrier_mode,
+                                         deformable_wall=deformable_wall,
+                                         hgo_params=hgo_params, mu_along=mu_along,
+                                         mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
+                                         lumen_field=lumen_field,
+                                         n_envs=self.n_envs, n_per_env=n_per_env_contact)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()
@@ -135,6 +173,14 @@ class NewtonGuidewireSim:
                                            dtype=wp.int32, device=self.device)
             self._cath_ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
             self._cath_tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
+            if couple_coaxial:                        # gw rides inside the catheter lumen (L0d.2b)
+                # catheter_inner_radius is the clearance for the gw CENTRE; the param
+                # accounts for the gw radius if set (default off to keep the constraint
+                # loose enough for the default tight test geometry). GLM M1: subtract the
+                # gw radius from catheter_inner_radius if the surface must stay inside.
+                self.solver.set_coaxial_coupling(self.bodies, self.cath_bodies,
+                                                 catheter_inner_radius, kappa=coax_kappa,
+                                                 d_hat=coax_d_hat, two_way=coax_two_way)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
         if self._flow_is_field:
             # Bind the FlowField to this sim's batch/device. Its device arrays are
@@ -187,6 +233,11 @@ class NewtonGuidewireSim:
             w.w[:] = 0.0
             w.w_field.zero_()
             w.wall_load.zero_()
+        tw = getattr(self.solver, "_tree_wall", None)        # tree path: clear wall deformation + load
+        if tw is not None:
+            tw.w[:] = 0.0
+            tw.w_field.zero_()
+            tw.wall_load.zero_()
         if self.clot is not None:
             self.clot.o = self.clot.o0.copy()
             self.clot.D[:] = 0.0
@@ -362,10 +413,12 @@ class NewtonGuidewireSim:
         return self.body_positions().reshape(self.n_envs, self.n_per_env, 3)
 
     def node_radii(self) -> np.ndarray:
-        return np.array([self.contact_frame.project(p).r for p in self.body_positions()])
+        # for a tree, radius is measured against the nearest edge (junction-aware)
+        proj = self.tree.project if self.tree is not None else self.contact_frame.project
+        return np.array([proj(p).r for p in self.body_positions()])
 
     def catheter_node_radii(self) -> np.ndarray:
         return np.array([self.contact_frame.project(p).r for p in self.catheter_positions()])
 
     def wall_max_deflection(self) -> float:
-        return self.solver.wall_max_deflection()
+        return self.solver.wall_max_deflection()      # tree-aware (per-edge HGO wall, L0d.1d)

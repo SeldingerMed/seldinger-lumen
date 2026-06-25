@@ -80,3 +80,25 @@ def test_no_catheter_is_backward_compatible():
     assert sim.catheter_positions().shape == (0, 3)
     sim.step(dt=1.5e-2, substeps=3)
     assert np.isfinite(sim.body_positions()).all()
+
+
+def test_coaxial_with_deformable_wall():
+    # GLM L1 / CodeRabbit #21: coaxial + deformable_wall is allowed (both rods press the
+    # same single-env vessel wall) — verify it deflects and stays finite, not rejected.
+    from lumen.newton.hgo_wall import HGOParams
+    sim = NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), radius=0.2,
+                             catheter_points=_rod(9, 0.0), catheter_radius=0.4,
+                             deformable_wall=True,
+                             hgo_params=HGOParams(C10=3e3, k1=1.5e3, k2=1.0, thickness=0.3),
+                             device="cpu")
+    for _ in range(60):
+        sim.step(dt=2.5e-2, substeps=5, preload=(120.0, 0.0, 0.0))
+    assert np.isfinite(sim.body_positions()).all() and np.isfinite(sim.catheter_positions()).all()
+    assert sim.wall_max_deflection() > 1e-4        # both rods deform the shared wall
+
+
+def test_degenerate_catheter_rejected():
+    # CodeRabbit #22: a < 2-node catheter centerline can't define a coupling segment
+    from lumen.newton.sim import NewtonGuidewireSim as _Sim
+    with pytest.raises((ValueError, IndexError)):
+        _Sim(_vessel(), 2.0, _rod(10, 18.0), catheter_points=_rod(1, 0.0), device="cpu")
