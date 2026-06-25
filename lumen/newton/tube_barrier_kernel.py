@@ -151,7 +151,8 @@ def accumulate_tree_barrier(
     edge_start_junc: wp.array(dtype=wp.int32),  # [n_edges] 1 if the edge's start node is a junction
     edge_end_junc: wp.array(dtype=wp.int32),    # [n_edges] 1 if the edge's end node is a junction
     n_edges: int,
-    R0_grid: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] branch-BLENDED radius (rigid)
+    R0_grid: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] branch-BLENDED base radius R0(s,θ)
+    w_field: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] radial deformation (0 if rigid)
     n_s: int, n_th: int,
     kappa: float, d_hat: float, mode: int,
     mu_along: float, mu_across: float, gamma_fric: float, dt: float,
@@ -213,7 +214,7 @@ def accumulate_tree_barrier(
     th01 = (theta + wp.pi) / (2.0 * wp.pi)
     i_th = int(th01 * float(n_th)) % n_th
     cell = be * (n_s * n_th) + i_s * n_th + i_th
-    R_eff = R0_grid[cell]                      # rigid: blended R baked in (w field is future)
+    R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: blended base R0 + HGO deformation
     dwall = R_eff - r
     if dwall < d_hat:
         bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)

@@ -81,6 +81,8 @@ class TubeVBDSolver(SolverVBD):
         self.body_hessian_ll.zero_()
         if getattr(self, "_tube_enabled", False):
             self._tube_wall_load.zero_()      # holds this iteration's wall contact load
+        if getattr(self, "_tree_enabled", False):
+            self._tree_wall_load.zero_()
 
         body_color_groups = model.body_color_groups
 
@@ -199,7 +201,7 @@ class TubeVBDSolver(SolverVBD):
                             self._tree_P, self._tree_Tg, self._tree_M1, self._tree_cum_s,
                             self._tree_vstart, self._tree_vcount, self._tree_smax,
                             self._tree_start_junc, self._tree_end_junc, self._tree_n_edges,
-                            self._tree_R0, self._tree_ns, self._tree_nth,
+                            self._tree_R0, self._tree_w, self._tree_ns, self._tree_nth,
                             self._tree_kappa, self._tree_d_hat, self._tree_mode,
                             self._tree_mu_along, self._tree_mu_across,
                             self._tree_gamma_fric, dt],
@@ -413,11 +415,13 @@ class TubeVBDSolver(SolverVBD):
     def set_tree_contact(self, tree, wire_body_ids, kappa=2.0e3, d_hat=0.3,
                          barrier_mode="compliant", n_s=40, n_th=16,
                          mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
-                         actuation_centerline=None):
+                         actuation_centerline=None, deformable_wall=False, hgo_params=None):
         """Multi-edge (vascular-tree) contact: each wire node contacts its nearest edge,
         with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
-        here so the kernel stays simple). Single-env, rigid wall — the deformable tree
-        wall (per-edge HGO) is future work. `tree` is a ``lumen.core.VascularTree``.
+        here so the kernel stays simple). Single-env. `deformable_wall=True` gives each
+        edge an HGO wall (w field shared with the barrier, like the single tube, §3.5.6),
+        with each edge's OWN arc-length feeding its cell area (correct for unequal-length
+        edges). `tree` is a ``lumen.core.VascularTree``.
 
         `actuation_centerline` is the path the kinematic base follows for insertion
         (centerline-following). Pass the full route polyline (trunk→target branch) so the
@@ -456,9 +460,18 @@ class TubeVBDSolver(SolverVBD):
         self._tree_start_junc = _wp.array(_np.array(sj, _np.int32), dtype=_wp.int32, device=dev)
         self._tree_end_junc = _wp.array(_np.array(ej, _np.int32), dtype=_wp.int32, device=dev)
         self._tree_n_edges = len(tree.edges)
-        self._tree_R0 = _wp.array(_np.concatenate(R0_blocks).astype(_np.float32),
-                                  dtype=_wp.float32, device=dev)
-        self._tree_wall_load = _wp.zeros(self._tree_n_edges * n_s * n_th, dtype=_wp.float32, device=dev)
+        # one HGO wall over all edges (each edge is a block, like a batched env). r0_field
+        # is the blended base R0; w_field is the shared deformation the barrier reads and
+        # the contact load relaxes. rigid (deformable_wall=False) just leaves w≡0.
+        from lumen.newton.hgo_wall import WallField
+        self._tree_wall = WallField(R0=_np.concatenate(R0_blocks).astype(_np.float32),
+                                    s_max=_np.asarray(smax, float),   # per-edge arc-length (H1 fix)
+                                    n_s=n_s, n_th=n_th, params=hgo_params,
+                                    device=dev, n_envs=self._tree_n_edges)
+        self._tree_R0 = self._tree_wall.r0_field
+        self._tree_w = self._tree_wall.w_field
+        self._tree_wall_load = self._tree_wall.wall_load
+        self._tree_deformable = bool(deformable_wall)
         self._tree_ns, self._tree_nth = int(n_s), int(n_th)
         self._tree_kappa, self._tree_d_hat = float(kappa), float(d_hat)
         self._tree_mode = 1 if barrier_mode == "log" else 0
@@ -488,6 +501,10 @@ class TubeVBDSolver(SolverVBD):
         # staggered HGO co-sim: relax the shared-R wall to the contact load it just saw
         if getattr(self, "_tube_enabled", False) and self._tube_deformable:
             self._wall.update_from_load()
+        if getattr(self, "_tree_enabled", False) and getattr(self, "_tree_deformable", False):
+            self._tree_wall.update_from_load()      # per-edge HGO relaxation
 
     def wall_max_deflection(self):
+        if getattr(self, "_tree_enabled", False):
+            return self._tree_wall.max_deflection()
         return self._wall.max_deflection() if getattr(self, "_wall", None) else 0.0

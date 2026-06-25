@@ -84,12 +84,12 @@ class NewtonGuidewireSim:
         if tree is not None:                          # multi-edge vascular tree (rigid, single-env)
             if self.n_envs != 1:
                 raise NotImplementedError("tree contact is single-env (batched trees are future)")
-            # tree contact is RIGID, blended-R only — fail loud rather than silently ignore
-            # physics options it can't honour (a silent wrong wall is the worst outcome).
-            if deformable_wall or hgo_params is not None or lumen_field is not None:
-                raise NotImplementedError(
-                    "tree contact is rigid-only; deformable_wall / hgo_params / a custom "
-                    "lumen_field are future work (the tree uses each edge's own lumen field)")
+            # the tree uses each edge's own lumen field for the base R0, so a sim-level
+            # lumen_field doesn't apply; flow/clot project a single centerline. deformable_
+            # wall + hgo_params ARE supported now (per-edge HGO wall, L0d.1d).
+            if lumen_field is not None:
+                raise NotImplementedError("tree contact takes R0 from each edge's lumen "
+                                          "field; a sim-level lumen_field doesn't apply")
             if flow is not None or clot_segment is not None:
                 raise NotImplementedError(
                     "tree + flow/clot is not wired (flow drag / clot grids use a single "
@@ -97,7 +97,8 @@ class NewtonGuidewireSim:
             self.solver.set_tree_contact(tree, self.bodies, kappa=kappa, d_hat=d_hat,
                                          barrier_mode=barrier_mode, mu_along=mu_along,
                                          mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
-                                         actuation_centerline=route_centerline)
+                                         actuation_centerline=route_centerline,
+                                         deformable_wall=deformable_wall, hgo_params=hgo_params)
         else:
             self.solver.set_tube_contact(vessel_centerline, R, self.bodies,
                                          kappa=kappa, d_hat=d_hat,
@@ -170,9 +171,11 @@ class NewtonGuidewireSim:
             w.w[:] = 0.0
             w.w_field.zero_()
             w.wall_load.zero_()
-        tl = getattr(self.solver, "_tree_wall_load", None)   # tree path: clear stale contact load
-        if tl is not None:
-            tl.zero_()
+        tw = getattr(self.solver, "_tree_wall", None)        # tree path: clear wall deformation + load
+        if tw is not None:
+            tw.w[:] = 0.0
+            tw.w_field.zero_()
+            tw.wall_load.zero_()
         if self.clot is not None:
             self.clot.o = self.clot.o0.copy()
             self.clot.D[:] = 0.0
@@ -336,6 +339,4 @@ class NewtonGuidewireSim:
         return np.array([proj(p).r for p in self.body_positions()])
 
     def wall_max_deflection(self) -> float:
-        if self.tree is not None:
-            return 0.0          # tree wall is rigid (no w field) — no deflection by construction
-        return self.solver.wall_max_deflection()
+        return self.solver.wall_max_deflection()      # tree-aware (per-edge HGO wall, L0d.1d)
