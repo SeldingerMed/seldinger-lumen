@@ -27,7 +27,7 @@ from newton._src.solvers.vbd.rigid_vbd_kernels import (
     update_duals_joint,
 )
 
-from lumen.newton.tube_barrier_kernel import accumulate_tube_barrier
+from lumen.newton.tube_barrier_kernel import accumulate_coaxial_coupling, accumulate_tube_barrier
 
 
 class TubeVBDSolver(SolverVBD):
@@ -188,6 +188,16 @@ class TubeVBDSolver(SolverVBD):
                             self._tube_gamma_fric, dt],
                     outputs=[self.body_forces, self.body_hessian_ll,
                              self._tube_wall_load],
+                    device=self.device,
+                )
+            if getattr(self, "_coax_enabled", False):
+                wp.launch(
+                    kernel=accumulate_coaxial_coupling,
+                    dim=color_group.size,
+                    inputs=[color_group, self._coax_gw_mask, state_in.body_q,
+                            self._coax_cath_ids, self._coax_n_cath, self._coax_r_inner,
+                            self._coax_kappa, self._coax_d_hat],
+                    outputs=[self.body_forces, self.body_hessian_ll],
                     device=self.device,
                 )
             wp.launch(
@@ -393,6 +403,23 @@ class TubeVBDSolver(SolverVBD):
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tube_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
         self._tube_enabled = True
+
+    def set_coaxial_coupling(self, gw_body_ids, cath_body_ids, r_inner,
+                             kappa=2.0e3, d_hat=0.3):
+        """Constrain the guidewire to ride inside the catheter's inner lumen (radius
+        `r_inner`), reading the catheter's LIVE centerline each AVBD iteration so the gw
+        follows the catheter as it bends, sliding freely axially (L0d.2b)."""
+        dev = self.device
+        mask = _np.zeros(self.model.body_count, dtype=_np.int32)
+        mask[_np.asarray(gw_body_ids, dtype=_np.int32)] = 1
+        self._coax_gw_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
+        self._coax_cath_ids = _wp.array(_np.asarray(cath_body_ids, _np.int32),
+                                        dtype=_wp.int32, device=dev)
+        self._coax_n_cath = len(cath_body_ids)
+        self._coax_r_inner = float(r_inner)
+        self._coax_kappa = float(kappa)
+        self._coax_d_hat = float(d_hat)
+        self._coax_enabled = True
 
     def step(self, state_in, state_out, control, contacts, dt):
         super().step(state_in, state_out, control, contacts, dt)

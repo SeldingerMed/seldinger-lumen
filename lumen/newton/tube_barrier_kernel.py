@@ -22,6 +22,59 @@ from __future__ import annotations
 import warp as wp
 
 
+@wp.kernel
+def accumulate_coaxial_coupling(
+    color_group: wp.array(dtype=wp.int32),
+    gw_mask: wp.array(dtype=wp.int32),         # 1 for guidewire bodies (the ones constrained)
+    body_q: wp.array(dtype=wp.transform),
+    cath_ids: wp.array(dtype=wp.int32),        # catheter body indices, ordered along the rod
+    n_cath: int,
+    r_inner: float,                            # catheter inner-lumen radius the gw rides within
+    kappa: float, d_hat: float,
+    body_forces: wp.array(dtype=wp.vec3),
+    body_hessian_ll: wp.array(dtype=wp.mat33),
+):
+    """Sliding coaxial coupling (L0d.2b): keep each guidewire node within the catheter's
+    inner lumen. The catheter centerline is read LIVE from body_q (no host rebuild) — so
+    as the catheter bends, the gw is barriered to follow, while sliding freely along the
+    axis (no tangential force). Structurally the tube barrier, but the 'wall' is the
+    dynamic catheter axis and the barrier pulls INWARD (gw stays inside, r < r_inner).
+
+    One-way for now: only the guidewire feels the constraint (the stiffer catheter is the
+    support). Two-way reaction onto the catheter is a future refinement (doc §3.5)."""
+    t = wp.tid()
+    bid = color_group[t]
+    if gw_mask[bid] == 0:
+        return
+    p = wp.transform_get_translation(body_q[bid])
+    best = float(1.0e30)
+    bk = int(0)
+    bu = float(0.0)
+    for k in range(n_cath - 1):
+        a = wp.transform_get_translation(body_q[cath_ids[k]])
+        ab = wp.transform_get_translation(body_q[cath_ids[k + 1]]) - a
+        L2 = wp.dot(ab, ab)
+        u = wp.clamp(wp.dot(p - a, ab) / (L2 + 1.0e-12), 0.0, 1.0)
+        dd = p - (a + u * ab)
+        d2 = wp.dot(dd, dd)
+        if d2 < best:
+            best = d2
+            bk = k
+            bu = u
+    a = wp.transform_get_translation(body_q[cath_ids[bk]])
+    b = wp.transform_get_translation(body_q[cath_ids[bk + 1]])
+    foot = a + bu * (b - a)
+    tang = wp.normalize(b - a)
+    radial = (p - foot) - wp.dot(p - foot, tang) * tang
+    r = wp.length(radial)
+    er = radial / (r + 1.0e-9)
+    dwall = r_inner - r                          # clearance to the catheter inner wall
+    if dwall < d_hat:
+        bp = -kappa * (d_hat - dwall)            # compliant barrier, pulls inward (bp<0, er outward)
+        body_forces[bid] = body_forces[bid] + bp * er
+        body_hessian_ll[bid] = body_hessian_ll[bid] + kappa * wp.outer(er, er)
+
+
 @wp.func
 def _barrier_dd(d: float, d_hat: float, kappa: float, mode: int):
     """Return (b'(d), b''(d)) for the wall-distance barrier (see module docstring)."""
