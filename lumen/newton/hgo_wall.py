@@ -193,10 +193,12 @@ class WallField:
             base = np.full(n, float(R0))
         else:
             base = np.asarray(R0, dtype=float).ravel()
-            assert base.size == n, "R0 grid must be length n_s*n_th"
-        self.R0_grid = np.tile(base, self.n_envs)                  # [n_envs*n]
-        cell_area = (s_max / n_s) * (base * 2.0 * np.pi / n_th)    # per cell, one env
-        self.cell_area = np.tile(cell_area, self.n_envs)
+            # one block (n) tiled across envs (shared vessel), OR a full per-block grid
+            # (n_envs*n) used as-is — the latter lets each block/edge have its own R0
+            # (a vascular tree, where edges differ in radius; L0d.1d).
+            assert base.size in (n, self.n_envs * n), "R0 must be n_s*n_th or n_envs*n_s*n_th"
+        self.R0_grid = base if base.size == self.n_envs * n else np.tile(base, self.n_envs)
+        self.cell_area = (s_max / n_s) * (self.R0_grid * 2.0 * np.pi / n_th)    # per cell
         total = self.n_envs * n
         self.w = np.zeros(total, dtype=np.float64)
         if wp is not None:

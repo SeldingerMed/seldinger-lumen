@@ -95,12 +95,49 @@ def test_batched_tree_rejected():
 
 
 def test_tree_rejects_unsupported_physics():
-    # tree contact is rigid-only and not flow/clot-wired -> fail loud, never silently ignore
+    # flow/clot + a sim-level lumen_field aren't wired for the edge graph -> fail loud
+    # (deformable_wall IS supported now, L0d.1d).
     asset = procedural.bifurcation()
     tree = VascularTree(asset)
     trunk_pts = np.asarray(asset.edges[0].centerline_mm)
-    with pytest.raises(NotImplementedError, match="rigid-only"):
-        NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree, deformable_wall=True)
     with pytest.raises(NotImplementedError, match="flow/clot"):
         NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree,
                            clot_segment=(10.0, 20.0))
+
+
+def test_tree_deformable_wall_deflects_under_load():
+    # L0d.1d: the tree wall is a per-edge HGO wall (R0+w shared with the barrier). Drive
+    # the relaxation directly with a known load (deterministic, no dependence on how hard
+    # the dynamics press): it deflects, and a stiffer wall (larger C10) deflects less.
+    from lumen.newton.hgo_wall import HGOParams
+    asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0, angle_deg=25.0)
+    tree = VascularTree(asset)
+    trunk_pts = np.asarray(asset.edges[0].centerline_mm)
+
+    def deflect(C10):
+        sim = NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree,
+                                 deformable_wall=True,
+                                 hgo_params=HGOParams(C10=C10, k1=C10 * 0.5, k2=1.0, thickness=0.3))
+        wall = sim.solver._tree_wall
+        wall.wall_load.assign(np.full(wall.wall_load.shape, 50.0, np.float32))  # uniform load
+        wall.update_from_load()
+        return wall.max_deflection()
+
+    soft = deflect(1.5e3)
+    stiff = deflect(2.0e4)
+    assert soft > 1e-3                       # the per-edge HGO wall actually deforms
+    assert soft > stiff                      # softer wall yields more (HGO monotone)
+
+
+def test_tree_deformable_wall_steps_stably():
+    from lumen.newton.hgo_wall import HGOParams
+    asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0)
+    tree = VascularTree(asset)
+    trunk_pts = np.asarray(asset.edges[0].centerline_mm)
+    sim = NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree,
+                             deformable_wall=True, vbd_iterations=10,
+                             hgo_params=HGOParams(C10=4e3, k1=2e3, k2=1.0, thickness=0.3))
+    for _ in range(40):
+        sim.step(dt=2.5e-2, substeps=5, preload=(80.0, 0.0, 0.0))
+    assert np.isfinite(sim.node_radii()).all()
+    assert sim.node_radii().max() <= 2.0 + 0.3 + 0.4       # held within the (deformed) band
