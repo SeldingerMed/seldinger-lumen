@@ -30,11 +30,25 @@ def _scene(M=30, L=60.0, n=9):
 
 
 def main() -> None:
+    def _positive_int(s):
+        v = int(s)
+        if v <= 0:
+            raise argparse.ArgumentTypeError(f"must be a positive integer; got {s}")
+        return v
+
+    def _env_list(s):
+        envs = [int(x) for x in s.split(",")]
+        if not envs or any(e <= 0 for e in envs):
+            raise argparse.ArgumentTypeError(f"--envs must be positive counts; got {s!r}")
+        return envs
+
     ap = argparse.ArgumentParser()
-    ap.add_argument("--device", default=None, help="cpu | cuda (default: detected)")
-    ap.add_argument("--envs", default="1,16,64,256", help="comma-separated env counts")
-    ap.add_argument("--steps", type=int, default=20)
-    ap.add_argument("--substeps", type=int, default=3)
+    ap.add_argument("--device", default=None, choices=["cpu", "cuda"],
+                    help="cpu | cuda (default: detected)")
+    ap.add_argument("--envs", default="1,16,64,256", type=_env_list,
+                    help="comma-separated positive env counts")
+    ap.add_argument("--steps", type=_positive_int, default=20)
+    ap.add_argument("--substeps", type=_positive_int, default=3)
     args = ap.parse_args()
 
     device = args.device or detect_device()
@@ -43,7 +57,7 @@ def main() -> None:
           f"(target >= {TARGET:.0e} env-steps/s on a workstation GPU)\n")
     print(f"{'n_envs':>8} {'env-steps/s':>14} {'ms/step':>10} {'us/env-step':>14}")
     best = 0.0
-    for E in [int(x) for x in args.envs.split(",")]:
+    for E in args.envs:
         sim = NewtonGuidewireSim(vessel, 2.0, dev, radius=0.2, n_envs=E, device=device)
         r = measure_throughput(sim, steps=args.steps, substeps=args.substeps, insertion=1.0)
         best = max(best, r["env_steps_per_s"])

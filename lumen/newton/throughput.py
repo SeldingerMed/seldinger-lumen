@@ -32,6 +32,10 @@ def measure_throughput(sim, steps: int = 20, warmup: int = 2, dt: float = 2.5e-2
     Returns a dict: ``n_envs``, ``device``, ``env_steps_per_s``, ``ms_per_step``,
     ``us_per_env_step``.
     """
+    if steps <= 0:                           # else the derived metrics divide by zero
+        raise ValueError(f"steps must be positive; got {steps}")
+    if sim.n_envs <= 0:
+        raise ValueError(f"sim.n_envs must be positive; got {sim.n_envs}")
     for _ in range(warmup):                  # absorb Warp JIT compile + first-touch allocs
         sim.step(dt=dt, substeps=substeps, **action)
     wp.synchronize()
