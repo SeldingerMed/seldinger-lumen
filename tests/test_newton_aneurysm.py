@@ -69,13 +69,18 @@ def test_measurement_window_isolates_post_deployment():
     assert sac.turnover_time() > 1.3 * pre_turn     # ...and the post-deploy stasis
 
 
-def test_rc_integration_is_stable_for_a_compliant_sac_and_large_dt():
-    # L1: a very compliant sac (large C_sac) shrinks the stability limit 2·R·C; the
-    # internal sub-stepping must keep explicit Euler finite even at a coarse caller dt.
-    an = Aneurysm(s_neck=50.0, sac_volume=5000.0, wall_stiffness=50.0)   # huge C_sac
+def test_rc_integration_substeps_a_stiff_sac_that_would_blow_up():
+    # L1: a STIFF sac (small C_sac) shrinks the stability limit 2τ=2·R·C; with a coarse
+    # caller dt ≫ 2τ, plain forward Euler would diverge — the internal sub-stepping must
+    # engage (n_sub>1) and keep it finite.
+    an = Aneurysm(s_neck=50.0, sac_volume=10.0, wall_stiffness=1.0e5)   # C_sac=1e-4 -> τ=1e-4
     sac = AneurysmSac(an)
+    tau = sac.R_neck_base * sac.C_sac
+    dt = 0.05
+    assert dt > 2.0 * tau                              # plain Euler (n_sub=1) would blow up here
+    assert int(dt / (0.5 * tau)) + 1 > 1               # so the sub-stepping path is taken
     for k in range(200):
-        sac.update(100.0 + 40.0 * math.sin(2 * math.pi * 1.5 * k * 0.2), 0.2)  # coarse dt
+        sac.update(100.0 + 40.0 * math.sin(2 * math.pi * 1.5 * k * dt), dt)
     assert math.isfinite(sac.P_sac) and math.isfinite(sac.inflow_peak())
 
 

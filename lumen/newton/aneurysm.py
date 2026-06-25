@@ -94,7 +94,8 @@ class AneurysmSac:
         R_neck = self.R_neck_base / (1.0 - div) ** 2     # porous screen raises R
         tau = R_neck * self.C_sac
         # explicit Euler on dP/dt=(P_lumen−P)/(R·C) is stable only for dt<2τ; sub-divide
-        # so ANY caller dt/substeps is safe (a very compliant sac shrinks τ — L1).
+        # so ANY caller dt/substeps is safe. A STIFF sac (small C_sac) or wide neck
+        # (small R) shrinks τ and is the unstable-prone case — L1.
         n_sub = max(1, int(dt / (0.5 * tau)) + 1)
         h = dt / n_sub
         Q = 0.0
