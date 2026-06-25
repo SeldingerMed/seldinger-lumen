@@ -37,8 +37,8 @@ def _run(couple):
     # catheter spans z 0..24 (longer) so the guidewire (z 2..22) is FULLY nested — no
     # tip-overhang; the only gw–catheter distance is the radial offset.
     sim = NewtonGuidewireSim(_wide_vessel(), 5.0, _line(11, 0.5, 2.0), radius=0.2,
-                             catheter_points=_line(13, 0.0, 0.0), catheter_radius=0.4,
-                             catheter_inner_radius=0.3, couple_coaxial=couple,
+                             catheter_points=_line(13, 0.0, 0.0), catheter_radius=0.65,
+                             catheter_inner_radius=0.5, couple_coaxial=couple,
                              coax_kappa=5e3, vbd_iterations=12, device="cpu")
     for _ in range(80):
         sim.step(dt=2.5e-2, substeps=5)

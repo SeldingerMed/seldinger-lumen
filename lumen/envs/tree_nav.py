@@ -62,7 +62,6 @@ class TreeNavEnv:
             raise ValueError("target_node must differ from start_node (empty route)")
         self.target_node = target_node
         self.route = self.tree.route(target_node, self.start_node)
-        self.route_set = set(self.route)                 # for O(1) off-route checks
         route_pts = _route_polyline(self.tree, self.route, self.start_node)
         self.route_frame = CenterlineFrame(route_pts)
         self.L = float(self.route_frame.length)
@@ -91,7 +90,11 @@ class TreeNavEnv:
         tip = projs[-1]
         max_r = max(pr.r for pr in projs)
         max_pen = max(0.0, max(pr.r - pr.R for pr in projs))   # deepest penetration (vs LOCAL R)
-        on_route = tip.edge_index in self.route_set
+        # on_route from PROXIMITY to the route polyline (rs.r), not the nearest-edge id:
+        # min-r ownership can flip across the junction band (the documented project()
+        # ceiling), but the tip's radial distance from the route path is stable — a tip in
+        # the wrong (sibling) branch is many radii from the route, so it reads off-route.
+        on_route = rs.r < 2.0 * self.R
         return {"s": rs.s, "r": tip.r, "theta": rs.theta, "R_loc": tip.R,
                 "edge": tip.edge_id, "max_r": max_r, "max_pen": max_pen, "on_route": on_route}
 

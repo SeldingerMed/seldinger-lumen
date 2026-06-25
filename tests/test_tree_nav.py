@@ -29,8 +29,10 @@ def test_route_polyline_is_continuous_across_the_junction():
 
 def test_route_to_unknown_node_raises():
     tree = VascularTree(procedural.bifurcation())
-    with pytest.raises(ValueError, match="no route"):
+    with pytest.raises(ValueError, match="unknown node"):
         tree.route("does_not_exist", "trunk_in")
+    with pytest.raises(ValueError, match="unknown node"):     # false-empty-path: target==start, both unknown
+        tree.route("ghost", "ghost")
 
 
 def test_route_between_leaves_goes_through_apex():

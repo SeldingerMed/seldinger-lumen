@@ -160,8 +160,11 @@ def test_deformable_wall_with_route_actuation():
                              hgo_params=HGOParams(C10=3e3, k1=1.5e3, k2=1.0, thickness=0.3))
     for _ in range(30):
         sim.step(dt=2.5e-2, substeps=5, insertion=2.0, preload=(40.0, 0.0, 0.0))
+    # this is a STABILITY check for the deformable-wall + route-actuation combo: assert it
+    # ran to finite state (the deflection magnitude depends on how hard the dynamics press,
+    # which the deterministic deflection test covers separately).
     assert np.isfinite(sim.body_positions()).all()
-    assert sim.wall_max_deflection() >= 0.0                 # stable; wall state well-defined
+    assert np.isfinite(sim.wall_max_deflection())          # wall state is a valid number
 
 
 def test_reset_clears_tree_wall_deformation():

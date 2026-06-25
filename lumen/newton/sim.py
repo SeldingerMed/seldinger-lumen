@@ -37,10 +37,10 @@ class NewtonGuidewireSim:
                  clot_segment=None, clot_height: float = 1.6, clot_params=None,
                  stentriever=None, n_envs: int = 1,
                  vbd_iterations: int = 10, device: str | None = None,
-                 catheter_points=None, catheter_radius: float = 0.4,
+                 catheter_points=None, catheter_radius: float = 0.65,
                  catheter_stretch_stiffness: float = 2.0e4,
                  catheter_bend_stiffness: float = 1.5e2,
-                 couple_coaxial: bool = True, catheter_inner_radius: float = 0.3,
+                 couple_coaxial: bool = True, catheter_inner_radius: float = 0.5,
                  coax_kappa: float = 2.0e3, coax_d_hat: float = 0.1,
                  coax_two_way: bool = True, tree=None, route_centerline=None):
         from lumen.hardware import detect_device
@@ -54,6 +54,8 @@ class NewtonGuidewireSim:
         # shared wall contact.
         self.coaxial = catheter_points is not None
         if self.coaxial:
+            if len(catheter_points) < 2:          # fail fast, before _add_rod's opaque error
+                raise ValueError("catheter_points needs >= 2 nodes (a rod centerline)")
             if self.n_envs != 1:
                 raise NotImplementedError("coaxial assemblies are single-env (batched coaxial is future)")
             if flow is not None or clot_segment is not None or stentriever is not None:
@@ -174,13 +176,13 @@ class NewtonGuidewireSim:
             self._cath_ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
             self._cath_tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
             if couple_coaxial:                        # gw rides inside the catheter lumen (L0d.2b)
-                # catheter_inner_radius is the clearance for the gw CENTRE; the param
-                # accounts for the gw radius if set (default off to keep the constraint
-                # loose enough for the default tight test geometry). GLM M1: subtract the
-                # gw radius from catheter_inner_radius if the surface must stay inside.
+                # forward the gw radius so the coupling keeps the gw SURFACE (not just its
+                # centre) inside the catheter inner lumen (the barrier limit is
+                # catheter_inner_radius − gw radius; the solver rejects an impossible fit).
                 self.solver.set_coaxial_coupling(self.bodies, self.cath_bodies,
                                                  catheter_inner_radius, kappa=coax_kappa,
-                                                 d_hat=coax_d_hat, two_way=coax_two_way)
+                                                 d_hat=coax_d_hat, two_way=coax_two_way,
+                                                 gw_radius=radius)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
         if self._flow_is_field:
             # Bind the FlowField to this sim's batch/device. Its device arrays are

@@ -146,6 +146,11 @@ class VascularTree:
         for i, e in enumerate(self.edges):
             adj.setdefault(e.node_a, []).append((i, e.node_b))
             adj.setdefault(e.node_b, []).append((i, e.node_a))
+        # validate both endpoints BEFORE the BFS: an unknown target==start would otherwise
+        # return a false empty path (the start==target short-circuit) instead of failing.
+        for nid in (start_node, target_node):
+            if nid not in adj:
+                raise ValueError(f"unknown node {nid!r} (not in the tree's edge graph)")
         seen = {start_node}
         queue: deque[tuple[str, list[int]]] = deque([(start_node, [])])
         while queue:

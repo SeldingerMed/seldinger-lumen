@@ -25,8 +25,8 @@ def _cath_lateral(two_way):
     # guidewire offset (+x 0.5) from the catheter axis (x=0), nested, wide vessel so only
     # the coupling acts. Measure how far the catheter is pulled toward the guidewire.
     sim = NewtonGuidewireSim(_wide_vessel(), 5.0, _line(11, 0.5, 2.0), radius=0.2,
-                             catheter_points=_line(13, 0.0, 0.0), catheter_radius=0.4,
-                             catheter_inner_radius=0.3, couple_coaxial=True,
+                             catheter_points=_line(13, 0.0, 0.0), catheter_radius=0.65,
+                             catheter_inner_radius=0.5, couple_coaxial=True,
                              coax_two_way=two_way, coax_kappa=5e3, vbd_iterations=12,
                              device="cpu")
     for _ in range(80):

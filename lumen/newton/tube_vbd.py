@@ -443,7 +443,10 @@ class TubeVBDSolver(SolverVBD):
         self._coax_cath_ids = _wp.array(_np.asarray(cath_body_ids, _np.int32),
                                         dtype=_wp.int32, device=dev)
         self._coax_n_cath = len(cath_body_ids)
-        r_eff = max(float(r_inner) - float(gw_radius), 1.0e-2)   # gw surface stays inside
+        if float(gw_radius) >= float(r_inner):       # impossible fit -> fail fast, not near-singular
+            raise ValueError(f"guidewire radius ({gw_radius}) must be < catheter inner "
+                             f"radius ({r_inner}); the guidewire can't fit inside")
+        r_eff = float(r_inner) - float(gw_radius)     # gw SURFACE stays inside the lumen
         self._coax_r_inner = r_eff
         self._coax_kappa = float(kappa)
         self._coax_d_hat = min(float(d_hat), 0.5 * r_eff)        # proper near-wall band
