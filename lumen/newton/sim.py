@@ -39,7 +39,9 @@ class NewtonGuidewireSim:
                  vbd_iterations: int = 10, device: str | None = None,
                  catheter_points=None, catheter_radius: float = 0.4,
                  catheter_stretch_stiffness: float = 2.0e4,
-                 catheter_bend_stiffness: float = 1.5e2):
+                 catheter_bend_stiffness: float = 1.5e2,
+                 couple_coaxial: bool = True, catheter_inner_radius: float = 0.3,
+                 coax_kappa: float = 2.0e3, coax_d_hat: float = 0.3):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
@@ -135,6 +137,10 @@ class NewtonGuidewireSim:
                                            dtype=wp.int32, device=self.device)
             self._cath_ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
             self._cath_tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
+            if couple_coaxial:                        # gw rides inside the catheter lumen (L0d.2b)
+                self.solver.set_coaxial_coupling(self.bodies, self.cath_bodies,
+                                                 catheter_inner_radius, kappa=coax_kappa,
+                                                 d_hat=coax_d_hat)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
         if self._flow_is_field:
             # Bind the FlowField to this sim's batch/device. Its device arrays are
