@@ -36,7 +36,7 @@ class NewtonGuidewireSim:
                  gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
                  clot_segment=None, clot_height: float = 1.6, clot_params=None,
                  stentriever=None, n_envs: int = 1,
-                 vbd_iterations: int = 10, device: str | None = None):
+                 vbd_iterations: int = 10, device: str | None = None, tree=None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
@@ -79,14 +79,32 @@ class NewtonGuidewireSim:
         self.model = builder.finalize(device=self.device)
 
         self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
-        self.solver.set_tube_contact(vessel_centerline, R, self.bodies,
-                                     kappa=kappa, d_hat=d_hat,
-                                     barrier_mode=barrier_mode,
-                                     deformable_wall=deformable_wall,
-                                     hgo_params=hgo_params, mu_along=mu_along,
-                                     mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
-                                     lumen_field=lumen_field,
-                                     n_envs=self.n_envs, n_per_env=self.n_per_env)
+        self.tree = tree
+        if tree is not None:                          # multi-edge vascular tree (rigid, single-env)
+            if self.n_envs != 1:
+                raise NotImplementedError("tree contact is single-env (batched trees are future)")
+            # tree contact is RIGID, blended-R only — fail loud rather than silently ignore
+            # physics options it can't honour (a silent wrong wall is the worst outcome).
+            if deformable_wall or hgo_params is not None or lumen_field is not None:
+                raise NotImplementedError(
+                    "tree contact is rigid-only; deformable_wall / hgo_params / a custom "
+                    "lumen_field are future work (the tree uses each edge's own lumen field)")
+            if flow is not None or clot_segment is not None:
+                raise NotImplementedError(
+                    "tree + flow/clot is not wired (flow drag / clot grids use a single "
+                    "centerline, not the edge graph)")
+            self.solver.set_tree_contact(tree, self.bodies, kappa=kappa, d_hat=d_hat,
+                                         barrier_mode=barrier_mode, mu_along=mu_along,
+                                         mu_across=mu_across, gamma_fric_deg=gamma_fric_deg)
+        else:
+            self.solver.set_tube_contact(vessel_centerline, R, self.bodies,
+                                         kappa=kappa, d_hat=d_hat,
+                                         barrier_mode=barrier_mode,
+                                         deformable_wall=deformable_wall,
+                                         hgo_params=hgo_params, mu_along=mu_along,
+                                         mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
+                                         lumen_field=lumen_field,
+                                         n_envs=self.n_envs, n_per_env=self.n_per_env)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()
@@ -150,6 +168,9 @@ class NewtonGuidewireSim:
             w.w[:] = 0.0
             w.w_field.zero_()
             w.wall_load.zero_()
+        tl = getattr(self.solver, "_tree_wall_load", None)   # tree path: clear stale contact load
+        if tl is not None:
+            tl.zero_()
         if self.clot is not None:
             self.clot.o = self.clot.o0.copy()
             self.clot.D[:] = 0.0
@@ -308,7 +329,11 @@ class NewtonGuidewireSim:
         return self.body_positions().reshape(self.n_envs, self.n_per_env, 3)
 
     def node_radii(self) -> np.ndarray:
-        return np.array([self.contact_frame.project(p).r for p in self.body_positions()])
+        # for a tree, radius is measured against the nearest edge (junction-aware)
+        proj = self.tree.project if self.tree is not None else self.contact_frame.project
+        return np.array([proj(p).r for p in self.body_positions()])
 
     def wall_max_deflection(self) -> float:
+        if self.tree is not None:
+            return 0.0          # tree wall is rigid (no w field) — no deflection by construction
         return self.solver.wall_max_deflection()
