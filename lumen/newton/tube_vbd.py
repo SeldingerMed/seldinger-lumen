@@ -196,7 +196,7 @@ class TubeVBDSolver(SolverVBD):
                     dim=color_group.size,
                     inputs=[color_group, self._coax_gw_mask, state_in.body_q,
                             self._coax_cath_ids, self._coax_n_cath, self._coax_r_inner,
-                            self._coax_kappa, self._coax_d_hat],
+                            self._coax_kappa, self._coax_d_hat, self._coax_two_way],
                     outputs=[self.body_forces, self.body_hessian_ll],
                     device=self.device,
                 )
@@ -405,10 +405,18 @@ class TubeVBDSolver(SolverVBD):
         self._tube_enabled = True
 
     def set_coaxial_coupling(self, gw_body_ids, cath_body_ids, r_inner,
-                             kappa=2.0e3, d_hat=0.3):
+                             kappa=2.0e3, d_hat=0.3, two_way=True, gw_radius=0.0):
         """Constrain the guidewire to ride inside the catheter's inner lumen (radius
         `r_inner`), reading the catheter's LIVE centerline each AVBD iteration so the gw
-        follows the catheter as it bends, sliding freely axially (L0d.2b)."""
+        follows the catheter as it bends, sliding freely axially (L0d.2b). `two_way`
+        (L0d.2d) deposits the equal-opposite reaction on the catheter (responsive).
+
+        `gw_radius` keeps the guidewire SURFACE (centre + radius), not just its centre,
+        inside the lumen: the barrier limit is r_inner − gw_radius, and the band d_hat
+        is clamped to half that clearance (so it stays a near-wall barrier, not a
+        constant central pull)."""
+        if len(cath_body_ids) < 2:
+            raise ValueError("coaxial coupling needs a catheter centerline of >= 2 nodes")
         dev = self.device
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)
         mask[_np.asarray(gw_body_ids, dtype=_np.int32)] = 1
@@ -416,9 +424,11 @@ class TubeVBDSolver(SolverVBD):
         self._coax_cath_ids = _wp.array(_np.asarray(cath_body_ids, _np.int32),
                                         dtype=_wp.int32, device=dev)
         self._coax_n_cath = len(cath_body_ids)
-        self._coax_r_inner = float(r_inner)
+        r_eff = max(float(r_inner) - float(gw_radius), 1.0e-2)   # gw surface stays inside
+        self._coax_r_inner = r_eff
         self._coax_kappa = float(kappa)
-        self._coax_d_hat = float(d_hat)
+        self._coax_d_hat = min(float(d_hat), 0.5 * r_eff)        # proper near-wall band
+        self._coax_two_way = 1 if two_way else 0
         self._coax_enabled = True
 
     def step(self, state_in, state_out, control, contacts, dt):
