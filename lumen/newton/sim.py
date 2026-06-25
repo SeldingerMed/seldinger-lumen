@@ -36,11 +36,26 @@ class NewtonGuidewireSim:
                  gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
                  clot_segment=None, clot_height: float = 1.6, clot_params=None,
                  stentriever=None, n_envs: int = 1,
-                 vbd_iterations: int = 10, device: str | None = None):
+                 vbd_iterations: int = 10, device: str | None = None,
+                 catheter_points=None, catheter_radius: float = 0.4,
+                 catheter_stretch_stiffness: float = 2.0e4,
+                 catheter_bend_stiffness: float = 1.5e2):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
         self.n_envs = int(n_envs)
+        # L0d.2a — optional COAXIAL microcatheter: a second rod (larger radius, stiffer)
+        # sharing the lumen with the guidewire. Single-env, rigid wall, no flow/clot for
+        # now (the host flow/clot paths project only the guidewire nodes); the sliding
+        # gw-in-catheter COUPLING is L0d.2b — here the two rods interact only through the
+        # shared wall contact.
+        self.coaxial = catheter_points is not None
+        if self.coaxial:
+            if self.n_envs != 1:
+                raise NotImplementedError("coaxial assemblies are single-env (batched coaxial is future)")
+            if flow is not None or clot_segment is not None or stentriever is not None:
+                raise NotImplementedError("coaxial + flow/clot/stentriever is not wired "
+                                          "(those paths project only the guidewire)")
         self.contact_frame = CenterlineFrame(vessel_centerline)
         # Batched envs share one vessel (the contact is wire-vs-wall, never wire-vs-wire,
         # so E rods in one model are independent). For n_envs>1 the wall/clot/flow co-sim
@@ -59,45 +74,67 @@ class NewtonGuidewireSim:
 
         builder = newton.ModelBuilder(gravity=0.0)
         builder.default_shape_cfg.density = density
-        pts = [wp.vec3(*map(float, p)) for p in device_points]
-        quats = newton.utils.create_parallel_transport_cable_quaternions(pts)
-        self.bodies, self.bases = [], []
-        for _ in range(self.n_envs):
-            bodies, _ = builder.add_rod(
-                pts, quats, radius=radius, stretch_stiffness=stretch_stiffness,
-                bend_stiffness=bend_stiffness, bend_damping=bend_damping,
-                body_frame_origin="com")
-            self.bodies.extend(bodies)
-            self.bases.append(bodies[0])
+
+        def _add_rod(seed_pts, rod_radius, stretch, bend):
+            pts = [wp.vec3(*map(float, p)) for p in seed_pts]
+            quats = newton.utils.create_parallel_transport_cable_quaternions(pts)
+            bodies, _ = builder.add_rod(pts, quats, radius=rod_radius, stretch_stiffness=stretch,
+                                        bend_stiffness=bend, bend_damping=bend_damping,
+                                        body_frame_origin="com")
             builder.body_mass[bodies[0]] = 0.0       # kinematic base (proximal actuation)
             builder.body_inv_mass[bodies[0]] = 0.0
             builder.body_inertia[bodies[0]] = wp.mat33(0.0)
             builder.body_inv_inertia[bodies[0]] = wp.mat33(0.0)
+            return bodies
+
+        # guidewire (one rod per env). self.bodies stays the GUIDEWIRE so positions /
+        # projection / flow are backward-compatible; the catheter rides _contact_bodies.
+        self.bodies, self.bases = [], []
+        for _ in range(self.n_envs):
+            gw = _add_rod(device_points, radius, stretch_stiffness, bend_stiffness)
+            self.bodies.extend(gw)
+            self.bases.append(gw[0])
         self.n_per_env = len(self.bodies) // self.n_envs   # add_rod: N+1 points -> N bodies
         self.base = self.bases[0]
+        # optional coaxial microcatheter (single-env): a second, larger, stiffer rod
+        self.cath_bodies, self.cath_bases = [], []
+        if self.coaxial:
+            cath = _add_rod(catheter_points, catheter_radius,
+                            catheter_stretch_stiffness, catheter_bend_stiffness)
+            self.cath_bodies.extend(cath)
+            self.cath_bases.append(cath[0])
+        self._contact_bodies = self.bodies + self.cath_bodies   # both rods hit the wall
         builder.color()
         self.model = builder.finalize(device=self.device)
 
         self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
-        self.solver.set_tube_contact(vessel_centerline, R, self.bodies,
+        # single-env coaxial: pass n_per_env = ALL bodies so every body maps to env 0
+        # (env = body_id // n_per_env); non-coaxial keeps the per-env guidewire blocking.
+        n_per_env_contact = len(self._contact_bodies) if self.coaxial else self.n_per_env
+        self.solver.set_tube_contact(vessel_centerline, R, self._contact_bodies,
                                      kappa=kappa, d_hat=d_hat,
                                      barrier_mode=barrier_mode,
                                      deformable_wall=deformable_wall,
                                      hgo_params=hgo_params, mu_along=mu_along,
                                      mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
                                      lumen_field=lumen_field,
-                                     n_envs=self.n_envs, n_per_env=self.n_per_env)
+                                     n_envs=self.n_envs, n_per_env=n_per_env_contact)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()
         self.contacts = self.model.contacts()
-        self.body_ids = wp.array(np.array(self.bodies, dtype=np.int32), dtype=wp.int32,
-                                 device=self.device)
+        self.body_ids = wp.array(np.array(self._contact_bodies, dtype=np.int32),  # forces on both rods
+                                 dtype=wp.int32, device=self.device)
         # on-device base actuation (no per-substep body_q host round-trip), one per env
         self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
                                   device=self.device)
         self._ins_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
         self._tw_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
+        if self.coaxial:                              # independent catheter proximal actuation
+            self._cath_base_ids = wp.array(np.array(self.cath_bases, dtype=np.int32),
+                                           dtype=wp.int32, device=self.device)
+            self._cath_ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
+            self._cath_tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
         if self._flow_is_field:
             # Bind the FlowField to this sim's batch/device. Its device arrays are
@@ -154,35 +191,45 @@ class NewtonGuidewireSim:
             self.clot.o = self.clot.o0.copy()
             self.clot.D[:] = 0.0
 
-    def _actuate_base(self, insertion, twist):
-        # insertion/twist may be scalars (same action for every env) or length-n_envs
-        # arrays (per-env RL actions). On device: translate/rotate each kinematic base
-        # about its current axis (#23).
-        ins = np.broadcast_to(np.asarray(insertion, np.float32), (self.n_envs,))
-        tw = np.broadcast_to(np.asarray(twist, np.float32), (self.n_envs,))
+    def _actuate(self, base_ids, ins_arr, tw_arr, insertion, twist, n):
+        """Centerline-following insertion/twist of `n` kinematic bases (one per env, or
+        the single catheter base). Scalars broadcast; arrays are per-env RL actions."""
+        ins = np.broadcast_to(np.asarray(insertion, np.float32), (n,))
+        tw = np.broadcast_to(np.asarray(twist, np.float32), (n,))
         if not ins.any() and not tw.any():
             return
-        self._ins_arr.assign(np.ascontiguousarray(ins))
-        self._tw_arr.assign(np.ascontiguousarray(tw))
+        ins_arr.assign(np.ascontiguousarray(ins))
+        tw_arr.assign(np.ascontiguousarray(tw))
         sv = self.solver
-        wp.launch(actuate_bases, dim=self.n_envs,
-                  inputs=[self._base_ids, self._ins_arr, self._tw_arr,
-                          sv._tube_P, sv._tube_Tg, sv._tube_cum_s, sv._tube_M,
-                          sv._tube_s_max],
+        wp.launch(actuate_bases, dim=n,
+                  inputs=[base_ids, ins_arr, tw_arr,
+                          sv._tube_P, sv._tube_Tg, sv._tube_cum_s, sv._tube_M, sv._tube_s_max],
                   outputs=[self.state_0.body_q], device=self.device)
+
+    def _actuate_base(self, insertion, twist):
+        # translate/rotate each guidewire kinematic base along the centerline (#23)
+        self._actuate(self._base_ids, self._ins_arr, self._tw_arr, insertion, twist, self.n_envs)
+
+    def _actuate_catheter(self, insertion, twist):
+        self._actuate(self._cath_base_ids, self._cath_ins_arr, self._cath_tw_arr,
+                      insertion, twist, 1)
 
     def step(self, dt: float = 2.5e-2, substeps: int = 5,
              insertion: float = 0.0, twist: float = 0.0, preload=(0.0, 0.0, 0.0),
-             aspiration: float = 0.0):
+             aspiration: float = 0.0, insertion_cath: float = 0.0, twist_cath: float = 0.0):
         """Advance the simulation by `dt` total, as `substeps` sub-steps of
-        `dt/substeps` each (the standard substep convention)."""
+        `dt/substeps` each (the standard substep convention).
+
+        `insertion_cath`/`twist_cath` independently actuate the coaxial microcatheter
+        (ignored when there is no catheter)."""
         sub_dt = dt / substeps
         if self.flow is not None and aspiration:
             self.flow.aspiration = aspiration        # aspiration recovers downstream flow
         if self._use_device_coupling:                # n_envs>1 with clot/flow: on-device
             self._step_device(sub_dt, substeps, insertion, twist, preload)
             return
-        self._step_host(sub_dt, substeps, insertion, twist, preload, aspiration, dt)
+        self._step_host(sub_dt, substeps, insertion, twist, preload, aspiration, dt,
+                        insertion_cath, twist_cath)
 
     def _step_device(self, sub_dt, substeps, insertion, twist, preload):
         """Batched per-substep co-sim entirely on device (no host round-trip):
@@ -206,7 +253,7 @@ class NewtonGuidewireSim:
         occ_arr = self.clot.o_d if self.clot is not None else self._zero_occ_d
         for _ in range(substeps):
             self.state_0.clear_forces()
-            self._actuate_base(insertion / substeps, twist / substeps)
+            self._actuate_base(insertion / substeps, twist / substeps)   # batched: no coaxial
             if any(preload):
                 wp.launch(add_world_force, dim=self.body_ids.shape[0],
                           inputs=[self.body_ids, float(preload[0]), float(preload[1]),
@@ -229,7 +276,8 @@ class NewtonGuidewireSim:
                 self.clot.update_device(wall.wall_load, sub_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
 
-    def _step_host(self, sub_dt, substeps, insertion, twist, preload, aspiration, dt):
+    def _step_host(self, sub_dt, substeps, insertion, twist, preload, aspiration, dt,
+                   insertion_cath=0.0, twist_cath=0.0):
         """Single-env (n_envs==1) path: the original host-side co-sim, unchanged."""
         # flow drag acts along the (slowly-varying) device tangents — compute once/step
         tang = None
@@ -247,6 +295,8 @@ class NewtonGuidewireSim:
         for _ in range(substeps):
             self.state_0.clear_forces()
             self._actuate_base(insertion / substeps, twist / substeps)
+            if self.coaxial:                          # independent microcatheter actuation
+                self._actuate_catheter(insertion_cath / substeps, twist_cath / substeps)
             if any(preload):
                 wp.launch(add_world_force, dim=self.body_ids.shape[0],
                           inputs=[self.body_ids, float(preload[0]), float(preload[1]),
@@ -301,7 +351,11 @@ class NewtonGuidewireSim:
                 -insertion, self.stentriever.engagement_strength(self.clot), asp, dt)
 
     def body_positions(self) -> np.ndarray:
-        return self.state_0.body_q.numpy()[self.bodies, :3]
+        return self.state_0.body_q.numpy()[self.bodies, :3]      # the GUIDEWIRE (backward-compat)
+
+    def catheter_positions(self) -> np.ndarray:
+        """Microcatheter node positions (empty if no coaxial catheter)."""
+        return self.state_0.body_q.numpy()[self.cath_bodies, :3]
 
     def env_positions(self) -> np.ndarray:
         """Device-node positions per env, shape (n_envs, n_per_env, 3)."""
@@ -309,6 +363,9 @@ class NewtonGuidewireSim:
 
     def node_radii(self) -> np.ndarray:
         return np.array([self.contact_frame.project(p).r for p in self.body_positions()])
+
+    def catheter_node_radii(self) -> np.ndarray:
+        return np.array([self.contact_frame.project(p).r for p in self.catheter_positions()])
 
     def wall_max_deflection(self) -> float:
         return self.solver.wall_max_deflection()
