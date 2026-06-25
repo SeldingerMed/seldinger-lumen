@@ -33,3 +33,27 @@ class Stentriever:
         clo, chi = float(s.min()), float(s.max())
         overlap = max(0.0, min(b, chi) - max(a, clo)) / max(chi - clo, 1e-9)
         return self.radial_force * self.n_struts * self.embedment * overlap
+
+
+@dataclass
+class FlowDiverter:
+    """A braided flow diverter laid across an aneurysm neck (doc §3.4.1, §3.4.3).
+
+    Reused here as a flow-physics module (not a mechanical braid — that is the
+    accurate-tier FE device): a porous tube whose metal coverage throttles the neck
+    inflow. ``diversion`` is the effective neck blockage = the metal coverage times
+    how much of the neck the deployed span actually overlaps (placement matters —
+    a diverter that misses the neck does nothing). Feeds ``AneurysmSac.update`` as
+    the resistance-raising factor."""
+
+    deployed_center: float          # arc-length of the deployment centre [mm]
+    span: float = 20.0              # deployed length [mm]
+    metal_coverage: float = 0.35    # fraction of the surface that is metal (porosity = 1−this)
+
+    def diversion(self, aneurysm) -> float:
+        """Effective neck coverage in [0, metal_coverage] = metal_coverage · (span∩neck)."""
+        a, b = self.deployed_center - self.span / 2, self.deployed_center + self.span / 2
+        nlo = aneurysm.s_neck - aneurysm.neck_width / 2
+        nhi = aneurysm.s_neck + aneurysm.neck_width / 2
+        overlap = max(0.0, min(b, nhi) - max(a, nlo)) / max(nhi - nlo, 1e-9)
+        return self.metal_coverage * min(overlap, 1.0)

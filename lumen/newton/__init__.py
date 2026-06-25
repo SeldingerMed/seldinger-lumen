@@ -12,8 +12,10 @@ from lumen.newton.tube_vbd import TubeVBDSolver
 from lumen.newton.flow import NewtonFlow, FlowParams, FlowField, FlowFieldParams
 from lumen.newton.hgo_wall import HGOParams
 from lumen.newton.clot import ClotField, ClotParams
-from lumen.newton.devices import Stentriever
+from lumen.newton.devices import Stentriever, FlowDiverter
+from lumen.newton.aneurysm import Aneurysm, AneurysmSac
 
 __all__ = ["NewtonGuidewireSim", "TubeVBDSolver", "NewtonFlow", "FlowParams",
            "FlowField", "FlowFieldParams",
-           "HGOParams", "ClotField", "ClotParams", "Stentriever"]
+           "HGOParams", "ClotField", "ClotParams", "Stentriever",
+           "FlowDiverter", "Aneurysm", "AneurysmSac"]

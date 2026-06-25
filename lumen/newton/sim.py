@@ -35,7 +35,7 @@ class NewtonGuidewireSim:
                  mu_along: float = 0.0, mu_across: float = 0.0,
                  gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
                  clot_segment=None, clot_height: float = 1.6, clot_params=None,
-                 stentriever=None, n_envs: int = 1,
+                 stentriever=None, aneurysm=None, flow_diverter=None, n_envs: int = 1,
                  vbd_iterations: int = 10, device: str | None = None,
                  catheter_points=None, catheter_radius: float = 0.65,
                  catheter_stretch_stiffness: float = 2.0e4,
@@ -209,6 +209,22 @@ class NewtonGuidewireSim:
                                   height=clot_height, params=clot_params,
                                   n_envs=self.n_envs, device=self.device)
         self.stentriever = stentriever   # optional device for clot retrieval
+        # optional saccular aneurysm + flow diverter (single-env; needs the 1-D
+        # FlowField, which supplies the pressure P(s_neck) that drives the sac).
+        self.aneurysm = aneurysm
+        self.flow_diverter = flow_diverter
+        self.aneurysm_sac = None
+        if aneurysm is not None:
+            if not self._flow_is_field:
+                raise NotImplementedError("an aneurysm needs the 1-D FlowField (it reads "
+                                          "the neck pressure P(s)); pass flow=FlowField(...)")
+            if self.n_envs != 1:
+                raise NotImplementedError("aneurysm flow diversion is single-env (the sac "
+                                          "reads the host pressure field)")
+            from lumen.newton.aneurysm import AneurysmSac
+            self.aneurysm_sac = AneurysmSac(aneurysm, visc=flow.p.visc)
+        elif flow_diverter is not None:
+            raise ValueError("flow_diverter set without an aneurysm to divert from")
         # batched on-device coupling scratch (n_envs>1): node drag arrays + zero occ
         self._use_device_coupling = self.n_envs > 1 and (self.clot is not None
                                                          or self._flow_is_field)
@@ -243,6 +259,8 @@ class NewtonGuidewireSim:
         if self.clot is not None:
             self.clot.o = self.clot.o0.copy()
             self.clot.D[:] = 0.0
+        if self.aneurysm_sac is not None:
+            self.aneurysm_sac.reset()
 
     def _actuate(self, base_ids, ins_arr, tw_arr, insertion, twist, n):
         """Centerline-following insertion/twist of `n` kinematic bases (one per env, or
@@ -376,6 +394,12 @@ class NewtonGuidewireSim:
                     r_open_s = base.reshape(wall.n_s, wall.n_th).mean(axis=1)
                     self.flow.set_lumen(r_open_s, wall.s_max)
                     self.flow.solve()
+                    if self.aneurysm_sac is not None:    # drive the sac from P(s_neck)
+                        P_neck = float(np.interp(self.aneurysm.s_neck, self.flow.s_grid,
+                                                 self.flow.pressure_field()))
+                        div = (self.flow_diverter.diversion(self.aneurysm)
+                               if self.flow_diverter is not None else 0.0)
+                        self.aneurysm_sac.update(P_neck, sub_dt, diversion=div)
                     drag = self.flow.drag_at(s_nodes)[:, None]
                 else:
                     drag = self.flow.drag_per_unit_tangent()
@@ -424,3 +448,16 @@ class NewtonGuidewireSim:
 
     def wall_max_deflection(self) -> float:
         return self.solver.wall_max_deflection()      # tree-aware (per-edge HGO wall, L0d.1d)
+
+    # --- aneurysm flow-diversion outputs (None if no aneurysm) ----------------
+    def sac_inflow_peak(self) -> float:
+        """Peak neck inflow jet into the sac (a flow diverter lowers it)."""
+        return self.aneurysm_sac.inflow_peak() if self.aneurysm_sac is not None else 0.0
+
+    def sac_turnover_time(self) -> float:
+        """Sac washout time (a flow diverter lengthens it -> stasis -> thrombosis)."""
+        return self.aneurysm_sac.turnover_time() if self.aneurysm_sac is not None else float("inf")
+
+    def sac_diversion(self) -> float:
+        """Effective neck coverage of the deployed flow diverter (0 if none/missed)."""
+        return self.aneurysm_sac.last_diversion if self.aneurysm_sac is not None else 0.0
