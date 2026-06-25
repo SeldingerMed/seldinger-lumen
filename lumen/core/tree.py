@@ -137,6 +137,35 @@ class VascularTree:
     def is_junction(self, node_id: str) -> bool:
         return self._degree.get(node_id, 0) > 1
 
+    def route(self, target_node: str, start_node: str) -> list[int]:
+        """Edge indices forming the path from `start_node` to `target_node` (BFS over the
+        edge graph). Raises if unreachable. Used to define a navigation target down a
+        specific branch."""
+        from collections import deque
+        adj: dict[str, list[tuple[int, str]]] = {}
+        for i, e in enumerate(self.edges):
+            adj.setdefault(e.node_a, []).append((i, e.node_b))
+            adj.setdefault(e.node_b, []).append((i, e.node_a))
+        # validate both endpoints BEFORE the BFS: an unknown target==start would otherwise
+        # return a false empty path (the start==target short-circuit) instead of failing.
+        for nid in (start_node, target_node):
+            if nid not in adj:
+                raise ValueError(f"unknown node {nid!r} (not in the tree's edge graph)")
+        seen = {start_node}
+        queue: deque[tuple[str, list[int]]] = deque([(start_node, [])])
+        while queue:
+            node, path = queue.popleft()         # deque: O(1) pop, not list.pop(0)'s O(n)
+            if node == target_node:
+                return path
+            for ei, other in adj.get(node, []):
+                if other not in seen:
+                    seen.add(other)
+                    queue.append((other, path + [ei]))
+        raise ValueError(f"no route from {start_node!r} to {target_node!r}")
+
+    def route_length(self, route: list[int]) -> float:
+        return float(sum(self.edges[i].frame.length for i in route))
+
 
 if __name__ == "__main__":  # self-check (pure numpy): projection + branch continuity
     from lumen.assets import procedural

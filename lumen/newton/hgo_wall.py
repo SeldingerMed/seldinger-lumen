@@ -193,10 +193,26 @@ class WallField:
             base = np.full(n, float(R0))
         else:
             base = np.asarray(R0, dtype=float).ravel()
-            assert base.size == n, "R0 grid must be length n_s*n_th"
-        self.R0_grid = np.tile(base, self.n_envs)                  # [n_envs*n]
-        cell_area = (s_max / n_s) * (base * 2.0 * np.pi / n_th)    # per cell, one env
-        self.cell_area = np.tile(cell_area, self.n_envs)
+            # one block (n) tiled across envs (shared vessel), OR a full per-block grid
+            # (n_envs*n) used as-is — the latter lets each block/edge have its own R0
+            # (a vascular tree, where edges differ in radius; L0d.1d).
+            if base.size not in (n, self.n_envs * n):
+                raise ValueError(f"R0 must be n_s*n_th ({n}) or n_envs*n_s*n_th "
+                                 f"({self.n_envs * n}); got {base.size}")
+        self.R0_grid = base if base.size == self.n_envs * n else np.tile(base, self.n_envs)
+        # s_max may be a scalar (one vessel) OR a per-block array of length n_envs (a tree,
+        # whose edges differ in length) — the cell area uses each block's own arc-length so
+        # the HGO relaxation is correct per edge. Reject an ambiguous length-1 array (when
+        # n_envs>1): it would silently broadcast and hide a shape bug.
+        if np.isscalar(s_max):
+            s_per_block = np.full(self.n_envs, float(s_max))
+        else:
+            s_per_block = np.asarray(s_max, float).ravel()
+            if s_per_block.size != self.n_envs:
+                raise ValueError(f"s_max must be a scalar or a length-n_envs array "
+                                 f"({self.n_envs}); got length {s_per_block.size}")
+        ds_per_cell = np.repeat(s_per_block, n) / n_s
+        self.cell_area = ds_per_cell * (self.R0_grid * 2.0 * np.pi / n_th)      # per cell
         total = self.n_envs * n
         self.w = np.zeros(total, dtype=np.float64)
         if wp is not None:

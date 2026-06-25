@@ -23,7 +23,7 @@ def _rod(n, z0, x=0.3, sp=2.0):
 def _coaxial(**kw):
     # catheter proximal (z 0..16), guidewire distal (z 18..36) — telescoping tandem
     return NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), radius=0.2,
-                              catheter_points=_rod(9, 0.0), catheter_radius=0.4,
+                              catheter_points=_rod(9, 0.0), catheter_radius=0.65,
                               vbd_iterations=10, device="cpu", **kw)
 
 
@@ -80,3 +80,32 @@ def test_no_catheter_is_backward_compatible():
     assert sim.catheter_positions().shape == (0, 3)
     sim.step(dt=1.5e-2, substeps=3)
     assert np.isfinite(sim.body_positions()).all()
+
+
+def test_coaxial_with_deformable_wall():
+    # GLM L1 / CodeRabbit #21: coaxial + deformable_wall is allowed (both rods press the
+    # same single-env vessel wall) — verify it deflects and stays finite, not rejected.
+    from lumen.newton.hgo_wall import HGOParams
+    sim = NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), radius=0.2,
+                             catheter_points=_rod(9, 0.0), catheter_radius=0.65,
+                             deformable_wall=True,
+                             hgo_params=HGOParams(C10=3e3, k1=1.5e3, k2=1.0, thickness=0.3),
+                             device="cpu")
+    for _ in range(60):
+        sim.step(dt=2.5e-2, substeps=5, preload=(120.0, 0.0, 0.0))
+    assert np.isfinite(sim.body_positions()).all() and np.isfinite(sim.catheter_positions()).all()
+    assert sim.wall_max_deflection() > 1e-4        # both rods deform the shared wall
+
+
+def test_degenerate_catheter_rejected():
+    # CodeRabbit #22: a < 2-node catheter centerline can't define a rod -> fail fast up front
+    with pytest.raises(ValueError, match=">= 2 nodes"):
+        NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), catheter_points=_rod(1, 0.0), device="cpu")
+
+
+def test_guidewire_too_thick_for_catheter_rejected():
+    # CodeRabbit #6: a guidewire that can't fit inside the catheter inner lumen is a hard
+    # error, not a near-singular clamp (gw radius >= inner radius).
+    with pytest.raises(ValueError, match="must be <"):
+        NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), radius=0.5,
+                           catheter_points=_rod(9, 0.0), catheter_inner_radius=0.5, device="cpu")
