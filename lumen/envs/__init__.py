@@ -9,5 +9,6 @@ is installed.
 """
 
 from lumen.envs.nav_gym import NavEnv
+from lumen.envs.tree_nav import TreeNavEnv
 
-__all__ = ["NavEnv"]
+__all__ = ["NavEnv", "TreeNavEnv"]

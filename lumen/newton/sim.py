@@ -36,7 +36,8 @@ class NewtonGuidewireSim:
                  gamma_fric_deg: float = 40.0, lumen_field=None, flow=None,
                  clot_segment=None, clot_height: float = 1.6, clot_params=None,
                  stentriever=None, n_envs: int = 1,
-                 vbd_iterations: int = 10, device: str | None = None, tree=None):
+                 vbd_iterations: int = 10, device: str | None = None, tree=None,
+                 route_centerline=None):
         from lumen.hardware import detect_device
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
@@ -95,7 +96,8 @@ class NewtonGuidewireSim:
                     "centerline, not the edge graph)")
             self.solver.set_tree_contact(tree, self.bodies, kappa=kappa, d_hat=d_hat,
                                          barrier_mode=barrier_mode, mu_along=mu_along,
-                                         mu_across=mu_across, gamma_fric_deg=gamma_fric_deg)
+                                         mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
+                                         actuation_centerline=route_centerline)
         else:
             self.solver.set_tube_contact(vessel_centerline, R, self.bodies,
                                          kappa=kappa, d_hat=d_hat,
