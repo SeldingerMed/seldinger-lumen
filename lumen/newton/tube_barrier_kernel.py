@@ -30,7 +30,7 @@ def accumulate_coaxial_coupling(
     cath_ids: wp.array(dtype=wp.int32),        # catheter body indices, ordered along the rod
     n_cath: int,
     r_inner: float,                            # catheter inner-lumen radius the gw rides within
-    kappa: float, d_hat: float,
+    kappa: float, d_hat: float, two_way: int,
     body_forces: wp.array(dtype=wp.vec3),
     body_hessian_ll: wp.array(dtype=wp.mat33),
 ):
@@ -40,8 +40,10 @@ def accumulate_coaxial_coupling(
     axis (no tangential force). Structurally the tube barrier, but the 'wall' is the
     dynamic catheter axis and the barrier pulls INWARD (gw stays inside, r < r_inner).
 
-    One-way for now: only the guidewire feels the constraint (the stiffer catheter is the
-    support). Two-way reaction onto the catheter is a future refinement (doc §3.5)."""
+    two_way=1 (L0d.2d): the catheter feels the equal-opposite reaction — the contact
+    force is split (Newton's third law) onto the two catheter nodes of the nearest
+    segment by the barycentric weight, so a stiff guidewire pushes/straightens the
+    catheter (a responsive catheter, not a rigid tube). two_way=0 is the one-way model."""
     t = wp.tid()
     bid = color_group[t]
     if gw_mask[bid] == 0:
@@ -71,8 +73,17 @@ def accumulate_coaxial_coupling(
     dwall = r_inner - r                          # clearance to the catheter inner wall
     if dwall < d_hat:
         bp = -kappa * (d_hat - dwall)            # compliant barrier, pulls inward (bp<0, er outward)
-        body_forces[bid] = body_forces[bid] + bp * er
+        f = bp * er
+        body_forces[bid] = body_forces[bid] + f
         body_hessian_ll[bid] = body_hessian_ll[bid] + kappa * wp.outer(er, er)
+        if two_way == 1:                         # catheter feels -f, split by the barycentric u,
+            ca = cath_ids[bk]                    # WITH the Hessian (implicit, else it overshoots)
+            cb = cath_ids[bk + 1]
+            h = kappa * wp.outer(er, er)
+            wp.atomic_add(body_forces, ca, -(1.0 - bu) * f)
+            wp.atomic_add(body_forces, cb, -bu * f)
+            wp.atomic_add(body_hessian_ll, ca, (1.0 - bu) * h)
+            wp.atomic_add(body_hessian_ll, cb, bu * h)
 
 
 @wp.func
