@@ -62,7 +62,8 @@ def test_smoothed_gradient_rehabilitates_and_recovers_from_the_flat_region():
     from lumen.accurate.stochastic import contact_reaction, recover_by_smoothed_descent
     react = lambda th: contact_reaction(th, R=2.0, d_hat=0.3, kappa=1.0)
     theta_true, f_target = 1.85, float(contact_reaction(1.85, kappa=1.0))
-    out = recover_by_smoothed_descent(f_target, 1.5, sigma=0.1, iters=400, reaction=react)
+    out = recover_by_smoothed_descent(f_target, 1.5, sigma=0.1, iters=400, reaction=react,
+                                      rng=np.random.default_rng(0))   # pin randomness in the test
     assert abs(out["det_grad0"]) < 1e-9                   # started where the raw gradient is dead
     assert abs(out["smooth_grad0"]) > 1e-3               # ...but the smoothed one is alive
     assert abs(out["theta"] - theta_true) < 0.05         # and it recovers the offset
@@ -75,7 +76,8 @@ def test_recovery_is_scale_invariant_in_contact_stiffness():
     for kappa in (1.0, 2.0e3):
         react = lambda th, k=kappa: contact_reaction(th, kappa=k)
         f_target = float(react(1.85))
-        out = recover_by_smoothed_descent(f_target, 1.5, sigma=0.1, iters=400, reaction=react)
+        out = recover_by_smoothed_descent(f_target, 1.5, sigma=0.1, iters=400, reaction=react,
+                                          rng=np.random.default_rng(0))   # pin randomness in the test
         assert abs(out["theta"] - 1.85) < 0.05, (kappa, out["theta"])   # no divergence at either scale
 
 
@@ -95,7 +97,8 @@ def test_smoothing_sigma_trades_reach_for_bias():
     theta_true, f_target = 1.85, float(contact_reaction(1.85, kappa=1.0))
 
     def bias(sigma):
-        o = recover_by_smoothed_descent(f_target, 1.5, sigma=sigma, iters=400, reaction=react)
+        o = recover_by_smoothed_descent(f_target, 1.5, sigma=sigma, iters=400, reaction=react,
+                                        rng=np.random.default_rng(0))   # pin randomness in the test
         return abs(o["theta"] - theta_true)
 
     assert bias(0.2) > bias(0.1)                          # more smoothing -> more bias
