@@ -17,3 +17,4 @@ plan.md
 
 # captured episodes (procedural; regenerate via examples/capture_episode.py)
 episodes/
+bench_results/

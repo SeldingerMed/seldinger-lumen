@@ -9,6 +9,7 @@ is installed.
 """
 
 from lumen.envs.nav_gym import NavEnv
+from lumen.envs.registration import LUMEN_ENVS, register_gym_envs
 from lumen.envs.tree_nav import TreeNavEnv
 
-__all__ = ["NavEnv", "TreeNavEnv"]
+__all__ = ["NavEnv", "TreeNavEnv", "register_gym_envs", "LUMEN_ENVS"]
