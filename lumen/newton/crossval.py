@@ -145,8 +145,10 @@ def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
       * the oracle is monotone and penetration-free (r_acc <= R at every load);
       * both are held in the lumen band and CONVERGE to the wall under load;
       * at high load the fast tier sits within the compliant band d_hat of the oracle;
-      * `fast_monotone` / `fast_max_drop` report the fast tier's response, which is monotone
-        only up to its dynamic buckling jitter (reported, not hidden).
+      * `fast_monotone` / `fast_max_drop` REPORT the fast tier's response, which can be
+        genuinely non-monotone — the VBD cable buckles/redistributes under load, and how
+        much is architecture-dependent (Warp CPU codegen), so these are diagnostics, NOT
+        validation criteria. Only the oracle is required monotone.
     Needs warp+newton for the fast side; raises ImportError if absent (callers skip)."""
     import warp  # noqa: F401
     import newton  # noqa: F401
@@ -176,9 +178,9 @@ def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
     fast_max_drop = float(min(0.0, np.min(np.diff(fast)))) if fast.size > 1 else 0.0
     props = {
         "accurate_monotone": bool(np.all(np.diff(acc) >= -1e-3)),   # quasi-static -> clean
-        # the fast tier is dynamic (the VBD cable buckles slightly differently per load), so
-        # its deepest-contact is monotone only up to that buckling jitter — reported below
-        "fast_monotone": bool(np.all(np.diff(fast) >= -0.1)),
+        # DIAGNOSTIC (not a pass criterion): the fast tier can be non-monotone — the VBD
+        # cable buckles under load by an architecture-dependent amount (Warp CPU codegen)
+        "fast_monotone": bool(np.all(np.diff(fast) >= -1e-3)),
         "fast_max_drop": fast_max_drop,                  # most-negative step (0 if monotone)
         "accurate_penetration_free": bool(np.all(acc <= R + 1e-6)),
         "both_held": bool(acc.max() <= R + d_hat + 0.1 and fast.max() <= R + d_hat + 0.1),
