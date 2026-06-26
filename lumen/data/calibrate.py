@@ -78,22 +78,30 @@ def probe_episode(true_C10, sensor, carms=None, view_axis=(0.0, 0.0, 1.0), load=
                    outcome=Outcome(success=True, final_dist=0.0, steps=len(steps), label=label))
 
 
-def joint_probe_episode(true_C10, true_mu, sensor, carms=None, view_axis=(0.0, 0.0, 1.0),
+def joint_probe_episode(true_C10, true_mu, sensor, carms=None, view_axis=(0.0, 1.0, 0.0),
                         load=300.0, R0=2.0, bulge_dir=(1.0, 0.0, 0.0), push=6.0,
-                        normal_load=300.0, k_axial=120.0, asset_ref="",
+                        normal_load=300.0, k_axial=120.0, axis=(0.0, 0.0, 1.0), asset_ref="",
                         label="wall_friction_probe", notes=None, **dev_kw):
     """Generate a wall+friction probe episode: a device that both presses the wall (bulge
     ∝ 1/C10) and is pushed against friction (axial lag ∝ mu), imaged from one or more
     C-arms. Stores both ground-truth params + the forward knobs so `calibrate_from_episode`
-    recovers (C10, mu) jointly — the M2 'wall/friction' seam on Layer-2 data."""
+    recovers (C10, mu) jointly — the M2 'wall/friction' seam on Layer-2 data.
+
+    The default `view_axis` (+y) sees BOTH the lateral bulge (x) and the axial lag (z)
+    in-plane; a mono view aligned with either bulge_dir or the friction axis foreshortens
+    that effect and confounds the joint (it warns)."""
     from lumen.sensors.device_as_sensor import device_wall_and_friction
 
     nodes = device_wall_and_friction(true_C10, true_mu, load=load, R0=R0, bulge_dir=bulge_dir,
-                                     push=push, normal_load=normal_load, k_axial=k_axial, **dev_kw)
+                                     push=push, normal_load=normal_load, k_axial=k_axial,
+                                     axis=axis, **dev_kw)
     if carms is None:
-        if abs(float(np.dot(np.asarray(view_axis, float), np.asarray(bulge_dir, float)))) > 0.99:
-            warnings.warn("default view_axis is ~parallel to bulge_dir; this mono view is "
-                          "depth-ambiguous (under-determined) — add a second view", stacklevel=2)
+        va = np.asarray(view_axis, float)
+        if (abs(float(np.dot(va, np.asarray(bulge_dir, float)))) > 0.99
+                or abs(float(np.dot(va, np.asarray(axis, float)))) > 0.99):
+            warnings.warn("mono view_axis is ~parallel to bulge_dir or the friction axis; it "
+                          "foreshortens that effect and the joint (C10, mu) is under-"
+                          "determined — add a second view", stacklevel=2)
         carms = [sensor.default_carm(nodes, axis=view_axis)]
     elif hasattr(carms, "rays"):
         carms = [carms]
@@ -113,7 +121,7 @@ def joint_probe_episode(true_C10, true_mu, sensor, carms=None, view_axis=(0.0, 0
                "episode_kind": "wall_friction_probe",
                "calib": {"true_C10": float(true_C10), "true_mu": float(true_mu),
                          "load": float(load), "R0": float(R0), "bulge_dir": list(bulge_dir),
-                         "push": float(push), "normal_load": float(normal_load),
+                         "axis": list(axis), "push": float(push), "normal_load": float(normal_load),
                          "k_axial": float(k_axial), "dev_kw": dict(dev_kw),
                          "carms": [c.to_dict() for c in carms]}})
     return Episode(meta=meta, steps=steps,
@@ -190,11 +198,18 @@ def calibrate_from_episode(episode: Episode, root: str | None = None,
 
 def _calibrate_joint(calib, targets, sensor, carms, init_C10, init_mu, iters,
                      noise_std, noise_seed, identifiable_tol):
-    """Joint (C10, mu) recovery branch of calibrate_from_episode (wall+friction probe)."""
-    from lumen.sensors.device_as_sensor import estimate_wall_and_friction
+    """Joint (C10, mu) recovery branch of calibrate_from_episode (wall+friction probe).
+
+    Reports BOTH identifiability notions, which are distinct: `cond`/`lam_min` are the
+    DETERMINISTIC local Fisher gate (from joint_identifiability on the stored views), and
+    `identifiable` is a single-sample (N=1, high-variance) Monte-Carlo probe — does one
+    noisy recovery still land within `identifiable_tol`. Errors are RELATIVE for both C10
+    and mu, so `identifiable_tol` means the same thing for each."""
+    from lumen.sensors.device_as_sensor import estimate_wall_and_friction, joint_identifiability
 
     fwd = dict(load=calib["load"], R0=calib["R0"], bulge_dir=tuple(calib["bulge_dir"]),
                push=calib["push"], normal_load=calib["normal_load"], k_axial=calib["k_axial"],
+               **({"axis": tuple(calib["axis"])} if "axis" in calib else {}),
                **calib.get("dev_kw", {}))
     true_C10, true_mu = float(calib["true_C10"]), float(calib["true_mu"])
 
@@ -203,18 +218,24 @@ def _calibrate_joint(calib, targets, sensor, carms, init_C10, init_mu, iters,
                                                    init_mu=init_mu, iters=iters, **fwd)
         return float(C10), float(mu), hist
 
+    def _rel_mu(mu):                               # relative mu error (floor avoids /0 at true_mu=0)
+        return abs(mu - true_mu) / max(true_mu, 1e-6)
+
     C10, mu, hist = _recover(targets)
+    fisher = joint_identifiability(true_C10, true_mu, sensor, {"views": carms}, **fwd)["views"]
     out = {"recovered_C10": C10, "true_C10": true_C10, "rel_error_C10": abs(C10 - true_C10) / true_C10,
-           "recovered_mu": mu, "true_mu": true_mu, "abs_error_mu": abs(mu - true_mu),
-           "n_views": len(carms), "history": hist}
-    if noise_std > 0:                              # honest joint-identifiability probe under noise
+           "recovered_mu": mu, "true_mu": true_mu, "rel_error_mu": _rel_mu(mu),
+           "abs_error_mu": abs(mu - true_mu), "n_views": len(carms), "history": hist,
+           "fisher_cond": fisher["cond"], "fisher_lam_min": fisher["lam_min"],
+           "fisher_corr": fisher["corr"]}
+    if noise_std > 0:                              # single-sample MC identifiability probe (H1)
         rng = np.random.default_rng(noise_seed)
         noised = [t + rng.normal(0.0, noise_std, np.shape(t)) for t in targets]
         C10n, mun, _ = _recover(noised)
-        rel_C10_n, abs_mu_n = abs(C10n - true_C10) / true_C10, abs(mun - true_mu)
+        rel_C10_n, rel_mu_n = abs(C10n - true_C10) / true_C10, _rel_mu(mun)
         out.update(recovered_C10_noisy=C10n, recovered_mu_noisy=mun, noise_std=noise_std,
-                   rel_error_C10_noisy=rel_C10_n, abs_error_mu_noisy=abs_mu_n,
-                   identifiable=bool(rel_C10_n < identifiable_tol and abs_mu_n < identifiable_tol))
+                   rel_error_C10_noisy=rel_C10_n, rel_error_mu_noisy=rel_mu_n,
+                   identifiable=bool(rel_C10_n < identifiable_tol and rel_mu_n < identifiable_tol))
     return out
 
 

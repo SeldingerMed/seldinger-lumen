@@ -40,6 +40,25 @@ def test_friction_forward_rejects_negative_mu():
         device_with_friction(-0.1)
 
 
+def test_forward_and_optimizer_input_guards():
+    # the review's fail-fast guards: bad geometry / confounded forward / invalid seeds
+    with pytest.raises(ValueError, match="must be > 0"):
+        device_with_friction(0.5, k_axial=0.0)
+    with pytest.raises(ValueError, match="~parallel"):        # bulge ∥ lag -> view-independent confound
+        device_wall_and_friction(3e3, 0.5, bulge_dir=(0, 0, 1), axis=(0, 0, 1))
+    s, (cx, _) = _sensor(), _views()
+    with pytest.raises(ValueError, match="init_mu"):
+        estimate_friction([np.zeros((8, 8))], s, [cx], init_mu=-0.1)
+    with pytest.raises(ValueError, match="init_C10"):
+        estimate_wall_and_friction([np.zeros((8, 8))], s, [cx], init_C10=-1.0)
+
+
+def test_friction_sensitivity_nonzero_at_mu_zero_boundary():
+    # a rel·mu step would be 0 at mu=0; the rel·max(mu,0.1) step keeps it informative
+    s, (_, cy) = _sensor(), _views()
+    assert friction_sensitivity(0.0, s, [cy]) > 0.0
+
+
 # ---- friction recovery --------------------------------------------------------
 def test_estimate_friction_recovers_mu():
     s, (cx, cy) = _sensor(), _views()
@@ -99,5 +118,7 @@ def test_joint_probe_episode_recovers_both_through_the_seam():
     ep = joint_probe_episode(6.0e3, 0.6, s, carms=[cx, cy])
     assert ep.meta.notes["episode_kind"] == "wall_friction_probe"
     res = calibrate_from_episode(ep, init_C10=3e3, init_mu=0.3, iters=30)
-    assert res["rel_error_C10"] < 0.1 and res["abs_error_mu"] < 0.08   # both recovered
+    assert res["rel_error_C10"] < 0.1 and res["rel_error_mu"] < 0.1    # both recovered (relative)
     assert res["n_views"] == 2
+    # the deterministic Fisher gate is wired in alongside the recovery (cond/lam_min)
+    assert res["fisher_cond"] > 0 and res["fisher_lam_min"] > 0
