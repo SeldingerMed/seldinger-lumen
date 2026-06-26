@@ -31,7 +31,7 @@ def main():
 
     print(f"{'sigma':>6} {'recovered theta':>16} {'bias':>10}   (reach vs bias)")
     for sigma in (0.08, 0.12, 0.2, 0.3):
-        out = recover_by_smoothed_descent(f_target, theta0, sigma=sigma, lr=0.5,
+        out = recover_by_smoothed_descent(f_target, theta0, sigma=sigma,
                                           iters=400, reaction=react)
         print(f"{sigma:>6.2f} {out['theta']:>16.4f} {out['theta'] - theta_true:>+10.4f}")
     print("\n=> the smoothed gradient recovers theta from the flat region where the "

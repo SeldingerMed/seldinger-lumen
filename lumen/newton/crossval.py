@@ -137,17 +137,25 @@ def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
     match is not meaningful: the compliant VBD cable and the quasi-static IPC rod have
     different elastica; what must agree is the CONTACT response).
 
-    Returns {forces, accurate[], fast[], properties{...}}. The validated properties:
-      * both monotone non-decreasing (more load -> deeper contact);
-      * the oracle is penetration-free (r_acc <= R at every load);
+    Returns {forces, accurate[], fast[], properties{...}}. What this validates is the
+    CONTACT REGIME, not a stiffness-matched curve coincidence: the fast (compliant penalty)
+    and accurate (penetration-free log-barrier) tiers are *designed* to differ by the
+    compliant penetration, so the claim is that the fast tier tracks the oracle to within
+    that band, not that the two response curves overlay. The validated properties:
+      * the oracle is monotone and penetration-free (r_acc <= R at every load);
       * both are held in the lumen band and CONVERGE to the wall under load;
-      * at high load the two agree within the compliant band d_hat.
+      * at high load the fast tier sits within the compliant band d_hat of the oracle;
+      * `fast_monotone` / `fast_max_drop` report the fast tier's response, which is monotone
+        only up to its dynamic buckling jitter (reported, not hidden).
     Needs warp+newton for the fast side; raises ImportError if absent (callers skip)."""
     import warp  # noqa: F401
     import newton  # noqa: F401
     from lumen.newton.sim import NewtonGuidewireSim
 
     from lumen.accurate.ipc import IPCParams, IPCTubeReference
+    forces = np.asarray(forces, float)            # materialise: consumed twice (loop + return)
+    if forces.size == 0:
+        raise ValueError("forces must be non-empty")
     M, n = 40, 11
     cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
     x0 = np.stack([np.full(n, 1.5), np.zeros(n), np.linspace(30, 50, n)], axis=1)  # identical seed
@@ -165,18 +173,19 @@ def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
         fast.append(float(sim.node_radii().max()))
 
     acc, fast = np.array(acc), np.array(fast)
+    fast_max_drop = float(min(0.0, np.min(np.diff(fast)))) if fast.size > 1 else 0.0
     props = {
         "accurate_monotone": bool(np.all(np.diff(acc) >= -1e-3)),   # quasi-static -> clean
         # the fast tier is dynamic (the VBD cable buckles slightly differently per load), so
-        # its deepest-contact is monotone only up to that ~0.1 jitter — an honest difference
+        # its deepest-contact is monotone only up to that buckling jitter — reported below
         "fast_monotone": bool(np.all(np.diff(fast) >= -0.1)),
+        "fast_max_drop": fast_max_drop,                  # most-negative step (0 if monotone)
         "accurate_penetration_free": bool(np.all(acc <= R + 1e-6)),
         "both_held": bool(acc.max() <= R + d_hat + 0.1 and fast.max() <= R + d_hat + 0.1),
         "converge_to_wall": bool(acc[-1] > R - d_hat and fast[-1] > R - d_hat),
-        "agree_at_high_load": float(abs(fast[-1] - acc[-1])),     # should be < d_hat
+        "fast_within_band_of_oracle": float(abs(fast[-1] - acc[-1])),   # at high load, should be < d_hat
     }
-    return {"forces": np.asarray(forces, float), "accurate": acc, "fast": fast,
-            "properties": props}
+    return {"forces": forces, "accurate": acc, "fast": fast, "properties": props}
 
 
 def accurate_tier_status() -> dict:

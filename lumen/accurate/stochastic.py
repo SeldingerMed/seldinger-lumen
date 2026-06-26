@@ -31,7 +31,10 @@ import numpy as np
 
 def _scalar(v):
     """Coerce a scalar-valued fn's output to a python float (rejects non-scalar fns)."""
-    return float(np.asarray(v).item())
+    a = np.asarray(v)
+    if a.size != 1:
+        raise ValueError(f"fn must be scalar-valued; got an output of size {a.size}")
+    return float(a.item())
 
 
 def contact_reaction(theta, R=2.0, d_hat=0.3, kappa=2.0e3, mode="compliant"):
@@ -58,6 +61,10 @@ def smoothed_value_and_grad(fn, theta, sigma, n_samples=256, rng=None):
         E[fn]   ≈ mean( (fn(θ+ξ)+fn(θ−ξ))/2 )
         ∇E[fn]  ≈ mean( ξ·(fn(θ+ξ)−fn(θ−ξ)) ) / (2σ²)
     `theta` may be a scalar or vector; `sigma` is the physical gap-uncertainty scale."""
+    if sigma <= 0:
+        raise ValueError(f"sigma must be > 0 (the physical gap-noise scale); got {sigma}")
+    if n_samples < 1:
+        raise ValueError(f"n_samples must be >= 1; got {n_samples}")
     rng = rng or np.random.default_rng(0)
     th = np.atleast_1d(np.asarray(theta, float))
     xi = rng.normal(0.0, sigma, size=(n_samples, th.size))
@@ -70,7 +77,9 @@ def smoothed_value_and_grad(fn, theta, sigma, n_samples=256, rng=None):
 
 def deterministic_grad(fn, theta, h=1e-4):
     """Central finite-difference gradient of the RAW (non-smoothed) observable — the
-    thing that is 0 in the inactive region and kinks at the threshold."""
+    thing that is 0 in the inactive region and kinks at the threshold. At the activation
+    kink itself this returns the SYMMETRIC derivative (the average of the 0 and active
+    one-sided slopes), which is why it can look like half the active slope there."""
     th = np.atleast_1d(np.asarray(theta, float))
     g = np.zeros_like(th)
     for i in range(th.size):
@@ -79,26 +88,40 @@ def deterministic_grad(fn, theta, h=1e-4):
     return g if th.size > 1 else float(g[0])
 
 
-def recover_by_smoothed_descent(f_target, theta0, sigma, lr=2e-4, iters=200,
+def recover_by_smoothed_descent(f_target, theta0, sigma, lr=0.1, iters=200,
                                 n_samples=256, reaction=None, rng=None):
     """Recover the device offset θ matching an observed reaction `f_target`, starting from
     `theta0` (which may sit in the FLAT inactive region where the deterministic gradient is
-    0). Descends L(θ)=(E[reaction(θ)]−f_target)² using the smoothed gradient.
+    0). Descends the NORMALISED loss L(θ)=(E[reaction(θ)]/f_target − 1)² with the smoothed
+    gradient, stepping along the UNIT gradient direction scaled by the residual (f−1).
 
-    Returns {theta, history, det_grad0, smooth_grad0}: the recovered θ plus the two
-    gradients at the start, so a caller can see the deterministic one was ~0 (stuck) while
-    the smoothed one gave a usable direction."""
+    This step is scale-invariant: the smoothed gradient's magnitude scales with the contact
+    stiffness kappa and inversely with σ, so a raw ∇L·lr step diverges for a stiff/narrow
+    barrier; taking the unit direction (g/‖g‖, same convention as the L1.2 optimizer) and
+    keeping the residual factor (f−1) — which → 0 at the optimum — gives a step that is both
+    kappa-free and self-shrinking, so a single `lr` works across stiffnesses. Pick σ in the
+    U-shaped sweet spot: too SMALL and the noise rarely reaches the active band so the
+    gradient is dead again (descent stalls); too LARGE and the smoothed optimum is biased
+    (see `examples/stochastic_contact_gradient`).
+
+    Returns {theta, history, det_grad0, smooth_grad0}: the recovered θ; `history` is a list
+    of (θ, reaction, loss) at each step (θ is the point the reaction was evaluated at); and
+    the two start gradients, so a caller sees the deterministic one was ~0 (stuck) while the
+    smoothed one gave a usable direction."""
     rng = rng or np.random.default_rng(0)
     reaction = reaction or contact_reaction
+    scale = abs(float(f_target)) or 1.0                 # normalise the observable: target -> 1.0
+    rhat = lambda th: reaction(th) / scale              # noqa: E731 (kappa cancels here)
     theta = float(theta0)
-    det_grad0 = deterministic_grad(reaction, theta)
-    f0, sg0 = smoothed_value_and_grad(reaction, theta, sigma, n_samples, rng)
-    smooth_grad0 = 2.0 * (f0 - f_target) * sg0          # ∇L via chain rule on the smoothed value
+    det_grad0 = deterministic_grad(reaction, theta)     # raw (un-normalised) gradient, for the dead check
+    f0, sg0 = smoothed_value_and_grad(rhat, theta, sigma, n_samples, rng)
+    smooth_grad0 = 2.0 * (f0 - 1.0) * sg0               # ∇L of the normalised loss (for reporting)
     history = []
     for _ in range(iters):
-        f, g = smoothed_value_and_grad(reaction, theta, sigma, n_samples, rng)
-        theta -= lr * 2.0 * (f - f_target) * g          # gradient step on L
-        history.append((theta, f))
+        f, g = smoothed_value_and_grad(rhat, theta, sigma, n_samples, rng)
+        history.append((theta, f * scale, (f - 1.0) ** 2))   # record θ the reaction was evaluated at
+        direction = g / (abs(g) + 1e-12)                # unit gradient direction (scale-free)
+        theta -= lr * (f - 1.0) * direction             # residual-scaled unit step (self-shrinking)
     return {"theta": theta, "history": history, "det_grad0": det_grad0, "smooth_grad0": smooth_grad0}
 
 
@@ -109,7 +132,7 @@ if __name__ == "__main__":  # self-check: the smoothed gradient rehabilitates th
     f_target = _scalar(react(theta_true))
     theta0 = 1.5                                        # start OUTSIDE the band (gap 0.5 > d_hat)
     det0 = deterministic_grad(react, theta0)
-    out = recover_by_smoothed_descent(f_target, theta0, sigma=0.1, lr=0.5, iters=400, reaction=react)
+    out = recover_by_smoothed_descent(f_target, theta0, sigma=0.1, iters=400, reaction=react)
     assert abs(det0) < 1e-9, det0                       # deterministic gradient is dead at the start
     assert abs(out["smooth_grad0"]) > 1e-3              # smoothed gradient is alive
     assert abs(out["theta"] - theta_true) < 0.05, out["theta"]   # ...and it recovers θ
