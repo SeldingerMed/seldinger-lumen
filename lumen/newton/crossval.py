@@ -127,6 +127,69 @@ def crossval_penetration_free(R=2.0, force=400.0):
             "accurate_min_gap": info["min_gap"], "penetration_free": info["penetration_free"]}
 
 
+def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
+                                  d_hat=0.3, kappa_acc=1.0e2, kappa_fast=3.0e3):
+    """Oracle ROLLOUT validation (doc §3.3 role (a), the M1 'matches oracle' check):
+    sweep an outward contact load and compare the fast tier's deepest wall indentation
+    to the penetration-free IPC oracle on the SAME scene at each load. This validates
+    the fast tier against a high-fidelity ground-truth RESPONSE CURVE — a physical scalar
+    per load, robust to the two tiers' different rod discretisations (a node-wise shape
+    match is not meaningful: the compliant VBD cable and the quasi-static IPC rod have
+    different elastica; what must agree is the CONTACT response).
+
+    Returns {forces, accurate[], fast[], properties{...}}. What this validates is the
+    CONTACT REGIME, not a stiffness-matched curve coincidence: the fast (compliant penalty)
+    and accurate (penetration-free log-barrier) tiers are *designed* to differ by the
+    compliant penetration, so the claim is that the fast tier tracks the oracle to within
+    that band, not that the two response curves overlay. The validated properties:
+      * the oracle is monotone and penetration-free (r_acc <= R at every load);
+      * both are held in the lumen band and CONVERGE to the wall under load;
+      * at high load the fast tier sits within the compliant band d_hat of the oracle;
+      * `fast_monotone` / `fast_max_drop` REPORT the fast tier's response, which can be
+        genuinely non-monotone — the VBD cable buckles/redistributes under load, and how
+        much is architecture-dependent (Warp CPU codegen), so these are diagnostics, NOT
+        validation criteria. Only the oracle is required monotone.
+    Needs warp+newton for the fast side; raises ImportError if absent (callers skip)."""
+    import warp  # noqa: F401
+    import newton  # noqa: F401
+    from lumen.newton.sim import NewtonGuidewireSim
+
+    from lumen.accurate.ipc import IPCParams, IPCTubeReference
+    forces = np.asarray(forces, float)            # materialise: consumed twice (loop + return)
+    if forces.size == 0:
+        raise ValueError("forces must be non-empty")
+    M, n = 40, 11
+    cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
+    x0 = np.stack([np.full(n, 1.5), np.zeros(n), np.linspace(30, 50, n)], axis=1)  # identical seed
+
+    acc, fast = [], []
+    for F in forces:
+        ref = IPCTubeReference(cl, R, IPCParams(d_hat=d_hat, kappa=kappa_acc))
+        x, _ = ref.solve(x0.copy(), F=np.array([float(F), 0.0, 0.0]), iters=600)
+        acc.append(float(np.linalg.norm(x[:, :2], axis=1).max()))      # deepest contact radius
+
+        sim = NewtonGuidewireSim(cl, R, x0.copy(), radius=0.2, kappa=kappa_fast, d_hat=d_hat,
+                                 vbd_iterations=12, device="cpu")
+        for _ in range(80):
+            sim.step(dt=2.5e-2, substeps=5, preload=(float(F), 0.0, 0.0))
+        fast.append(float(sim.node_radii().max()))
+
+    acc, fast = np.array(acc), np.array(fast)
+    fast_max_drop = float(min(0.0, np.min(np.diff(fast)))) if fast.size > 1 else 0.0
+    props = {
+        "accurate_monotone": bool(np.all(np.diff(acc) >= -1e-3)),   # quasi-static -> clean
+        # DIAGNOSTIC (not a pass criterion): the fast tier can be non-monotone — the VBD
+        # cable buckles under load by an architecture-dependent amount (Warp CPU codegen)
+        "fast_monotone": bool(np.all(np.diff(fast) >= -1e-3)),
+        "fast_max_drop": fast_max_drop,                  # most-negative step (0 if monotone)
+        "accurate_penetration_free": bool(np.all(acc <= R + 1e-6)),
+        "both_held": bool(acc.max() <= R + d_hat + 0.1 and fast.max() <= R + d_hat + 0.1),
+        "converge_to_wall": bool(acc[-1] > R - d_hat and fast[-1] > R - d_hat),
+        "fast_within_band_of_oracle": float(abs(fast[-1] - acc[-1])),   # at high load, should be < d_hat
+    }
+    return {"forces": forces, "accurate": acc, "fast": fast, "properties": props}
+
+
 def accurate_tier_status() -> dict:
     """Report which accurate-tier oracle backs the cross-validation."""
     external = None

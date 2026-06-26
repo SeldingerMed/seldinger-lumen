@@ -8,11 +8,29 @@ that drops in on a GPU box.
 import pytest
 
 from lumen.newton.crossval import (accurate_tier_status, crossval_contact_force,
-                                   crossval_hgo_stress)
+                                   crossval_hgo_stress, crossval_indentation_response)
 
 
 def test_hgo_stress_matches_analytic():
     assert crossval_hgo_stress() < 1e-6
+
+
+def test_fast_tier_indentation_tracks_the_ipc_oracle():
+    # accurate-tier ORACLE rollout (M1 'matches oracle'): sweep the contact load and check
+    # the fast tier's deepest indentation against the penetration-free IPC oracle on the
+    # same scene. Validate the robust, discretisation-independent response PROPERTIES.
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+    r = crossval_indentation_response()
+    p = r["properties"]
+    # the robust, cross-platform physical invariants (the fast tier's monotonicity is NOT
+    # one of them: the VBD cable's buckling backoff under load is real and architecture-
+    # dependent via Warp's CPU codegen, so fast_monotone/fast_max_drop are REPORTED
+    # diagnostics, not pass criteria).
+    assert p["accurate_monotone"] and p["accurate_penetration_free"]   # oracle: clean + penetration-free
+    assert p["both_held"] and p["converge_to_wall"]           # both reach the wall under load
+    assert p["fast_within_band_of_oracle"] < 0.3             # fast tracks the oracle within d_hat
+    assert "fast_max_drop" in p and p["fast_max_drop"] <= 0.0   # surfaced (a drop is <= 0), not gated
 
 
 def test_contact_force_matches_analytic_compliant_and_log():

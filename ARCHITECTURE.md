@@ -62,6 +62,14 @@ subclass overriding only the per-color rigid-body iteration).
     GPU/C++ build; it's a reference, not a production engine.
   - `accurate/diff.py` — the differentiable calibration path (Warp autodiff), fitting
     constitutive parameters to observations.
+  - `accurate/stochastic.py` — physically-grounded stochastic contact gradients (§3.5.8):
+    where the deterministic barrier gradient is dead (zero outside the active band), model
+    the gap as jittered by physical uncertainty (blood film, roughness, manufacturing) so
+    `E[reaction]` is smooth and the randomized-smoothing gradient is recoverable. A sysID
+    tool (not a policy claim); `sigma` trades reach for bias — the §3.5.8 option, evaluated.
+  - `crossval.crossval_indentation_response` — the oracle ROLLOUT check: the fast tier's
+    force→indentation response is validated against the penetration-free IPC oracle on the
+    same scene (a discretisation-robust scalar per load, not a node-wise shape match).
   - The heavy external oracles (STARK/SymX, ppf-contact-solver) remain a drop-in via
     the same `crossval.accurate_tier_status` seam for those who build them on a GPU
     box — we don't reimplement *production* IPC, only a reference.
