@@ -66,7 +66,10 @@ def run_episode(env, policy, seed) -> dict:
         obs, r, terminated, truncated, info = env.step(policy(obs))
         total_r += float(r)
         steps += 1
-        max_pen = max(max_pen, max(0.0, float(info.get("max_r", 0.0)) - R))
+        if "max_pen" in info:
+            max_pen = max(max_pen, float(info["max_pen"]))
+        else:
+            max_pen = max(max_pen, max(0.0, float(info.get("max_r", 0.0)) - R))
         success = success or bool(info.get("success", False))
         if terminated or truncated:
             break
