@@ -30,6 +30,9 @@ There is no separate CPU fallback to maintain.
 python -m lumen.hardware     # -> {"device": "cuda"|"cpu", ...}
 ```
 
+Lumen keeps Warp/Newton backend chatter quiet by default so examples print parseable
+results. Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` when you want backend diagnostics.
+
 ## Quick start
 
 ```python

@@ -24,6 +24,7 @@ pip install -e ".[dev]"
 `.[dev]` includes tests, Gymnasium, Warp, and the pinned Newton commit this solver is
 validated against. For runtime-only solver use, install `.[solver]` instead. Runs on
 **CPU and CUDA** from the same code (Warp picks the device at runtime).
+Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` to show Warp/Newton backend diagnostics.
 
 ## A 20-second taste
 

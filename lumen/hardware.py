@@ -13,11 +13,13 @@ solver code runs everywhere, and this module just picks the device.
 from __future__ import annotations
 
 import json
+import os
 from importlib import metadata
 
 VALIDATED_WARP_VERSION = "1.14.0"
 VALIDATED_NEWTON_VERSION = "1.4.0.dev0"
 VALIDATED_NEWTON_REF = "6dfe7303d9ca50f7505cac31bee9885c813d89d7"
+BACKEND_LOG_ENV = "LUMEN_BACKEND_LOG_LEVEL"
 
 
 def _newton_install_ref(newton_module) -> str | None:
@@ -38,6 +40,30 @@ def _newton_install_ref(newton_module) -> str | None:
         return None
 
 
+def configure_backend_logging(level: str | None = None) -> None:
+    """Set Warp's default log level before backend initialization.
+
+    Lumen examples and hardware probes should print Lumen results, not Warp's module
+    load chatter. Set ``LUMEN_BACKEND_LOG_LEVEL=info`` or ``debug`` to opt back into
+    verbose backend diagnostics.
+    """
+    level = (level if level is not None else os.environ.get(BACKEND_LOG_ENV, "warning")).lower()
+    try:
+        import warp as wp
+    except Exception:
+        return
+    levels = {
+        "debug": wp.LOG_DEBUG,
+        "info": wp.LOG_INFO,
+        "warning": wp.LOG_WARNING,
+        "warn": wp.LOG_WARNING,
+        "error": wp.LOG_ERROR,
+    }
+    if level not in levels:
+        raise ValueError(f"{BACKEND_LOG_ENV} must be one of {sorted(levels)}, got {level!r}")
+    wp.config.log_level = levels[level]
+
+
 def detect_device(prefer: str = "auto") -> str:
     """Return the Warp device to run on: 'cuda' (if available) or 'cpu'.
 
@@ -47,6 +73,10 @@ def detect_device(prefer: str = "auto") -> str:
         return "cpu"
     try:
         import warp as wp
+    except Exception:
+        return "cpu"
+    configure_backend_logging()
+    try:
         wp.init()
         return "cuda" if wp.get_cuda_device_count() > 0 else "cpu"
     except Exception:
@@ -61,6 +91,7 @@ def describe() -> dict:
                           "newton": VALIDATED_NEWTON_VERSION,
                           "newton_ref": VALIDATED_NEWTON_REF},
             "backend_validated": False}
+    configure_backend_logging()
     try:
         import warp as wp
         wp.init()

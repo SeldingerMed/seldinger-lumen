@@ -45,7 +45,8 @@ class NewtonGuidewireSim:
                  couple_coaxial: bool = True, catheter_inner_radius: float = 0.5,
                  coax_kappa: float = 2.0e3, coax_d_hat: float = 0.1,
                  coax_two_way: bool = True, tree=None, route_centerline=None):
-        from lumen.hardware import detect_device
+        from lumen.hardware import configure_backend_logging, detect_device
+        configure_backend_logging()
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
         self.n_envs = int(n_envs)
