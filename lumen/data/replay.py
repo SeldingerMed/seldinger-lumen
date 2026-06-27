@@ -79,6 +79,32 @@ def replay(episode: Episode, root: str | None = None):
         yield s.t, dict(s.action), dict(s.kinematics), obs
 
 
+def annotation_coverage(episode: Episode) -> dict:
+    """Manifest-only coverage for CV supervision labels in one episode.
+
+    Counts annotation sidecar references and keypoint metadata without loading any
+    observation or mask arrays, so a training script can screen a corpus cheaply.
+    """
+    sidecars: Counter = Counter()
+    modalities: Counter = Counter()
+    annotation_steps = keypoint_steps = 0
+    for s in episode.steps:
+        modalities[s.obs_modality] += 1
+        annotations = s.annotations if isinstance(s.annotations, dict) else {}
+        if annotations:
+            annotation_steps += 1
+        if isinstance(annotations.get("keypoints"), dict) and annotations["keypoints"]:
+            keypoint_steps += 1
+        for key, ref in annotations.items():
+            if key.endswith("_ref") and ref:
+                sidecars[key[:-4]] += 1
+    return {"steps": len(episode.steps),
+            "modalities": dict(modalities),
+            "annotation_steps": annotation_steps,
+            "sidecars": dict(sidecars),
+            "keypoint_steps": keypoint_steps}
+
+
 def summarize(dataset) -> dict:
     """Corpus-level summary (success rate, mean steps/final_dist, label counts) — the
     leaderboard-shaped dict (no dedicated leaderboard writer exists yet). Accepts an
@@ -94,20 +120,31 @@ def summarize(dataset) -> dict:
     (default "navigation" for episodes that predate the discriminator)."""
     items = ((Episode.load(d) for d in dataset.dirs)
              if isinstance(dataset, EpisodeDataset) else dataset)
-    n = nav = succ = steps = dist = 0
+    n = nav = succ = steps = dist = total_steps = annotation_steps = keypoint_steps = 0
     labels: Counter = Counter()
     kinds: Counter = Counter()
+    modalities: Counter = Counter()
+    annotations: Counter = Counter()
     for ep in items:                                          # one streaming pass, no list()
         n += 1
         labels[ep.outcome.label] += 1
         kind = ep.meta.notes.get("episode_kind", "navigation") if isinstance(ep.meta.notes, dict) else "navigation"
         kinds[kind] += 1
+        cov = annotation_coverage(ep)
+        total_steps += cov["steps"]
+        modalities.update(cov["modalities"])
+        annotations.update(cov["sidecars"])
+        annotation_steps += cov["annotation_steps"]
+        keypoint_steps += cov["keypoint_steps"]
         if kind == "navigation":                             # nav metrics over nav episodes only
             nav += 1
             succ += bool(ep.outcome.success)
             steps += ep.outcome.steps
             dist += ep.outcome.final_dist
-    base = {"episodes": n, "navigation": nav, "labels": dict(labels), "kinds": dict(kinds)}
+    base = {"episodes": n, "navigation": nav, "labels": dict(labels), "kinds": dict(kinds),
+            "total_steps": total_steps, "modalities": dict(modalities),
+            "annotations": dict(annotations), "annotation_steps": annotation_steps,
+            "keypoint_steps": keypoint_steps}
     if nav == 0:
         return {**base, "success_rate": 0.0, "mean_steps": 0.0, "mean_final_dist": 0.0}
     return {**base, "success_rate": succ / nav, "mean_steps": steps / nav,

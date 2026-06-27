@@ -121,6 +121,9 @@ a loose episode. It validates the sidecars, loads the asset, attaches the episod
 root, and exposes `bundle.replay()` so observations are lazy-loaded from the same
 directory.
 
+Use `lumen.data.annotation_coverage(ep)` or corpus-level `summarize(...)` before
+loading arrays to check whether a bundle has CV-ready masks/keypoints.
+
 ## Clinical Metrics
 
 `outcome.metrics` is the canonical endpoint summary produced by

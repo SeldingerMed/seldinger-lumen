@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from lumen.assets import procedural
-from lumen.data import (Episode, EpisodeDataset, EpisodeMeta, Outcome, Step, replay,
-                        summarize)
+from lumen.data import (Episode, EpisodeDataset, EpisodeMeta, Outcome, Step,
+                        annotation_coverage, replay, summarize)
 
 
 def _ep(label, n=3, success=True, modality="fluoro"):
@@ -66,6 +66,33 @@ def test_summarize_corpus(tmp_path):
     assert s["success_rate"] == pytest.approx(0.5)
     assert s["mean_steps"] == pytest.approx(4.0)            # (3 + 5) / 2
     assert s["labels"] == {"straight": 1, "stenosis": 1}
+    assert s["total_steps"] == 8
+    assert s["modalities"] == {"fluoro": 8}
+
+
+def test_annotation_coverage_is_manifest_only_for_cv_readiness(tmp_path):
+    ep = _ep("seg", 3, True)
+    for i, step in enumerate(ep.steps[:2]):
+        step.annotations = {
+            "device_mask_ref": f"{i:03d}_device_mask.npy",
+            "keypoints": {"tip": {"uv": [1.0, 2.0], "present": True}},
+        }
+    ep.save(tmp_path / "seg")
+    back = Episode.load(tmp_path / "seg")
+
+    cov = annotation_coverage(back)
+
+    assert cov == {
+        "steps": 3,
+        "modalities": {"fluoro": 3},
+        "annotation_steps": 2,
+        "sidecars": {"device_mask": 2},
+        "keypoint_steps": 2,
+    }
+    s = summarize(EpisodeDataset(tmp_path, validate_on_load=False))
+    assert s["annotations"] == {"device_mask": 2}
+    assert s["annotation_steps"] == 2
+    assert s["keypoint_steps"] == 2
 
 
 def test_empty_corpus(tmp_path):
@@ -144,6 +171,12 @@ def test_replay_corpus_example_prints_clinical_endpoint_flags(tmp_path, capsys):
     ep.meta.sensor = {"modality": "fluoro", "nu": 8, "nv": 8}
     ep.meta.calibration = {"type": "carm", "views": [carm.to_dict()]}
     ep.meta.labels = {"procedure": "navigation"}
+    for i, step in enumerate(ep.steps):
+        step.annotations = {
+            "device_mask_ref": f"{i:03d}_device_mask.npy",
+            "keypoints": {"tip": {"uv": [1.0, 2.0], "present": True}},
+        }
+        step.annotation_arrays = {"device_mask": np.ones((3, 3), dtype=np.uint8)}
     ep.outcome.metrics = {
         "tip_target": {"success": True},
         "wall_safety": {"perforation_risk": False},
@@ -157,6 +190,8 @@ def test_replay_corpus_example_prints_clinical_endpoint_flags(tmp_path, capsys):
     assert "tip_target=True" in out
     assert "wall_risk=False" in out
     assert "branch=True" in out
+    assert "device_mask=2/2" in out
+    assert "keypoints=2/2" in out
 
 
 def test_replay_corpus_example_skips_invalid_bundles_but_lists_valid_ones(tmp_path, capsys):

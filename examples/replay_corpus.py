@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from lumen.data import CaseBundle, EpisodeDataset, replay, summarize
+from lumen.data import CaseBundle, EpisodeDataset, annotation_coverage, replay, summarize
 
 
 def _clinical_flags(ep):
@@ -28,6 +28,15 @@ def _clinical_flags(ep):
     if branch.get("correct") is not None:
         parts.append(f"branch={branch['correct']!s}")
     return "  ".join(parts)
+
+
+def _annotation_flags(ep):
+    cov = annotation_coverage(ep)
+    parts = [f"{name}={count}/{cov['steps']}"
+             for name, count in sorted(cov["sidecars"].items())]
+    if cov["keypoint_steps"]:
+        parts.append(f"keypoints={cov['keypoint_steps']}/{cov['steps']}")
+    return "  ".join(parts) if parts else "annotations=none"
 
 
 def main(root="episodes"):
@@ -60,7 +69,7 @@ def main(root="episodes"):
         print(f"{ep.outcome.label:18s}  steps={ep.outcome.steps:2d}  "
               f"success={ep.outcome.success!s:5s}  final_dist={ep.outcome.final_dist:6.2f}  "
               f"obs{shape}  calib={bundle.calibration.get('type')}  "
-              f"{_clinical_flags(ep)}  @ {ep.root}")
+              f"{_clinical_flags(ep)}  {_annotation_flags(ep)}  @ {ep.root}")
     if skipped:
         print("\nskipped invalid bundles:")
         for path, err in skipped:

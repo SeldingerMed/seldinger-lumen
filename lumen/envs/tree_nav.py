@@ -134,7 +134,7 @@ class TreeNavEnv:
         # branch — route_s still projects onto the polyline there); small off-route penalty.
         reward = (progress if f["on_route"] else -0.1) - 0.5 * f["max_pen"] - 0.01
         self._prev = dist
-        terminated = bool(dist < self.success_tol and f["on_route"])
+        terminated = bool(dist <= self.success_tol and f["on_route"])
         if terminated:
             reward += 10.0
         info = {"route_s": f["s"], "dist": dist, "max_r": f["max_r"], "success": terminated,

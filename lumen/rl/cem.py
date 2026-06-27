@@ -82,12 +82,12 @@ class BatchedNav:
             dist = np.abs(s - self.target_s)
             contact_pen = np.maximum(0.0, r - self.R)
             rew = (prev - dist) - 0.5 * contact_pen - 0.01
-            hit = (dist < success_tol) & (~done)
+            hit = (dist <= success_tol) & (~done)
             rew = np.where(hit, rew + 10.0, rew)
             ret = np.where(done, ret, ret + rew)
             steps = np.where(done, steps, steps + 1)
             succ = succ | hit
-            done = done | (dist < success_tol)
+            done = done | (dist <= success_tol)
             prev = dist
             if done.all():
                 break

@@ -73,7 +73,9 @@ python examples/replay_corpus.py /tmp/lumen-episodes
 `preview.png`, `preview_contact_sheet.png`, and fluoro `device_mask_contact_sheet.png`
 convenience images, so you can inspect observations and CV labels without opening
 NumPy sidecars. `replay_corpus.py` prints clinical endpoint flags and skips invalid
-bundles with an explicit reason.
+bundles with an explicit reason. It also reports manifest-only annotation coverage
+(`device_mask=19/19`, `keypoints=19/19`) so a CV pipeline can screen a corpus before
+loading image arrays.
 
 The benchmark intentionally separates raw target reach from clinically safe reach:
 

@@ -5,7 +5,7 @@ import pytest
 
 from lumen.assets import procedural
 from lumen.core import VascularTree
-from lumen.envs.tree_nav import _HAS_GYM, _route_polyline
+from lumen.envs.tree_nav import _HAS_GYM, TreeNavEnv, _route_polyline
 
 
 # ---- route graph helpers (pure numpy) ----------------------------------------
@@ -53,6 +53,32 @@ def test_env_rejects_target_equal_start():
     from lumen.envs import TreeNavEnv
     with pytest.raises(ValueError, match="differ from start"):
         TreeNavEnv(procedural.bifurcation(), target_node="trunk_in", device="cpu")
+
+
+def test_tree_nav_success_boundary_is_inclusive_when_on_route():
+    class Sim:
+        def step(self, **_):
+            pass
+
+    env = object.__new__(TreeNavEnv)
+    env.sim = Sim()
+    env.substeps = 1
+    env.max_insertion = 1.0
+    env.steps = 0
+    env.target_s = 10.0
+    env._prev = 5.0
+    env.success_tol = 2.5
+    env.max_steps = 5
+    env._features = lambda: {"s": 7.5, "r": 0.0, "theta": 0.0, "R_loc": 2.0,
+                             "max_r": 2.0, "max_pen": 0.0, "on_route": True,
+                             "edge": "left"}
+    env._obs = lambda _: np.zeros(5, dtype=np.float32)
+
+    _, _, terminated, _, info = env.step([0.0])
+
+    assert terminated is True
+    assert info["success"] is True
+    assert info["dist"] == pytest.approx(2.5)
 
 
 # ---- the env (needs the Layer-0 tree sim) ------------------------------------
