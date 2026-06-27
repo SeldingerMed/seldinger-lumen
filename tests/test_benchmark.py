@@ -22,6 +22,10 @@ def test_forward_baseline_scores_the_whole_suite():
     assert sc.suite_version == SUITE_VERSION and len(sc.per_task) == 3
     assert sc.overall["success_rate"] == 1.0          # the baseline solves the suite...
     assert 0.0 <= sc.overall["safe_success_rate"] < sc.overall["success_rate"]
+    assert sc.overall["unsafe_success_rate"] == pytest.approx(
+        sc.overall["success_rate"] - sc.overall["safe_success_rate"]
+    )
+    assert sc.per_task[2]["unsafe_success_rate"] == pytest.approx(1.0)
     assert sc.per_task[2]["mean_steps"] > sc.per_task[0]["mean_steps"]   # ...the tree costs more steps
     assert all(np.isfinite([t["safe_success_rate"], t["max_pen"], t["mean_return"]]).all()
                for t in sc.per_task)
@@ -99,6 +103,20 @@ def test_scorecard_validation_reports_submission_schema_errors():
                                           "max_pen": 0.0, "mean_return": 1.0})
     with pytest.raises(ValueError, match="overall.safe_success_rate"):
         validate_scorecard(inflated_overall)
+
+    wrong_unsafe = Scorecard(name="wrong-unsafe", suite_version=SUITE_VERSION,
+                             per_task=[
+                                 {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                                  "success_rate": 1.0, "safe_success_rate": 0.5,
+                                  "unsafe_success_rate": 0.0, "max_pen": 0.0,
+                                  "mean_return": 1.0}
+                                 for t in SUITE
+                             ],
+                             overall={"success_rate": 1.0, "safe_success_rate": 0.5,
+                                      "unsafe_success_rate": 0.0, "max_pen": 0.0,
+                                      "mean_return": 1.0})
+    with pytest.raises(ValueError, match="unsafe_success_rate"):
+        validate_scorecard(wrong_unsafe)
 
     patient_card = Scorecard(name="private", suite_version=SUITE_VERSION,
                              per_task=[
@@ -247,5 +265,7 @@ def test_legacy_benchmarks_leaderboard_uses_canonical_scorecard_fields():
     out = run_leaderboard(proportional_policy, "proportional")
 
     assert out["suite_version"] == SUITE_VERSION
-    assert set(out) >= {"safe_success_rate", "success_rate", "max_pen", "mean_return", "cases"}
-    assert all("safe_success_rate" in task and "max_pen" in task for task in out["cases"])
+    assert set(out) >= {"safe_success_rate", "unsafe_success_rate", "success_rate",
+                        "max_pen", "mean_return", "cases"}
+    assert all("safe_success_rate" in task and "unsafe_success_rate" in task
+               and "max_pen" in task for task in out["cases"])

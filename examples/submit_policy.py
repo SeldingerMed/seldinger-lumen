@@ -37,6 +37,7 @@ def main(results_dir="bench_results", name="example-policy"):
     print("leaderboard:", flush=True)
     for rank, card in enumerate(leaderboard(results_dir), 1):
         print(f"  {rank}. {card.name:24} safe={card.overall['safe_success_rate']:.2f}  "
+              f"unsafe={card.overall.get('unsafe_success_rate', 0.0):.2f}  "
               f"success={card.overall['success_rate']:.2f}  "
               f"max_pen={card.overall['max_pen']:.3f}  "
               f"return={card.overall['mean_return']:.1f}", flush=True)

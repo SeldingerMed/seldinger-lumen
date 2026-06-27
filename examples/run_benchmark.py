@@ -25,19 +25,23 @@ def main():
     sc.save(os.path.join(results_dir, "forward-baseline.json"))
 
     print(f"suite {sc.suite_version}   submission: {sc.name}")
-    print(f"{'task':18} {'tier':7} {'safe':>8} {'success':>8} {'mean_steps':>11} {'max_pen':>9}")
+    print(f"{'task':18} {'tier':7} {'safe':>8} {'unsafe':>8} {'success':>8} "
+          f"{'mean_steps':>11} {'max_pen':>9}")
     for t in sc.per_task:
         steps = "-" if t["mean_steps"] is None else f"{t['mean_steps']:.1f}"
         print(f"{t['name']:18} {t['tier']:7} {t['safe_success_rate']:>8.2f} "
-              f"{t['success_rate']:>8.2f} {steps:>11} {t['max_pen']:>9.3f}")
+              f"{t['unsafe_success_rate']:>8.2f} {t['success_rate']:>8.2f} "
+              f"{steps:>11} {t['max_pen']:>9.3f}")
     o = sc.overall
-    print(f"\noverall: safe={o['safe_success_rate']:.2f}  success={o['success_rate']:.2f}  "
+    print(f"\noverall: safe={o['safe_success_rate']:.2f}  "
+          f"unsafe={o['unsafe_success_rate']:.2f}  success={o['success_rate']:.2f}  "
           f"worst max_pen={o['max_pen']:.3f}  "
           f"mean_return={o['mean_return']:.1f}")
 
     print(f"\nleaderboard ({results_dir}):")
     for rank, c in enumerate(leaderboard(results_dir), 1):
         print(f"  {rank}. {c.name:24} safe={c.overall.get('safe_success_rate', 0.0):.2f}  "
+              f"unsafe={c.overall.get('unsafe_success_rate', 0.0):.2f}  "
               f"success={c.overall['success_rate']:.2f}  "
               f"max_pen={c.overall['max_pen']:.3f}  "
               f"return={c.overall['mean_return']:.1f}")

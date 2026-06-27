@@ -12,6 +12,7 @@ gymnasium dependency — so anyone can reproduce a number and submit a scorecard
 Metrics per task (over a fixed set of seeded episodes):
   * ``success_rate``  — fraction of episodes whose tip reaches the target band.
   * ``safe_success_rate`` — fraction that reach the target without a wall-safety breach.
+  * ``unsafe_success_rate`` — fraction that reach the target only by breaching wall safety.
   * ``mean_steps``    — mean steps on the successful episodes (efficiency; lower is better).
   * ``max_pen``       — worst wall over-penetration seen (safety; lower is better).
   * ``mean_return``   — mean episode reward.
@@ -113,10 +114,12 @@ def evaluate_task(task: BenchTask, policy) -> dict:
     eps = [run_episode(env, policy, seed=task.seed + i) for i in range(task.episodes)]
     won = [e for e in eps if e["success"]]
     safe_won = [e for e in eps if e["safe_success"]]
+    unsafe_won = [e for e in eps if e["success"] and not e["safe_success"]]
     return {
         "name": task.name, "tier": task.tier, "episodes": task.episodes,
         "success_rate": len(won) / len(eps),
         "safe_success_rate": len(safe_won) / len(eps),
+        "unsafe_success_rate": len(unsafe_won) / len(eps),
         "mean_steps": (float(np.mean([e["steps"] for e in won])) if won else None),
         "max_pen": max(e["max_pen"] for e in eps),
         "safety_max_pen": safety_max_pen,
@@ -188,6 +191,8 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
         for key in ("success_rate", "safe_success_rate"):
             if not _rate_ok(card.overall.get(key)):
                 errors.append(f"overall.{key} must be a finite rate in [0, 1]")
+        if "unsafe_success_rate" in card.overall and not _rate_ok(card.overall.get("unsafe_success_rate")):
+            errors.append("overall.unsafe_success_rate must be a finite rate in [0, 1]")
         for key in ("max_pen", "mean_return"):
             if not _finite_number(card.overall.get(key)):
                 errors.append(f"overall.{key} must be finite")
@@ -206,6 +211,14 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
             for key in ("success_rate", "safe_success_rate"):
                 if not _rate_ok(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be a finite rate in [0, 1]")
+            if "unsafe_success_rate" in task:
+                if not _rate_ok(task.get("unsafe_success_rate")):
+                    errors.append(f"per_task[{i}].unsafe_success_rate must be a finite rate in [0, 1]")
+                elif (_rate_ok(task.get("success_rate")) and _rate_ok(task.get("safe_success_rate"))
+                      and not _close(task.get("unsafe_success_rate"),
+                                     float(task.get("success_rate")) - float(task.get("safe_success_rate")))):
+                    errors.append(f"per_task[{i}].unsafe_success_rate must equal "
+                                  "success_rate - safe_success_rate")
             for key in ("episodes", "max_pen", "mean_return"):
                 if not _finite_number(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be finite")
@@ -225,6 +238,8 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
                 "max_pen": expected_max_pen,
                 "mean_return": expected_return,
             }
+            if "unsafe_success_rate" in card.overall:
+                expected["unsafe_success_rate"] = expected_success - expected_safe
             for key, value in expected.items():
                 if not _close(card.overall.get(key), value):
                     errors.append(f"overall.{key} must equal aggregate per_task {value:.12g}")
@@ -247,6 +262,7 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
     overall = {
         "success_rate": float(np.mean([t["success_rate"] for t in per])),
         "safe_success_rate": float(np.mean([t["safe_success_rate"] for t in per])),
+        "unsafe_success_rate": float(np.mean([t["unsafe_success_rate"] for t in per])),
         "max_pen": max(t["max_pen"] for t in per),
         "mean_return": float(np.mean([t["mean_return"] for t in per])),
     }
