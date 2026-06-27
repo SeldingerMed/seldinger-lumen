@@ -119,6 +119,21 @@ def test_nonexistent_root_warns(tmp_path):
         EpisodeDataset(tmp_path / "nope")
 
 
+def test_replay_corpus_example_handles_missing_root_without_warning(tmp_path, capsys):
+    import warnings
+
+    from examples.replay_corpus import main
+
+    missing = tmp_path / "nope"
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        main(str(missing))
+
+    out = capsys.readouterr().out
+    assert "run examples/capture_episode.py first" in out
+    assert seen == []
+
+
 def test_summarize_segregates_probe_from_navigation(tmp_path):
     _ep("straight", 3, True).save(tmp_path / "nav")        # navigation (no kind -> default)
     probe = _ep("wall_probe", 2, True)                     # a wall-probe masquerading as success

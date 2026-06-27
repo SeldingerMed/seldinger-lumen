@@ -10,11 +10,15 @@ newton/warp.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from lumen.data import CaseBundle, EpisodeDataset, replay, summarize
 
 
 def main(root="episodes"):
+    if not Path(root).is_dir():
+        print(f"no episodes under {root!r} — run examples/capture_episode.py first")
+        return
     ds = EpisodeDataset(root)
     if len(ds) == 0:
         print(f"no episodes under {root!r} — run examples/capture_episode.py first")
