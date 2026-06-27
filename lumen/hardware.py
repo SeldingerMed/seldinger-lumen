@@ -12,6 +12,31 @@ solver code runs everywhere, and this module just picks the device.
 
 from __future__ import annotations
 
+import json
+from importlib import metadata
+
+VALIDATED_WARP_VERSION = "1.14.0"
+VALIDATED_NEWTON_VERSION = "1.4.0.dev0"
+VALIDATED_NEWTON_REF = "6dfe7303d9ca50f7505cac31bee9885c813d89d7"
+
+
+def _newton_install_ref(newton_module) -> str | None:
+    """Best-effort installed Newton VCS ref; None means the exact ref is unknown."""
+    for attr in ("__commit__", "__git_commit__", "__git_revision__"):
+        ref = getattr(newton_module, attr, None)
+        if ref:
+            return str(ref)
+    try:
+        dist = metadata.distribution("newton")
+        direct_url = dist.read_text("direct_url.json")
+        if not direct_url:
+            return None
+        data = json.loads(direct_url)
+        vcs_info = data.get("vcs_info") or {}
+        return vcs_info.get("commit_id") or vcs_info.get("requested_revision")
+    except Exception:
+        return None
+
 
 def detect_device(prefer: str = "auto") -> str:
     """Return the Warp device to run on: 'cuda' (if available) or 'cpu'.
@@ -31,7 +56,11 @@ def detect_device(prefer: str = "auto") -> str:
 def describe() -> dict:
     """Report the hardware/software the Layer-0 stack will use."""
     info = {"device": detect_device(), "warp": None, "cuda_devices": 0,
-            "newton": None, "newton_available": False}
+            "newton": None, "newton_available": False,
+            "validated": {"warp": VALIDATED_WARP_VERSION,
+                          "newton": VALIDATED_NEWTON_VERSION,
+                          "newton_ref": VALIDATED_NEWTON_REF},
+            "backend_validated": False}
     try:
         import warp as wp
         wp.init()
@@ -39,12 +68,20 @@ def describe() -> dict:
         info["cuda_devices"] = wp.get_cuda_device_count()
     except Exception:
         pass
+    newton_ref = None
     try:
         import newton
         info["newton"] = newton.__version__
+        newton_ref = _newton_install_ref(newton)
+        info["newton_ref"] = newton_ref
         info["newton_available"] = True
     except Exception:
         pass
+    info["backend_validated"] = (
+        info["warp"] == VALIDATED_WARP_VERSION
+        and info["newton"] == VALIDATED_NEWTON_VERSION
+        and newton_ref == VALIDATED_NEWTON_REF
+    )
     return info
 
 

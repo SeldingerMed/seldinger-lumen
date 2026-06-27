@@ -1,4 +1,4 @@
-"""Render a guidewire to synthetic fluoroscopy (Layer 1 L1.0) and save a PNG.
+"""Render a guidewire to synthetic fluoroscopy (Layer 1 L1.0) and save previews.
 
     python examples/render_fluoro.py [out.png]
 
@@ -8,25 +8,11 @@ render a live device, pass NewtonGuidewireSim.body_positions() as `nodes`.
 
 from __future__ import annotations
 
-import struct
 import sys
-import zlib
 
 import numpy as np
 
-from lumen.sensors import FluoroSensor
-
-
-def write_png(path, gray_u8):
-    h, w = gray_u8.shape
-    raw = b"".join(b"\x00" + gray_u8[r].tobytes() for r in range(h))
-    def chunk(typ, data):
-        c = typ + data
-        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
-    with open(path, "wb") as f:
-        f.write(b"\x89PNG\r\n\x1a\n"
-                + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
-                + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+from lumen.sensors import FluoroSensor, write_avi, write_png
 
 
 def main():
@@ -38,10 +24,21 @@ def main():
     # standard DRR display (A has no fixed range) and shows the device BRIGHT. For the
     # clinical Beer-Lambert look (dark device on a bright field) use beer_lambert=True
     # and scale I*255 directly (I is already in [0,1]).
-    A, _ = FluoroSensor(mu_device=1.2, res=96, n_samples=260).render(wire, radius=0.6)
-    u8 = (255 * (A - A.min()) / (float(A.max() - A.min()) + 1e-9)).astype(np.uint8)
-    write_png(out, np.ascontiguousarray(np.flipud(u8)))
-    print(f"wrote {out}  ({u8.shape[1]}x{u8.shape[0]})")
+    vessel = np.stack([30 * np.sin(a), np.zeros_like(a),
+                       30 * (1 - np.cos(a))], axis=1)
+    sensor = FluoroSensor(mu_device=1.2, res=96, n_samples=260)
+    views = sensor.render_biplanar(wire, radius=0.6, contrast_nodes=vessel,
+                                   contrast_radius=2.0, mu_contrast=0.16)
+    write_png(out, np.flipud(views[0]["image"]))
+    stem = out.rsplit(".", 1)[0]
+    write_png(f"{stem}_lateral.png", np.flipud(views[1]["image"]))
+    write_png(f"{stem}_device_mask.png", np.flipud(views[0]["masks"]["device"].astype(float)))
+    write_png(f"{stem}_vessel_mask.png", np.flipud(views[0]["masks"]["vessel"].astype(float)))
+    write_avi(f"{stem}_biplanar.avi", [np.flipud(v["image"]) for v in views], fps=2)
+    tip = views[0]["keypoints"]["tip"]["uv"]
+    tip = (tip[0], views[0]["image"].shape[0] - 1 - tip[1])
+    print(f"wrote {out}, {stem}_lateral.png, masks, and {stem}_biplanar.avi; "
+          f"tip keypoint view0=({tip[0]:.1f}, {tip[1]:.1f})")
 
 
 if __name__ == "__main__":

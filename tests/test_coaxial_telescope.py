@@ -7,6 +7,7 @@ pytest.importorskip("warp")
 pytest.importorskip("newton")
 
 from lumen.newton.sim import NewtonGuidewireSim
+from examples.coaxial_telescope import telescope
 
 
 def _vessel(M=40, L=80.0):
@@ -46,6 +47,17 @@ def test_catheter_slides_freely_over_the_guidewire():
     gw_drag = abs(sim.body_positions()[-1, 2] - gw_tip0)
     assert cath_adv > 5.0                                       # catheter advanced a lot
     assert gw_drag < 0.25 * cath_adv                            # gw mostly free (not rigidly dragged)
+
+
+def test_telescope_follow_phase_closes_the_support_gap():
+    trace = telescope(steps_per_phase=5, support_gap=4.0)
+    start_gap = trace[0][1] - trace[0][2]
+    lead_gap = trace[1][1] - trace[1][2]
+    support_gap = trace[2][1] - trace[2][2]
+    assert start_gap == pytest.approx(0.0)
+    assert lead_gap > 8.0                       # the guidewire leads into the next segment
+    assert 0.0 < support_gap <= 4.0             # catheter follows, but stays behind the wire
+    assert support_gap < lead_gap               # the follow phase reduces the overhang
 
 
 def test_no_cross_rod_capsule_collision():

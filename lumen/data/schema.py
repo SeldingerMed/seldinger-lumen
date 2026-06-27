@@ -14,6 +14,7 @@ Patient-derived episodes MUST NOT live in this open repo; the firewall enforces
 
 On-disk layout (one directory per episode):
     <root>/manifest.json     scalars: meta, per-step kinematics/actions/outcome, refs
+    <root>/<asset_ref>        optional self-contained lumen-asset/0 geometry
     <root>/obs/<name>.npy     observation + node-position sidecars (lazy-loaded)
 Observations are stored as .npy (lossless, dependency-free for both grayscale fluoro
 and RGB luminal); a viewer PNG is an example-side extra, not part of the load path.
@@ -50,12 +51,32 @@ def _safe_path(root: str, ref: str) -> str:
     return full
 
 
+def _is_bare_file_ref(ref: str) -> bool:
+    return bool(ref) and not (
+        os.path.isabs(ref) or os.sep in ref or "/" in ref or "\\" in ref or ".." in ref
+        or "://" in ref
+    )
+
+
+def _safe_root_file(root: str, ref: str) -> str:
+    """Resolve <root>/<ref>, raising if a supposedly local file ref escapes root."""
+    if not _is_bare_file_ref(ref):
+        raise ValueError(f"local file ref must be a bare filename, got {ref!r}")
+    base = os.path.realpath(root)
+    full = os.path.realpath(os.path.join(base, ref))
+    if os.path.commonpath([base, full]) != base:
+        raise ValueError(f"local file ref escapes the episode directory: {ref!r}")
+    return full
+
+
 @dataclass
 class EpisodeMeta:
     frame: Frame = field(default_factory=Frame)   # declared coordinate convention (reused)
     asset_ref: str = ""                           # path/id of the lumen-asset/0 geometry
     device: dict = field(default_factory=dict)    # device knobs (radius, stiffness, ...)
     sensor: dict = field(default_factory=dict)    # modality + render params
+    calibration: dict = field(default_factory=dict)  # C-arm/scope calibration for replay
+    labels: dict = field(default_factory=dict)     # task/anatomy/procedure labels
     dt: float = 0.0                               # sim timestep per recorded step
     notes: dict = field(default_factory=dict)     # free-form (sim2sim ground truth lives here)
     provenance: str = "procedural"                # "procedural" | "patient(private)"
@@ -116,6 +137,7 @@ class Outcome:
     steps: int = 0
     retrieval: str | None = None       # clot outcome where relevant (retrieve/slip/fragment)
     label: str = ""                    # free-form
+    metrics: dict = field(default_factory=dict)  # clinically meaningful endpoint summary
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -130,6 +152,7 @@ class Episode:
     meta: EpisodeMeta = field(default_factory=EpisodeMeta)
     steps: list = field(default_factory=list)        # list[Step]
     outcome: Outcome = field(default_factory=Outcome)
+    asset: object = field(default=None, repr=False, compare=False)  # transient Asset sidecar
 
     def manifest(self) -> dict:
         # version/provenance are mirrored at TOP LEVEL (convenient for `jq`/grep and
@@ -143,6 +166,10 @@ class Episode:
         validate(self)                                    # save is the declared enforcement gate
         obs_dir = os.path.join(root, "obs")
         os.makedirs(obs_dir, exist_ok=True)
+        if self.asset is not None:
+            if not self.meta.asset_ref:
+                raise ValueError("episode asset set but meta.asset_ref missing")
+            self.asset.save(_safe_root_file(root, self.meta.asset_ref))
         for i, s in enumerate(self.steps):
             if s.obs is not None:
                 if not s.obs_ref:                         # don't silently drop data
@@ -181,6 +208,13 @@ class Episode:
                 raise ValueError(f"manifest top-level {key}={top!r} disagrees with "
                                  f"meta.{key}={nested!r} (tampered or merged manifest)")
         return ep
+
+    def load_asset(self, root: str):
+        """Load the episode-local lumen-asset sidecar, if asset_ref is a local file."""
+        if not _is_bare_file_ref(self.meta.asset_ref):
+            return None
+        from lumen.assets.schema import Asset
+        return Asset.load(_safe_root_file(root, self.meta.asset_ref))
 
 
 def validate(ep: Episode, root: str | None = None) -> None:
@@ -235,6 +269,12 @@ def validate(ep: Episode, root: str | None = None) -> None:
     if len(set(node_refs)) != len(node_refs):
         raise ValueError("duplicate node_positions_ref across steps (would clobber sidecars)")
     if root is not None:                                    # closed-loop: referenced files must exist
+        # Local asset refs make a captured episode self-contained. External/private ids
+        # can still live in asset_ref, but bare filenames must resolve inside the episode.
+        if _is_bare_file_ref(ep.meta.asset_ref):
+            asset_path = _safe_root_file(root, ep.meta.asset_ref)
+            if not os.path.exists(asset_path):
+                raise ValueError(f"asset_ref sidecar missing on disk: {ep.meta.asset_ref}")
         for i, s in enumerate(ep.steps):
             if s.obs_ref and not os.path.exists(_safe_path(root, s.obs_ref)):
                 raise ValueError(f"step {i}: obs_ref sidecar missing on disk: {s.obs_ref}")
@@ -245,6 +285,7 @@ def validate(ep: Episode, root: str | None = None) -> None:
 
 if __name__ == "__main__":  # self-check: round-trip + validation
     import tempfile
+    from lumen.assets import procedural
 
     def _ep(n=3):
         return Episode(
@@ -253,7 +294,8 @@ if __name__ == "__main__":  # self-check: round-trip + validation
                         kinematics={"tip_mm": [0.0, 0.0, float(i)], "tip_s": float(i)},
                         obs_modality="fluoro", obs_ref=f"{i:03d}.npy", obs=np.full((4, 4), float(i)))
                    for i in range(n)],
-            outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"))
+            outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"),
+            asset=procedural.straight_tube(80.0, 2.0))
 
     ep = _ep()
     validate(ep)
