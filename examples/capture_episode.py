@@ -20,7 +20,7 @@ from lumen.data import CaseBundle, Episode, rollout_episode, validate
 from lumen.sensors import FluoroSensor, LuminalCamera, write_png
 
 
-def _write_preview_sheet(ep, root: Path) -> tuple[Path, Path]:
+def _write_preview_sheet(ep, root: Path) -> tuple[Path, Path, Path | None]:
     obs_steps = [s for s in ep.steps if s.obs_ref]
     if not obs_steps:
         raise ValueError("episode has no observation sidecars to preview")
@@ -30,7 +30,12 @@ def _write_preview_sheet(ep, root: Path) -> tuple[Path, Path]:
     sheet = root / "preview_contact_sheet.png"
     write_png(preview, frames[0])
     write_png(sheet, np.concatenate(frames, axis=1))
-    return preview, sheet
+    masks = [obs_steps[i].load_annotation(root, "device_mask") for i in picks]
+    mask_sheet = None
+    if all(m is not None for m in masks):
+        mask_sheet = root / "device_mask_contact_sheet.png"
+        write_png(mask_sheet, np.concatenate([m.astype(float) for m in masks], axis=1))
+    return preview, sheet, mask_sheet
 
 
 def main(out_dir="episodes"):
@@ -53,13 +58,15 @@ def main(out_dir="episodes"):
         validate(back, root=path)
         bundle = CaseBundle.load(path)
         obs0 = back.steps[0].load_obs(path)
-        preview, sheet = _write_preview_sheet(back, path)
+        preview, sheet, mask_sheet = _write_preview_sheet(back, path)
         tip_ok = back.outcome.metrics["tip_target"]["success"]
         wall_risk = back.outcome.metrics["wall_safety"]["perforation_risk"]
+        mask_msg = f"  mask_sheet={mask_sheet}" if mask_sheet else ""
         print(f"{name:18s}  steps={back.outcome.steps:2d}  success={back.outcome.success!s:5s}  "
               f"final_dist={back.outcome.final_dist:6.2f}  obs{obs0.shape}  "
               f"calib={bundle.calibration['type']}  tip_target={tip_ok!s:5s}  "
-              f"wall_risk={wall_risk!s:5s}  preview={preview}  sheet={sheet}", flush=True)
+              f"wall_risk={wall_risk!s:5s}  preview={preview}  sheet={sheet}{mask_msg}",
+              flush=True)
 
 
 if __name__ == "__main__":

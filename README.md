@@ -70,9 +70,10 @@ python examples/replay_corpus.py /tmp/lumen-episodes
 ```
 
 `capture_episode.py` writes one self-contained case directory per scenario plus
-`preview.png` and `preview_contact_sheet.png` convenience images, so you can inspect
-the first/mid/last observations without opening NumPy sidecars. `replay_corpus.py`
-prints clinical endpoint flags and skips invalid bundles with an explicit reason.
+`preview.png`, `preview_contact_sheet.png`, and fluoro `device_mask_contact_sheet.png`
+convenience images, so you can inspect observations and CV labels without opening
+NumPy sidecars. `replay_corpus.py` prints clinical endpoint flags and skips invalid
+bundles with an explicit reason.
 
 The benchmark intentionally separates raw target reach from clinically safe reach:
 

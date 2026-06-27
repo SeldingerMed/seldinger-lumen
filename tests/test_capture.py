@@ -45,6 +45,11 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     assert back.outcome.metrics["wall_safety"]["perforation_risk"] is False
     assert "flow" in back.outcome.metrics and "catheter_support" in back.outcome.metrics
 
+    from examples.capture_episode import _write_preview_sheet
+    preview, sheet, mask_sheet = _write_preview_sheet(back, tmp_path)
+    assert preview.exists() and sheet.exists()
+    assert mask_sheet is not None and mask_sheet.exists()
+
 
 def test_rollout_luminal_modality(tmp_path):
     asset = procedural.straight_tube(80.0, 4.0)
