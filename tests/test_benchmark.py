@@ -231,11 +231,33 @@ def test_submit_policy_example_writes_a_comparable_scorecard(tmp_path):
     assert [c.name for c in leaderboard(str(tmp_path))] == ["example-policy"]
 
 
-def test_submit_policy_rejects_path_fragment_names(tmp_path):
-    from examples.submit_policy import main
+def test_submit_policy_sanitizes_path_fragment_names(tmp_path, monkeypatch):
+    import examples.submit_policy as submit_policy
 
-    with pytest.raises(ValueError, match="simple basename"):
-        main(str(tmp_path), name="../other/card")
+    class DummyScorecard:
+        name = "card-v2"
+        overall = {"safe_success_rate": 1.0, "unsafe_success_rate": 0.0,
+                   "success_rate": 1.0, "max_pen": 0.0, "mean_return": 1.0}
+
+        def save(self, path):
+            assert str(path).startswith(str(tmp_path))
+            assert str(path).endswith("card-v2.json")
+
+    seen = {}
+
+    def fake_evaluate_policy(_policy, name):
+        seen["name"] = name
+        return DummyScorecard()
+
+    monkeypatch.setattr(submit_policy, "evaluate_policy", fake_evaluate_policy)
+    monkeypatch.setattr(submit_policy, "validate_scorecard", lambda card: card)
+    monkeypatch.setattr(submit_policy, "leaderboard", lambda _results_dir: [DummyScorecard()])
+    monkeypatch.setattr(submit_policy, "scorecard_rejections", lambda _results_dir: [])
+
+    out = submit_policy.main(str(tmp_path), name="../other/card v2!!")
+
+    assert seen["name"] == "card-v2"
+    assert out == str(tmp_path / "card-v2.json")
 
 
 def test_submit_policy_reports_skipped_scorecards(tmp_path, capsys):

@@ -9,6 +9,7 @@ it writes. The scorecard is validated before saving so submission mistakes fail 
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 import numpy as np
@@ -26,12 +27,24 @@ def policy(obs):
     return np.array([np.clip(4.0 * remaining, -0.2, 1.0)], dtype=np.float32)
 
 
+def _safe_submission_name(name: str) -> str:
+    if not isinstance(name, str):
+        raise ValueError("name must be a string")
+    base = os.path.basename(name.strip())
+    base = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("._-")
+    if not base:
+        raise ValueError("name must contain at least one file-safe character")
+    return base
+
+
 def main(results_dir="bench_results", name="example-policy"):
     os.makedirs(results_dir, exist_ok=True)
-    if not isinstance(name, str) or os.path.basename(name) != name or name in {"", ".", ".."}:
-        raise ValueError("name must be a simple basename without path separators")
-    scorecard = validate_scorecard(evaluate_policy(policy, name))
-    path = os.path.join(results_dir, f"{name}.json")
+    safe_name = _safe_submission_name(name)
+    scorecard = validate_scorecard(evaluate_policy(policy, safe_name))
+    path = os.path.abspath(os.path.join(results_dir, f"{safe_name}.json"))
+    root = os.path.abspath(results_dir)
+    if os.path.commonpath([root, path]) != root:
+        raise ValueError("submission path must stay under results_dir")
     scorecard.save(path)
     print(f"wrote {path}", flush=True)
     print("leaderboard:", flush=True)
