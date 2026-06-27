@@ -155,8 +155,14 @@ def test_validate_root_mode_checks_annotation_sidecars(tmp_path):
 
 def test_validate_root_mode_checks_device_mask_shape_and_dtype(tmp_path):
     ep = _episode(1)
-    ep.steps[0].annotations = {"device_mask_ref": "000_device_mask.npy"}
-    ep.steps[0].annotation_arrays = {"device_mask": np.ones((4, 4), dtype=np.uint8)}
+    ep.steps[0].annotations = {
+        "device_mask_ref": "000_device_mask.npy",
+        "vessel_mask_ref": "000_vessel_mask.npy",
+    }
+    ep.steps[0].annotation_arrays = {
+        "device_mask": np.ones((4, 4), dtype=np.uint8),
+        "vessel_mask": np.ones((4, 4), dtype=np.uint8),
+    }
     ep.save(tmp_path)
 
     np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((3, 4), dtype=np.uint8))
@@ -171,13 +177,25 @@ def test_validate_root_mode_checks_device_mask_shape_and_dtype(tmp_path):
     with pytest.raises(ValueError, match="must be 2-D"):
         validate(Episode.load(tmp_path), root=tmp_path)
 
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((4, 4), dtype=np.uint8))
+    np.save(tmp_path / "obs" / "000_vessel_mask.npy", np.ones((3, 4), dtype=np.uint8))
+    with pytest.raises(ValueError, match="vessel_mask shape"):
+        validate(Episode.load(tmp_path), root=tmp_path)
 
-def test_save_rejects_bad_in_memory_device_mask(tmp_path):
+
+def test_save_rejects_bad_in_memory_masks(tmp_path):
     ep = _episode(1)
     ep.steps[0].annotations = {"device_mask_ref": "000_device_mask.npy"}
     ep.steps[0].annotation_arrays = {"device_mask": np.ones((3, 4), dtype=np.uint8)}
 
     with pytest.raises(ValueError, match="device_mask shape"):
+        ep.save(tmp_path)
+
+    ep = _episode(1)
+    ep.steps[0].annotations = {"vessel_mask_ref": "000_vessel_mask.npy"}
+    ep.steps[0].annotation_arrays = {"vessel_mask": np.ones((4, 4), dtype=float)}
+
+    with pytest.raises(ValueError, match="vessel_mask annotation must be bool/unsigned integer"):
         ep.save(tmp_path)
 
 

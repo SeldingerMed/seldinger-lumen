@@ -127,8 +127,8 @@ directory.
 Use `lumen.data.annotation_coverage(ep)` or corpus-level `summarize(...)` before
 loading arrays to check whether a bundle has CV-ready masks/keypoints. Keypoint
 coverage reports present counts per name (`base`, `tip`, `nodes`) rather than only
-metadata presence. Root-mode validation also checks known `device_mask` annotations
-are 2-D bool/unsigned masks whose shape matches the paired observation, and present
+metadata presence. Root-mode validation also checks every `*_mask` annotation is a
+2-D bool/unsigned mask whose shape matches the paired observation, and present
 keypoints are finite in-frame `(u, v)` coordinates.
 
 ## Dataloader index
