@@ -100,6 +100,19 @@ def test_scorecard_validation_reports_submission_schema_errors():
     with pytest.raises(ValueError, match="overall.safe_success_rate"):
         validate_scorecard(inflated_overall)
 
+    patient_card = Scorecard(name="private", suite_version=SUITE_VERSION,
+                             per_task=[
+                                 {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                                  "success_rate": 1.0, "safe_success_rate": 1.0,
+                                  "max_pen": 0.0, "mean_return": 1.0}
+                                 for t in SUITE
+                             ],
+                             overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                                      "max_pen": 0.0, "mean_return": 1.0},
+                             provenance="patient(private)")
+    with pytest.raises(ValueError, match="provenance"):
+        validate_scorecard(patient_card)
+
 
 def test_scorecard_rejections_explain_why_submissions_are_skipped(tmp_path):
     bad = Scorecard(name="bad", suite_version=SUITE_VERSION,

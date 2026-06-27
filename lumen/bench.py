@@ -171,6 +171,8 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
     errors = []
     if not isinstance(card.name, str) or not card.name.strip():
         errors.append("name must be a non-empty string")
+    if card.provenance != "procedural":
+        errors.append(f"provenance must be 'procedural', got {card.provenance!r}")
     if card.suite_version != SUITE_VERSION:
         errors.append(f"suite_version must be {SUITE_VERSION!r}, got {card.suite_version!r}")
     expected_names = [t.name for t in suite]
