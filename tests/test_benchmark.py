@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from lumen.bench import (SUITE, SUITE_VERSION, Scorecard, evaluate_policy, forward_policy,
-                         leaderboard, run_episode)
+                         leaderboard, run_episode, validate_scorecard)
 
 
 def test_suite_is_fixed_and_tiered():
@@ -42,7 +42,12 @@ def test_a_better_policy_outranks_the_baseline_on_the_leaderboard(tmp_path):
 
 def test_scorecard_round_trips_and_skips_foreign_suite_versions(tmp_path):
     sc = Scorecard(name="x", suite_version=SUITE_VERSION,
-                   per_task=[{"name": "nav_tube", "success_rate": 1.0, "max_pen": 0.0}],
+                   per_task=[
+                       {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                        "success_rate": 1.0, "safe_success_rate": 1.0,
+                        "max_pen": 0.0, "mean_return": 1.0}
+                       for t in SUITE
+                   ],
                    overall={"success_rate": 1.0, "safe_success_rate": 1.0,
                             "max_pen": 0.0, "mean_return": 1.0})
     sc.save(tmp_path / "x.json")
@@ -51,6 +56,25 @@ def test_scorecard_round_trips_and_skips_foreign_suite_versions(tmp_path):
     Scorecard(name="old", suite_version="lumen-bench/HUH", per_task=[],
               overall={"success_rate": 1.0, "max_pen": 0.0, "mean_return": 0.0}).save(tmp_path / "old.json")
     assert [c.name for c in leaderboard(str(tmp_path))] == ["x"]
+
+
+def test_scorecard_validation_reports_submission_schema_errors():
+    missing_safe = Scorecard(name="bad", suite_version=SUITE_VERSION,
+                             per_task=[{"name": "nav_tube", "success_rate": 1.0,
+                                        "max_pen": 0.0}],
+                             overall={"success_rate": 1.0, "max_pen": 0.0,
+                                      "mean_return": 0.0})
+    with pytest.raises(ValueError, match="safe_success_rate"):
+        validate_scorecard(missing_safe)
+
+    missing_task = Scorecard(name="partial", suite_version=SUITE_VERSION,
+                             per_task=[{"name": "nav_tube", "success_rate": 1.0,
+                                        "safe_success_rate": 1.0, "max_pen": 0.0,
+                                        "mean_return": 0.0}],
+                             overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                                      "max_pen": 0.0, "mean_return": 0.0})
+    with pytest.raises(ValueError, match="per_task names"):
+        validate_scorecard(missing_task)
 
 
 def test_run_episode_reports_finite_metrics():
@@ -65,13 +89,36 @@ def test_run_episode_reports_finite_metrics():
 
 
 def test_leaderboard_ranks_clinically_safe_success_before_unsafe_target_hits(tmp_path):
-    unsafe = Scorecard(name="unsafe-fast", suite_version=SUITE_VERSION, per_task=[],
+    unsafe = Scorecard(name="unsafe-fast", suite_version=SUITE_VERSION, per_task=[
+                           {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                            "success_rate": 1.0, "safe_success_rate": 0.0,
+                            "max_pen": 2.0, "mean_return": 100.0}
+                           for t in SUITE
+                       ],
                        overall={"success_rate": 1.0, "safe_success_rate": 0.0,
                                 "max_pen": 2.0, "mean_return": 100.0})
-    safe = Scorecard(name="safe-partial", suite_version=SUITE_VERSION, per_task=[],
+    safe = Scorecard(name="safe-partial", suite_version=SUITE_VERSION, per_task=[
+                         {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                          "success_rate": 0.8, "safe_success_rate": 0.8,
+                          "max_pen": 0.0, "mean_return": 20.0}
+                         for t in SUITE
+                     ],
                      overall={"success_rate": 0.8, "safe_success_rate": 0.8,
                               "max_pen": 0.0, "mean_return": 20.0})
     unsafe.save(tmp_path / "unsafe.json")
     safe.save(tmp_path / "safe.json")
 
     assert [c.name for c in leaderboard(str(tmp_path))] == ["safe-partial", "unsafe-fast"]
+
+
+def test_submit_policy_example_writes_a_comparable_scorecard(tmp_path):
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+    from examples.submit_policy import main
+
+    out = main(str(tmp_path), name="example-policy")
+    card = validate_scorecard(Scorecard.load(out))
+
+    assert card.name == "example-policy"
+    assert [c.name for c in leaderboard(str(tmp_path))] == ["example-policy"]

@@ -82,16 +82,11 @@ target without crossing the wall-safety threshold,” and the leaderboard ranks 
 success first. A policy that solves the task by scraping through the vessel wall should
 not win a healthcare benchmark.
 
-To submit your own policy, save a scorecard in the same directory and rerun the
-leaderboard:
+To submit your own policy, copy the runnable template, replace `policy(obs)`, and
+save a validated scorecard:
 
-```python
-from lumen.bench import evaluate_policy
-
-def my_policy(obs):
-    ...
-
-evaluate_policy(my_policy, "my-lab-policy").save("/tmp/lumen-bench/my-lab-policy.json")
+```bash
+python examples/submit_policy.py /tmp/lumen-bench my-lab-policy
 ```
 
 For image-observation control rather than privileged state, run:

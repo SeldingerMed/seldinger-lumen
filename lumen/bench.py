@@ -147,6 +147,56 @@ class Scorecard:
             return cls(**json.load(f))
 
 
+def _finite_number(x) -> bool:
+    try:
+        return np.isfinite(float(x))
+    except (TypeError, ValueError):
+        return False
+
+
+def _rate_ok(x) -> bool:
+    return _finite_number(x) and 0.0 <= float(x) <= 1.0
+
+
+def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
+    """Validate a benchmark submission before it enters a leaderboard.
+
+    Raises ``ValueError`` with actionable schema/comparability errors. Returns the
+    original card on success so callers can write ``validate_scorecard(Scorecard.load(p))``.
+    """
+    errors = []
+    if not isinstance(card.name, str) or not card.name.strip():
+        errors.append("name must be a non-empty string")
+    if card.suite_version != SUITE_VERSION:
+        errors.append(f"suite_version must be {SUITE_VERSION!r}, got {card.suite_version!r}")
+    expected_names = [t.name for t in suite]
+    task_names = [t.get("name") for t in card.per_task] if isinstance(card.per_task, list) else []
+    if task_names != expected_names:
+        errors.append(f"per_task names must be {expected_names}, got {task_names}")
+
+    for key in ("success_rate", "safe_success_rate"):
+        if not _rate_ok(card.overall.get(key)):
+            errors.append(f"overall.{key} must be a finite rate in [0, 1]")
+    for key in ("max_pen", "mean_return"):
+        if not _finite_number(card.overall.get(key)):
+            errors.append(f"overall.{key} must be finite")
+
+    if isinstance(card.per_task, list):
+        for i, task in enumerate(card.per_task):
+            for key in ("success_rate", "safe_success_rate"):
+                if not _rate_ok(task.get(key)):
+                    errors.append(f"per_task[{i}].{key} must be a finite rate in [0, 1]")
+            for key in ("episodes", "max_pen", "mean_return"):
+                if not _finite_number(task.get(key)):
+                    errors.append(f"per_task[{i}].{key} must be finite")
+    else:
+        errors.append("per_task must be a list")
+
+    if errors:
+        raise ValueError("invalid benchmark scorecard: " + "; ".join(errors))
+    return card
+
+
 def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
     """Evaluate `policy` over the whole suite and return a Scorecard.
 
@@ -187,7 +237,10 @@ def leaderboard(results_dir: str) -> list[Scorecard]:
         except (json.JSONDecodeError, TypeError):
             continue
         if c.suite_version == SUITE_VERSION:
-            cards.append(c)
+            try:
+                cards.append(validate_scorecard(c))
+            except ValueError:
+                continue
     return sorted(cards, key=lambda c: (-_safe_success_for_ranking(c),
                                        -c.overall["success_rate"],
                                        c.overall["max_pen"]))
