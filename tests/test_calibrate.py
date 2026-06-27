@@ -85,3 +85,16 @@ def test_calibrate_rejects_episode_missing_carms():
     ep.meta.calibration = {}
     with pytest.raises(ValueError, match="C-arm views"):
         calibrate_from_episode(ep)
+
+
+def test_calibrate_rejects_malformed_calibration_blocks():
+    sensor = FluoroSensor(res=24, n_samples=60, nu=32, nv=32)
+    ep = probe_episode(6e3, sensor, carms=_biplanar(sensor))
+    ep.meta.notes["calib"] = "bad"
+    with pytest.raises(ValueError, match="calib"):
+        calibrate_from_episode(ep)
+
+    ep = probe_episode(6e3, sensor, carms=_biplanar(sensor))
+    ep.meta.calibration = "bad"
+    with pytest.raises(ValueError, match="meta.calibration"):
+        calibrate_from_episode(ep)

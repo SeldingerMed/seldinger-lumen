@@ -42,6 +42,18 @@ def test_biplanar_fluoro_uses_two_distinct_calibrated_views():
     assert all(v["keypoints"]["tip"]["present"] for v in views)
 
 
+def test_zero_contrast_is_a_true_off_switch_for_biplanar_fov():
+    vessel, wire = _scene()
+    sensor = FluoroSensor(res=24, nu=32, nv=32, n_samples=60)
+
+    plain = sensor.render_biplanar(wire, axes=((1, 0, 0), (0, 1, 0)))
+    zero = sensor.render_biplanar(wire, contrast_nodes=vessel, mu_contrast=0.0,
+                                  axes=((1, 0, 0), (0, 1, 0)))
+
+    assert [v["carm"].to_dict() for v in zero] == [v["carm"].to_dict() for v in plain]
+    assert all(v["masks"]["vessel"].sum() > 0 for v in zero)
+
+
 def test_luminal_artifacts_are_seeded_and_visible():
     asset = procedural.straight_tube(80.0, 4.0)
     pts, lumen = asset.edge_arrays(asset.edges[0])
@@ -58,6 +70,13 @@ def test_luminal_artifacts_are_seeded_and_visible():
     assert np.array_equal(art1, art2)
     assert not np.allclose(clean, art1)
     assert art1.min() >= 0.0 and art1.max() <= 1.0
+
+
+def test_luminal_rejects_negative_artifact_strength():
+    import pytest
+
+    with pytest.raises(ValueError, match="artifact_strength"):
+        LuminalCamera(artifact_strength=-0.1)
 
 
 def test_png_and_video_preview_exports(tmp_path):

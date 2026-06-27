@@ -87,6 +87,20 @@ def test_compute_clinical_metrics_degrades_when_a_signal_is_absent():
     assert m["catheter_support"]["supported"] is None
 
 
+def test_wall_safety_handles_zero_thresholds_without_dividing_by_zero():
+    ep = Episode(
+        meta=EpisodeMeta(notes={"perforation_force_threshold": 0.0,
+                                "perforation_penetration_threshold": 0.0}),
+        steps=[Step(t=0.0, kinematics={"wall_force": 0.0, "max_penetration": 0.1})],
+        outcome=Outcome(steps=1),
+    )
+
+    m = compute_clinical_metrics(ep)
+
+    assert m["wall_safety"]["risk_score"] == 1.0
+    assert m["wall_safety"]["perforation_risk"] is True
+
+
 def test_recorder_samples_flow_clot_retrieval_and_catheter_support_signals():
     pytest.importorskip("warp")
     pytest.importorskip("newton")

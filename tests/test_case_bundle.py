@@ -67,6 +67,18 @@ def test_case_bundle_loads_every_replay_input_from_one_directory(tmp_path):
     assert np.array_equal(bundle.episode.steps[1].load_nodes(bundle.root), np.ones((3, 3)))
 
 
+def test_case_bundle_keeps_meta_labels_and_intentional_empty_outcome_label(tmp_path):
+    ep = _bundle_episode()
+    ep.outcome.label = ""
+    ep.save(tmp_path)
+
+    bundle = CaseBundle.load(tmp_path)
+
+    assert bundle.labels["outcome"] == ""
+    assert bundle.labels["procedure"] == "navigation"
+    assert bundle.labels["anatomy"] == "straight_tube"
+
+
 def test_case_bundle_rejects_missing_required_bundle_artifacts(tmp_path):
     ep = _bundle_episode()
     ep.save(tmp_path / "ok")

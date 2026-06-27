@@ -77,6 +77,17 @@ def test_meta_records_device_and_sensor_knobs():
     assert ep.meta.sensor["n_samples"] == 30           # render knob recorded
 
 
+def test_rollout_propagates_asset_provenance_without_embedded_external_asset():
+    asset = procedural.straight_tube(80.0, 2.0)
+    asset.provenance = "patient(private)"
+    ep = rollout_episode(asset, sensor=FluoroSensor(res=16, nu=20, nv=20, n_samples=30),
+                         max_steps=2, asset_ref="s3://private/case.asset.json")
+
+    assert ep.meta.provenance == "patient(private)"
+    assert ep.asset is None
+    validate(ep)
+
+
 def _build_sim(n_envs=1):
     from lumen.newton.sim import NewtonGuidewireSim
     asset = procedural.straight_tube(80.0, 2.0)
