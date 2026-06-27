@@ -53,6 +53,53 @@ from lumen.core.frame import CenterlineFrame
 hit = CenterlineFrame(pts).project(np.array([1.0, 0.0, 50.0]))   # -> (s, θ, r)
 ```
 
+## First 10 minutes for RL/CV users
+
+Check the backend, run the fixed benchmark, render a fluoroscopy frame, then write a
+replayable case bundle. These commands use only procedural anatomy.
+
+```bash
+python -m lumen.hardware
+python examples/run_benchmark.py /tmp/lumen-bench
+python examples/render_fluoro.py /tmp/lumen_fluoro.png
+python examples/capture_episode.py /tmp/lumen-episodes
+python examples/replay_corpus.py /tmp/lumen-episodes
+```
+
+The benchmark intentionally separates raw target reach from clinically safe reach:
+
+```text
+task               tier        safe  success  mean_steps   max_pen
+nav_tube           easy        1.00     1.00        18.6     0.000
+nav_stenotic       medium      1.00     1.00        19.8     0.000
+nav_tree_branch    hard        0.00     1.00        51.0     1.325
+
+overall: safe=0.67  success=1.00  worst max_pen=1.325
+```
+
+`success_rate` is “tip reached the target.” `safe_success_rate` is “tip reached the
+target without crossing the wall-safety threshold,” and the leaderboard ranks safe
+success first. A policy that solves the task by scraping through the vessel wall should
+not win a healthcare benchmark.
+
+To submit your own policy, save a scorecard in the same directory and rerun the
+leaderboard:
+
+```python
+from lumen.bench import evaluate_policy
+
+def my_policy(obs):
+    ...
+
+evaluate_policy(my_policy, "my-lab-policy").save("/tmp/lumen-bench/my-lab-policy.json")
+```
+
+For image-observation control rather than privileged state, run:
+
+```bash
+python examples/train_fluoro_nav.py
+```
+
 ## What's inside (`lumen.newton`)
 
 | Piece | What it does |

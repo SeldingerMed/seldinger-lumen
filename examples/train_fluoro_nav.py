@@ -22,12 +22,16 @@ def main():
     pts, lumen = asset.edge_arrays(asset.edges[0])
     sensor = FluoroSensor(mu_device=1.0, res=24, n_samples=60, nu=32, nv=32)
     factory = fluoro_env_factory(sensor, view_axis=(1, 0, 0))
-    print("training an image-observation policy (obs = device tip detected in fluoro)...")
+    print("training an image-observation policy (obs = device tip detected in fluoro)...",
+          flush=True)
     _, hist = train_cem(np.asarray(pts), float(np.asarray(lumen.R).mean()),
                         lumen_field=lumen, env_factory=factory, warm_start=(2, -3.0),
                         pop=16, iters=10, device="cpu",
-                        log=lambda r: print(f"  iter {r['iter']:2d}  success={r['success_rate']:.2f}"))
-    print(f"final success rate (image-based control): {hist[-1]['success_rate']:.2f}")
+                        log=lambda r: print(f"  iter {r['iter']:2d}  "
+                                            f"success={r['success_rate']:.2f}",
+                                            flush=True))
+    print(f"final success rate (image-based control): {hist[-1]['success_rate']:.2f}",
+          flush=True)
 
 
 if __name__ == "__main__":
