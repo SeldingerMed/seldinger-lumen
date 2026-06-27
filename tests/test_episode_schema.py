@@ -7,6 +7,7 @@ import pathlib
 import numpy as np
 import pytest
 
+from lumen.assets import procedural
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, validate
 
 
@@ -21,7 +22,8 @@ def _episode(n=4, provenance="procedural"):
                     obs=np.full((4, 4), float(i)),
                     node_positions=np.full((3, 3), float(i)))
                for i in range(n)],
-        outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"))
+        outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"),
+        asset=procedural.straight_tube(80.0, 2.0))
 
 
 def test_round_trip_manifest_and_sidecars(tmp_path):
@@ -33,6 +35,8 @@ def test_round_trip_manifest_and_sidecars(tmp_path):
     assert np.array_equal(back.steps[2].load_obs(tmp_path), np.full((4, 4), 2.0))
     assert np.array_equal(back.steps[1].load_nodes(tmp_path), np.full((3, 3), 1.0))
     assert (tmp_path / "manifest.json").exists() and (tmp_path / "obs" / "000.npy").exists()
+    assert back.load_asset(tmp_path).edges[0].id == "e0"
+    assert (tmp_path / "straight.json").exists()
 
 
 def test_load_rejects_disagreeing_toplevel_mirror(tmp_path):
@@ -121,6 +125,14 @@ def test_validate_root_mode_checks_files_exist(tmp_path):
     validate(ep, root=tmp_path)                                          # all sidecars present
     (tmp_path / "obs" / "001.npy").unlink()                              # delete one
     with pytest.raises(ValueError, match="missing on disk"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_validate_root_mode_checks_local_asset_exists(tmp_path):
+    ep = _episode(1)
+    ep.save(tmp_path)
+    (tmp_path / ep.meta.asset_ref).unlink()
+    with pytest.raises(ValueError, match="asset_ref sidecar missing"):
         validate(Episode.load(tmp_path), root=tmp_path)
 
 

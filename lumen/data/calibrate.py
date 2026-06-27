@@ -69,6 +69,7 @@ def probe_episode(true_C10, sensor, carms=None, view_axis=(0.0, 0.0, 1.0), load=
     meta = EpisodeMeta(
         asset_ref=asset_ref, dt=0.0, device={"R0": float(R0)},
         sensor=_fluoro_meta(sensor),       # documented renderer shape only — carms live in calib
+        calibration={"type": "carm", "views": [c.to_dict() for c in carms]},
         notes={**(notes or {}),
                "episode_kind": "wall_probe",
                "calib": {"true_C10": float(true_C10), "load": float(load), "R0": float(R0),
@@ -117,6 +118,7 @@ def joint_probe_episode(true_C10, true_mu, sensor, carms=None, view_axis=(0.0, 1
     meta = EpisodeMeta(
         asset_ref=asset_ref, dt=0.0, device={"R0": float(R0)},
         sensor=_fluoro_meta(sensor),
+        calibration={"type": "carm", "views": [c.to_dict() for c in carms]},
         notes={**(notes or {}),
                "episode_kind": "wall_friction_probe",
                "calib": {"true_C10": float(true_C10), "true_mu": float(true_mu),
@@ -148,10 +150,13 @@ def calibrate_from_episode(episode: Episode, root: str | None = None,
     from lumen.sensors.device_as_sensor import estimate_wall_stiffness
 
     calib = episode.meta.notes.get("calib")
-    if calib is None:
+    if not isinstance(calib, dict):
         raise ValueError("not a calibration probe episode (no meta.notes['calib']); a "
                          "navigation episode can't be inverted by the device-on-wall model")
-    carms_d = calib.get("carms")
+    calibration = episode.meta.calibration or {}
+    if not isinstance(calibration, dict):
+        raise ValueError("calibration episode is malformed (meta.calibration must be a mapping)")
+    carms_d = calibration.get("views") or calib.get("carms")
     if not carms_d:
         raise ValueError("calibration episode has no stored C-arm views (calib['carms'])")
     root = root or getattr(episode, "root", None)

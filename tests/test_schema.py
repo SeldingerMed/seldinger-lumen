@@ -7,6 +7,21 @@ from lumen.assets.schema import Asset
 from lumen.core.lumen_field import LumenField
 
 
+def test_make_demo_assets_writes_to_requested_directory(tmp_path):
+    from examples import make_demo_assets
+
+    out = tmp_path / "demo_assets"
+    make_demo_assets.main(out)
+
+    assert sorted(p.name for p in out.iterdir()) == [
+        "bifurcation.json",
+        "stenotic_tube.json",
+        "straight_tube.json",
+    ]
+    for path in out.iterdir():
+        assert Asset.load(str(path)).provenance == "procedural"
+
+
 def test_asset_roundtrip(tmp_path):
     asset = procedural.bifurcation()
     path = tmp_path / "case.json"

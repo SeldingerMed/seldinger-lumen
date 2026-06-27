@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step, validate
+from lumen.data.metrics import compute_clinical_metrics
+from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step, _is_bare_file_ref, validate
 
 
 class SimDiverged(RuntimeError):
@@ -31,11 +32,70 @@ def _sensor_meta(sensor, modality) -> dict:
     if sensor is None:
         return {"modality": modality}
     if modality == "fluoro":   # res + n_samples are render knobs a replay must reproduce
-        return {"modality": modality, "res": sensor.res, "n_samples": sensor.n_samples,
+        return {"modality": modality, "mu_device": sensor.mu_device, "eps": sensor.eps,
+                "res": sensor.res, "n_samples": sensor.n_samples, "margin": sensor.margin,
                 "nu": sensor.nu, "nv": sensor.nv}
     if modality == "luminal":
-        return {"modality": modality, "fov_deg": sensor.fov_deg, "nu": sensor.nu, "nv": sensor.nv}
+        return {"modality": modality, "fov_deg": sensor.fov_deg, "nu": sensor.nu,
+                "nv": sensor.nv, "n_steps": sensor.n_steps, "max_dist": sensor.max_dist,
+                "falloff": sensor.falloff, "ambient": sensor.ambient,
+                "tissue_color": list(sensor.tissue_color),
+                "texture_strength": sensor.texture_strength,
+                "fold_strength": sensor.fold_strength,
+                "artifact_strength": sensor.artifact_strength,
+                "artifact_seed": sensor.artifact_seed}
     return {"modality": modality}
+
+
+def _scope_intrinsics(sensor) -> dict:
+    return {"model": "pinhole", "fov_deg": sensor.fov_deg, "nu": sensor.nu, "nv": sensor.nv}
+
+
+def _scope_calibration(sensor) -> dict:
+    return {"type": "scope", "intrinsics": _scope_intrinsics(sensor),
+            "render": {k: v for k, v in _sensor_meta(sensor, "luminal").items()
+                       if k != "modality"}}
+
+
+def _clinical_step_signals(sim, frame, nodes, R):
+    """Best-effort live sim signals for clinical endpoint metrics."""
+    kin = {}
+    wall = getattr(getattr(sim, "solver", None), "_wall", None)
+    if wall is None:
+        wall = getattr(getattr(sim, "solver", None), "_tree_wall", None)
+    if wall is not None and getattr(wall, "wall_load", None) is not None:
+        wl = np.asarray(wall.wall_load.numpy(), dtype=float)
+        if wl.size:
+            kin["wall_force_max"] = float(np.nanmax(wl))
+            kin["wall_force_sum"] = float(np.nansum(wl))
+    if R:
+        kin["max_penetration"] = float(max(0.0, sim.node_radii().max() - R))
+    if getattr(sim, "tree", None) is not None:
+        try:
+            kin["edge"] = sim.tree.project(nodes[-1]).edge_id
+        except Exception:
+            pass
+    flow = getattr(sim, "flow", None)
+    if flow is not None:
+        for key, fn in (("flow_downstream_Q", flow.downstream_Q), ("flow_baseline_Q", flow.Q)):
+            try:
+                kin[key] = float(fn())
+            except Exception:
+                pass
+    clot = getattr(sim, "clot", None)
+    if clot is not None:
+        kin["clot_damage_max"] = float(clot.max_damage())
+        kin["clot_occlusion_max"] = float(np.max(clot.o)) if np.size(clot.o) else 0.0
+    retrieval = getattr(sim, "last_retrieval", None)
+    if isinstance(retrieval, dict):
+        kin["retrieval_status"] = retrieval.get("status", "none")
+    cath = sim.catheter_positions()
+    if len(cath):
+        cath_s = frame.project(cath[-1]).s
+        tip_s = frame.project(nodes[-1]).s
+        kin["catheter_tip_s"] = float(cath_s)
+        kin["support_gap"] = float(tip_s - cath_s)
+    return kin
 
 
 class EpisodeRecorder:
@@ -66,6 +126,12 @@ class EpisodeRecorder:
         self.carm = (sensor.default_carm(np.asarray(self.frame.points), axis=view_axis)
                      if modality == "fluoro" else None)
         self.meta = meta or EpisodeMeta()
+        if not self.meta.calibration:
+            if modality == "fluoro":
+                self.meta.calibration = {"type": "carm", "views": [self.carm.to_dict()],
+                                         "active_view": 0, "view_axis": list(view_axis)}
+            elif modality == "luminal":
+                self.meta.calibration = _scope_calibration(sensor)
         self.steps: list = []
         self._t = 0.0
 
@@ -83,6 +149,7 @@ class EpisodeRecorder:
         pr = self.frame.project(nodes[-1])
         kin = {"tip_mm": [float(x) for x in nodes[-1]], "tip_s": float(pr.s),
                "tip_r": float(pr.r), "max_r": float(self.sim.node_radii().max())}
+        kin.update(_clinical_step_signals(self.sim, self.frame, nodes, getattr(self.sim, "R", 0.0)))
         if self.record_nodes:
             kin["node_positions_ref"] = f"{i:04d}_nodes.npy"
 
@@ -116,8 +183,9 @@ def _state_obs(frame, sim, R, L, target_s):
 
 def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                     target_frac=0.7, max_insertion=2.0, max_steps=40, success_tol=2.5,
-                    every=1, substeps=4, dt=5e-3, device=None, asset_ref="", label=None,
-                    notes=None, sim_kwargs=None, record_nodes=True, view_axis=(1.0, 0.0, 0.0)):
+                    every=1, substeps=4, dt=5e-3, device=None, asset_ref="asset.json", label=None,
+                    notes=None, sim_kwargs=None, record_nodes=True, view_axis=(1.0, 0.0, 0.0),
+                    procedure="endovascular_navigation"):
     """Build a sim from `asset`, drive it to the target with `policy` (None = constant
     forward insertion), record every step, and return a validated `Episode`.
 
@@ -146,13 +214,19 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                              lumen_field=lumen, vbd_iterations=vbd_iterations, device=device,
                              **(sim_kwargs or {}))
 
-    meta = EpisodeMeta(asset_ref=asset_ref, dt=dt,
-                       device={"radius": radius, "n_nodes": n_nodes, "node_spacing": node_spacing,
-                               "kappa": kappa, "d_hat": d_hat, "vbd_iterations": vbd_iterations},
+    resolved_label = label if label is not None else asset.edges[0].id
+    guidewire = {"radius": radius, "n_nodes": n_nodes, "node_spacing": node_spacing,
+                 "kappa": kappa, "d_hat": d_hat, "vbd_iterations": vbd_iterations}
+    meta = EpisodeMeta(asset_ref=asset_ref, dt=dt, provenance=asset.provenance,
+                       device={**guidewire, "guidewire": guidewire},
                        sensor=_sensor_meta(sensor, modality),
+                       labels={"procedure": procedure, "asset_edge": asset.edges[0].id},
                        notes={**(notes or {}),
                               "episode_kind": "navigation",     # vs "wall_probe" (calibration)
-                              "target_s": target_s, "target_frac": target_frac})
+                              "procedure": procedure,
+                              "target_s": target_s, "target_frac": target_frac,
+                              "success_tol": success_tol,
+                              "perforation_penetration_threshold": d_hat})
     rec = EpisodeRecorder(sim, sensor=sensor, modality=modality, lumen=lumen, every=every,
                           dt=dt, substeps=substeps, view_axis=view_axis,
                           record_nodes=record_nodes, meta=meta)
@@ -173,7 +247,10 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
 
     ep = rec.episode(Outcome(success=success, final_dist=float(dist), steps=len(rec.steps),
                              # explicit None check: keep an intentional "" label, don't fall back
-                             label=(label if label is not None else asset.edges[0].id)))
+                             label=resolved_label))
+    if _is_bare_file_ref(asset_ref):
+        ep.asset = asset
+    ep.outcome.metrics = compute_clinical_metrics(ep)
     validate(ep)                                        # M2: fail loud rather than return a bad episode
     return ep
 

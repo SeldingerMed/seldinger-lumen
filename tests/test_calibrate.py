@@ -27,6 +27,7 @@ def test_probe_episode_is_a_valid_calibration_episode():
     assert ep.outcome.steps == 2 and all(s.obs_modality == "fluoro" for s in ep.steps)
     assert ep.meta.notes["calib"]["true_C10"] == 5e3       # ground truth stored for sim2sim
     assert len(ep.meta.notes["calib"]["carms"]) == 2       # views self-contained (in calib, not sensor)
+    assert len(ep.meta.calibration["views"]) == 2          # canonical C-arm calibration
     assert ep.meta.notes["episode_kind"] == "wall_probe"   # kind discriminator
     assert "carms" not in ep.meta.sensor                   # meta.sensor keeps the documented shape
 
@@ -81,5 +82,19 @@ def test_calibrate_rejects_episode_missing_carms():
     sensor = FluoroSensor(res=24, n_samples=60, nu=32, nv=32)
     ep = probe_episode(6e3, sensor, carms=_biplanar(sensor))
     ep.meta.notes["calib"].pop("carms")                                 # malformed calib block
+    ep.meta.calibration = {}
     with pytest.raises(ValueError, match="C-arm views"):
+        calibrate_from_episode(ep)
+
+
+def test_calibrate_rejects_malformed_calibration_blocks():
+    sensor = FluoroSensor(res=24, n_samples=60, nu=32, nv=32)
+    ep = probe_episode(6e3, sensor, carms=_biplanar(sensor))
+    ep.meta.notes["calib"] = "bad"
+    with pytest.raises(ValueError, match="calib"):
+        calibrate_from_episode(ep)
+
+    ep = probe_episode(6e3, sensor, carms=_biplanar(sensor))
+    ep.meta.calibration = "bad"
+    with pytest.raises(ValueError, match="meta.calibration"):
         calibrate_from_episode(ep)

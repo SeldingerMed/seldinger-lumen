@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from lumen.assets import procedural
 from lumen.data import (Episode, EpisodeDataset, EpisodeMeta, Outcome, Step, replay,
                         summarize)
 
@@ -15,7 +16,8 @@ def _ep(label, n=3, success=True, modality="fluoro"):
                     obs_modality=modality, obs_ref=(f"{i:03d}.npy" if modality != "none" else None),
                     obs=(np.full((3, 3), float(i)) if modality != "none" else None))
                for i in range(n)],
-        outcome=Outcome(success=success, final_dist=0.4 if success else 9.0, steps=n, label=label))
+        outcome=Outcome(success=success, final_dist=0.4 if success else 9.0, steps=n, label=label),
+        asset=procedural.straight_tube(80.0, 2.0))
 
 
 def _corpus(tmp_path):
