@@ -87,6 +87,19 @@ def test_compute_clinical_metrics_degrades_when_a_signal_is_absent():
     assert m["catheter_support"]["supported"] is None
 
 
+def test_tip_target_boundary_matches_episode_outcome_success():
+    ep = Episode(
+        meta=EpisodeMeta(notes={"target_s": 10.0, "success_tol": 2.5}),
+        steps=[Step(t=0.0, kinematics={"tip_s": 7.5})],
+        outcome=Outcome(success=True, final_dist=2.5, steps=1),
+    )
+
+    m = compute_clinical_metrics(ep)
+
+    assert m["tip_target"]["success"] is ep.outcome.success
+    assert m["tip_target"]["final_dist"] == pytest.approx(ep.outcome.final_dist)
+
+
 def test_wall_safety_handles_zero_thresholds_without_dividing_by_zero():
     ep = Episode(
         meta=EpisodeMeta(notes={"perforation_force_threshold": 0.0,
