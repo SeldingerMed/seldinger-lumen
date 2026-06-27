@@ -46,6 +46,8 @@ sim.step(insertion=1.0)
 - **HGO deformable wall** as the shared lumen field `R(s,θ)=R0+w`.
 - **Anisotropic, fiber-aligned friction** and **torsion**.
 - A real **clot** (Ogden, progressive damage, stent-retriever capture) and a **1-D flow pressure field**.
+- CV-ready observations: contrast/vessel DRR, biplanar fluoro, masks/keypoints,
+  luminal texture/artifacts, and PNG/AVI previews.
 - **Accurate-tier cross-validation** against analytic ground truth.
 
 ## Learn more

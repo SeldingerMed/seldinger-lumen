@@ -46,6 +46,8 @@ class LuminalCamera:
     tissue_color: tuple = field(default_factory=lambda: (0.80, 0.30, 0.25))  # reddish
     texture_strength: float = 0.0              # deterministic mucosal mottling, off by default
     fold_strength: float = 0.0                 # weak ring/fold shading along s, off by default
+    artifact_strength: float = 0.0             # vignette/glints/noise, off by default
+    artifact_seed: int | None = None            # deterministic preview artifacts
 
     def __post_init__(self):
         if self.n_steps <= 0:                  # else dtau = max_dist / n_steps blows up
@@ -92,7 +94,7 @@ class LuminalCamera:
                 lamb = max(0.0, float(np.dot(d, e_r)))             # wall faces the (co-located) lamp
                 detail = self._surface_detail(s_hit, th_hit)
                 img[iv, iu] = shade * (self.ambient + (1 - self.ambient) * lamb) * detail * tissue
-        return np.clip(img, 0.0, 1.0)
+        return self._apply_artifacts(np.clip(img, 0.0, 1.0))
 
     def _surface_detail(self, s, theta):
         """Deterministic wall detail. Defaults to 1.0 for the original smooth tunnel."""
@@ -106,6 +108,27 @@ class LuminalCamera:
             fold = 0.5 + 0.5 * np.sin(0.42 * s + 0.8 * np.sin(theta))
             detail *= 1.0 + self.fold_strength * fold
         return max(0.0, float(detail))
+
+    def _apply_artifacts(self, img):
+        if not self.artifact_strength:
+            return img
+        rng = np.random.default_rng(self.artifact_seed)
+        out = np.asarray(img, float).copy()
+        yy, xx = np.mgrid[0:self.nv, 0:self.nu]
+        x = (xx + 0.5) / self.nu * 2 - 1
+        y = (yy + 0.5) / self.nv * 2 - 1
+        rr = np.sqrt(x * x + y * y)
+        vignette = np.clip(1.0 - self.artifact_strength * 0.55 * rr ** 1.8, 0.0, 1.0)
+        out *= vignette[:, :, None]
+        n_glints = max(1, int(round(4 * self.artifact_strength)))
+        for _ in range(n_glints):
+            cx = rng.uniform(-0.75, 0.75)
+            cy = rng.uniform(-0.75, 0.75)
+            sig = rng.uniform(0.035, 0.09)
+            blob = np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sig ** 2))
+            out += (0.45 * self.artifact_strength * blob)[:, :, None]
+        noise = rng.normal(0.0, 0.035 * self.artifact_strength, out.shape)
+        return np.clip(out + noise, 0.0, 1.0)
 
     @staticmethod
     def _march(frame, lumen, origin, d, dtau, max_dist):

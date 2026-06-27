@@ -41,7 +41,9 @@ def _sensor_meta(sensor, modality) -> dict:
                 "falloff": sensor.falloff, "ambient": sensor.ambient,
                 "tissue_color": list(sensor.tissue_color),
                 "texture_strength": sensor.texture_strength,
-                "fold_strength": sensor.fold_strength}
+                "fold_strength": sensor.fold_strength,
+                "artifact_strength": sensor.artifact_strength,
+                "artifact_seed": sensor.artifact_seed}
     return {"modality": modality}
 
 
