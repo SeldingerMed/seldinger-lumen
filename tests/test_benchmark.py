@@ -76,6 +76,30 @@ def test_scorecard_validation_reports_submission_schema_errors():
     with pytest.raises(ValueError, match="per_task names"):
         validate_scorecard(missing_task)
 
+    wrong_tier = Scorecard(name="wrong-tier", suite_version=SUITE_VERSION,
+                           per_task=[
+                               {"name": t.name, "tier": "easy", "episodes": t.episodes,
+                                "success_rate": 1.0, "safe_success_rate": 1.0,
+                                "max_pen": 0.0, "mean_return": 1.0}
+                               for t in SUITE
+                           ],
+                           overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                                    "max_pen": 0.0, "mean_return": 1.0})
+    with pytest.raises(ValueError, match="per_task\\[2\\].tier"):
+        validate_scorecard(wrong_tier)
+
+    inflated_overall = Scorecard(name="inflated", suite_version=SUITE_VERSION,
+                                 per_task=[
+                                     {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                                      "success_rate": 1.0, "safe_success_rate": 0.0,
+                                      "max_pen": 0.0, "mean_return": 1.0}
+                                     for t in SUITE
+                                 ],
+                                 overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                                          "max_pen": 0.0, "mean_return": 1.0})
+    with pytest.raises(ValueError, match="overall.safe_success_rate"):
+        validate_scorecard(inflated_overall)
+
 
 def test_scorecard_rejections_explain_why_submissions_are_skipped(tmp_path):
     bad = Scorecard(name="bad", suite_version=SUITE_VERSION,

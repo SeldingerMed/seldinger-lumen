@@ -158,6 +158,10 @@ def _rate_ok(x) -> bool:
     return _finite_number(x) and 0.0 <= float(x) <= 1.0
 
 
+def _close(a, b, tol=1e-9) -> bool:
+    return _finite_number(a) and _finite_number(b) and abs(float(a) - float(b)) <= tol
+
+
 def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
     """Validate a benchmark submission before it enters a leaderboard.
 
@@ -183,12 +187,35 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
 
     if isinstance(card.per_task, list):
         for i, task in enumerate(card.per_task):
+            if i < len(suite):
+                expected = suite[i]
+                if task.get("tier") != expected.tier:
+                    errors.append(f"per_task[{i}].tier must be {expected.tier!r}")
+                if task.get("episodes") != expected.episodes:
+                    errors.append(f"per_task[{i}].episodes must be {expected.episodes}")
             for key in ("success_rate", "safe_success_rate"):
                 if not _rate_ok(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be a finite rate in [0, 1]")
             for key in ("episodes", "max_pen", "mean_return"):
                 if not _finite_number(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be finite")
+        if len(card.per_task) == len(suite):
+            expected_success = float(np.mean([float(t.get("success_rate", np.nan))
+                                              for t in card.per_task]))
+            expected_safe = float(np.mean([float(t.get("safe_success_rate", np.nan))
+                                           for t in card.per_task]))
+            expected_max_pen = max(float(t.get("max_pen", np.nan)) for t in card.per_task)
+            expected_return = float(np.mean([float(t.get("mean_return", np.nan))
+                                             for t in card.per_task]))
+            expected = {
+                "success_rate": expected_success,
+                "safe_success_rate": expected_safe,
+                "max_pen": expected_max_pen,
+                "mean_return": expected_return,
+            }
+            for key, value in expected.items():
+                if not _close(card.overall.get(key), value):
+                    errors.append(f"overall.{key} must equal aggregate per_task {value:.12g}")
     else:
         errors.append("per_task must be a list")
 
