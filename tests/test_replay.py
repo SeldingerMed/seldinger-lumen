@@ -134,6 +134,31 @@ def test_replay_corpus_example_handles_missing_root_without_warning(tmp_path, ca
     assert seen == []
 
 
+def test_replay_corpus_example_prints_clinical_endpoint_flags(tmp_path, capsys):
+    from examples.replay_corpus import main
+    from lumen.sensors.carm import CArm
+
+    ep = _ep("clinical", 2, True)
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=8, nv=8)
+    ep.meta.device = {"guidewire": {"radius": 0.2}}
+    ep.meta.sensor = {"modality": "fluoro", "nu": 8, "nv": 8}
+    ep.meta.calibration = {"type": "carm", "views": [carm.to_dict()]}
+    ep.meta.labels = {"procedure": "navigation"}
+    ep.outcome.metrics = {
+        "tip_target": {"success": True},
+        "wall_safety": {"perforation_risk": False},
+        "branch_choice": {"correct": True},
+    }
+    ep.save(tmp_path / "clinical")
+
+    main(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "tip_target=True" in out
+    assert "wall_risk=False" in out
+    assert "branch=True" in out
+
+
 def test_summarize_segregates_probe_from_navigation(tmp_path):
     _ep("straight", 3, True).save(tmp_path / "nav")        # navigation (no kind -> default)
     probe = _ep("wall_probe", 2, True)                     # a wall-probe masquerading as success

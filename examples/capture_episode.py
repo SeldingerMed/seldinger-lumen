@@ -15,7 +15,7 @@ from pathlib import Path
 
 from lumen.assets import procedural
 from lumen.data import CaseBundle, Episode, rollout_episode, validate
-from lumen.sensors import FluoroSensor, LuminalCamera
+from lumen.sensors import FluoroSensor, LuminalCamera, write_png
 
 
 def main(out_dir="episodes"):
@@ -38,12 +38,14 @@ def main(out_dir="episodes"):
         validate(back, root=path)
         bundle = CaseBundle.load(path)
         obs0 = back.steps[0].load_obs(path)
+        preview = path / "preview.png"
+        write_png(preview, obs0)
         tip_ok = back.outcome.metrics["tip_target"]["success"]
         wall_risk = back.outcome.metrics["wall_safety"]["perforation_risk"]
         print(f"{name:18s}  steps={back.outcome.steps:2d}  success={back.outcome.success!s:5s}  "
               f"final_dist={back.outcome.final_dist:6.2f}  obs{obs0.shape}  "
               f"calib={bundle.calibration['type']}  tip_target={tip_ok!s:5s}  "
-              f"wall_risk={wall_risk!s:5s} -> {path}", flush=True)
+              f"wall_risk={wall_risk!s:5s}  preview={preview}", flush=True)
 
 
 if __name__ == "__main__":

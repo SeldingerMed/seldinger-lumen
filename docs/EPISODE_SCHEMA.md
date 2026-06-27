@@ -32,8 +32,10 @@ One directory per episode:
 
 Observations are stored as `.npy` — lossless and dependency-free for both grayscale
 fluoroscopy and RGB luminal frames. A viewer PNG is an example-side extra, not part
-of the canonical load path. Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
-`Step.load_nodes(root)`) so a large corpus iterates without exhausting memory.
+of the canonical load path; `examples/capture_episode.py` writes `preview.png` from
+the first observation for quick visual inspection. Sidecars are **lazy-loaded**
+(`Step.load_obs(root)` / `Step.load_nodes(root)`) so a large corpus iterates without
+exhausting memory.
 
 `obs_ref` and `node_positions_ref` must be **bare filenames** (no path components,
 no `..`): they are resolved under `<episode>/obs/`, and `validate` / `load_*` reject
