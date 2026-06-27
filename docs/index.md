@@ -44,12 +44,12 @@ sim.step(insertion=1.0)
 ## First 10 minutes for RL/CV users
 
 ```bash
-python -m lumen.hardware
-python examples/run_benchmark.py /tmp/lumen-bench
+lumen-hardware
+lumen-benchmark /tmp/lumen-bench
 python examples/render_fluoro.py /tmp/lumen_fluoro.png
 python examples/capture_episode.py /tmp/lumen-episodes
-python examples/replay_corpus.py /tmp/lumen-episodes
-python examples/calibrate_from_episode.py
+lumen-replay /tmp/lumen-episodes
+lumen-calibrate
 ```
 
 `capture_episode.py` writes replayable case bundles with `preview.png`,

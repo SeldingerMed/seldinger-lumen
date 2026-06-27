@@ -1,0 +1,152 @@
+"""Installed command-line entry points for the common Lumen workflows."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+
+from lumen.hardware import describe
+
+
+def hardware_main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description="Print Lumen backend hardware/software status.")
+    parser.parse_args(argv)
+    print(json.dumps(describe(), indent=2))
+
+
+def benchmark_main(argv=None) -> None:
+    from lumen.bench import evaluate_policy, forward_policy, leaderboard, scorecard_rejections
+
+    parser = argparse.ArgumentParser(description="Run the canonical Lumen navigation benchmark.")
+    parser.add_argument("results_dir", nargs="?", default="bench_results")
+    args = parser.parse_args(argv)
+    os.makedirs(args.results_dir, exist_ok=True)
+
+    sc = evaluate_policy(forward_policy, "forward-baseline")
+    sc.save(os.path.join(args.results_dir, "forward-baseline.json"))
+
+    print(f"suite {sc.suite_version}   submission: {sc.name}")
+    print(f"{'task':18} {'tier':7} {'safe':>8} {'unsafe':>8} {'success':>8} "
+          f"{'mean_steps':>11} {'max_pen':>9}")
+    for t in sc.per_task:
+        steps = "-" if t["mean_steps"] is None else f"{t['mean_steps']:.1f}"
+        print(f"{t['name']:18} {t['tier']:7} {t['safe_success_rate']:>8.2f} "
+              f"{t['unsafe_success_rate']:>8.2f} {t['success_rate']:>8.2f} "
+              f"{steps:>11} {t['max_pen']:>9.3f}")
+    o = sc.overall
+    print(f"\noverall: safe={o['safe_success_rate']:.2f}  "
+          f"unsafe={o['unsafe_success_rate']:.2f}  success={o['success_rate']:.2f}  "
+          f"worst max_pen={o['max_pen']:.3f}  mean_return={o['mean_return']:.1f}")
+
+    print(f"\nleaderboard ({args.results_dir}):")
+    for rank, c in enumerate(leaderboard(args.results_dir), 1):
+        print(f"  {rank}. {c.name:24} safe={c.overall.get('safe_success_rate', 0.0):.2f}  "
+              f"unsafe={c.overall.get('unsafe_success_rate', 0.0):.2f}  "
+              f"success={c.overall['success_rate']:.2f}  "
+              f"max_pen={c.overall['max_pen']:.3f}  return={c.overall['mean_return']:.1f}")
+    skipped = scorecard_rejections(args.results_dir)
+    if skipped:
+        print("\nskipped scorecards:")
+        for item in skipped:
+            print(f"  {item['path']}: {item['error']}")
+
+
+def _clinical_flags(ep):
+    metrics = ep.outcome.metrics if isinstance(ep.outcome.metrics, dict) else {}
+    tip = metrics.get("tip_target") if isinstance(metrics.get("tip_target"), dict) else {}
+    wall = metrics.get("wall_safety") if isinstance(metrics.get("wall_safety"), dict) else {}
+    branch = metrics.get("branch_choice") if isinstance(metrics.get("branch_choice"), dict) else {}
+    parts = []
+    if "success" in tip:
+        parts.append(f"tip_target={tip['success']!s}")
+    if "perforation_risk" in wall:
+        parts.append(f"wall_risk={wall['perforation_risk']!s}")
+    if branch.get("correct") is not None:
+        parts.append(f"branch={branch['correct']!s}")
+    return "  ".join(parts)
+
+
+def _annotation_flags(ep):
+    from lumen.data import annotation_coverage
+
+    cov = annotation_coverage(ep)
+    parts = [f"{name}={count}/{cov['steps']}"
+             for name, count in sorted(cov["sidecars"].items())]
+    keypoint_parts = [
+        f"{name}={cov['keypoints_present'].get(name, 0)}/{total}"
+        for name, total in sorted(cov["keypoints_total"].items())
+    ]
+    if keypoint_parts:
+        parts.append("keypoints(" + " ".join(keypoint_parts) + ")")
+    return "  ".join(parts) if parts else "annotations=none"
+
+
+def replay_main(argv=None) -> None:
+    from lumen.data import CaseBundle, EpisodeDataset, replay, summarize
+
+    parser = argparse.ArgumentParser(description="Summarize and replay a Lumen case-bundle corpus.")
+    parser.add_argument("episodes_dir", nargs="?", default="episodes")
+    args = parser.parse_args(argv)
+    root = Path(args.episodes_dir)
+    if not root.is_dir():
+        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        return
+    ds = EpisodeDataset(root, validate_on_load=False)
+    if len(ds) == 0:
+        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        return
+    bundles = []
+    skipped = []
+    for d in ds.dirs:
+        try:
+            bundles.append(CaseBundle.load(d))
+        except KeyError as e:
+            skipped.append((d, f"manifest missing required key {e!s}"))
+        except Exception as e:
+            skipped.append((d, f"{type(e).__name__}: {e}"))
+    if not bundles:
+        print(f"no valid case bundles under {str(root)!r}")
+        for path, err in skipped:
+            print(f"  skipped {path}: {err}")
+        return
+    print(f"corpus: {summarize([b.episode for b in bundles])}\n")
+    for bundle in bundles:
+        ep = bundle.episode
+        first_obs = next((obs for *_, obs in replay(ep) if obs is not None), None)
+        shape = None if first_obs is None else first_obs.shape
+        print(f"{ep.outcome.label:18s}  steps={ep.outcome.steps:2d}  "
+              f"success={ep.outcome.success!s:5s}  final_dist={ep.outcome.final_dist:6.2f}  "
+              f"obs{shape}  calib={bundle.calibration.get('type')}  "
+              f"{_clinical_flags(ep)}  {_annotation_flags(ep)}  @ {ep.root}")
+    if skipped:
+        print("\nskipped invalid bundles:")
+        for path, err in skipped:
+            print(f"  {path}: {err}")
+
+
+def calibrate_main(argv=None) -> None:
+    from lumen.data import EpisodeDataset, calibrate_from_episode, probe_episode
+    from lumen.sensors import FluoroSensor
+    from lumen.sensors.device_as_sensor import device_on_wall
+
+    parser = argparse.ArgumentParser(description="Run the wall-probe calibration identifiability demo.")
+    parser.parse_args(argv)
+    true_C10 = 6.0e3
+    sensor = FluoroSensor(mu_device=1.0, res=36, n_samples=90, nu=44, nv=44)
+    nodes = device_on_wall(true_C10)
+    cx = sensor.default_carm(nodes, axis=(1, 0, 0))
+    cy = sensor.default_carm(nodes, axis=(0, 1, 0))
+
+    import tempfile
+    print("noise-free recovery is trivial (loss(true)=0); the honest test is under noise:\n")
+    for name, carms in (("mono", [cx]), ("biplanar", [cx, cy])):
+        with tempfile.TemporaryDirectory() as d:
+            probe_episode(true_C10, sensor, carms=carms, notes={"case": name}).save(d)
+            ep = EpisodeDataset(d)[0]
+            res = calibrate_from_episode(ep, init_C10=2.0e3, iters=20, noise_std=1e-3)
+            flag = "identifiable" if res["identifiable"] else "UNDER-DETERMINED"
+            print(f"{name:9s}  views={res['n_views']}  recovered={res['recovered_C10']:.0f}  "
+                  f"noise-free={res['rel_error']:.2%}  under-noise={res['rel_error_noisy']:.2%}  "
+                  f"-> {flag}")

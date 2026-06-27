@@ -62,11 +62,12 @@ Check the backend, run the fixed benchmark, render a fluoroscopy frame, then wri
 replayable case bundle. These commands use only procedural anatomy.
 
 ```bash
-python -m lumen.hardware
-python examples/run_benchmark.py /tmp/lumen-bench
+lumen-hardware
+lumen-benchmark /tmp/lumen-bench
 python examples/render_fluoro.py /tmp/lumen_fluoro.png
 python examples/capture_episode.py /tmp/lumen-episodes
-python examples/replay_corpus.py /tmp/lumen-episodes
+lumen-replay /tmp/lumen-episodes
+lumen-calibrate
 ```
 
 `capture_episode.py` writes one self-contained case directory per scenario plus
