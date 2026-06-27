@@ -34,8 +34,12 @@ def _annotation_flags(ep):
     cov = annotation_coverage(ep)
     parts = [f"{name}={count}/{cov['steps']}"
              for name, count in sorted(cov["sidecars"].items())]
-    if cov["keypoint_steps"]:
-        parts.append(f"keypoints={cov['keypoint_steps']}/{cov['steps']}")
+    keypoint_parts = [
+        f"{name}={cov['keypoints_present'].get(name, 0)}/{total}"
+        for name, total in sorted(cov["keypoints_total"].items())
+    ]
+    if keypoint_parts:
+        parts.append("keypoints(" + " ".join(keypoint_parts) + ")")
     return "  ".join(parts) if parts else "annotations=none"
 
 

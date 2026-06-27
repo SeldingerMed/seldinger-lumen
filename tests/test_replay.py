@@ -101,7 +101,14 @@ def test_annotation_coverage_is_manifest_only_for_cv_readiness(tmp_path):
     for i, step in enumerate(ep.steps[:2]):
         step.annotations = {
             "device_mask_ref": f"{i:03d}_device_mask.npy",
-            "keypoints": {"tip": {"uv": [1.0, 2.0], "present": True}},
+            "keypoints": {
+                "base": {"uv": [0.0, 0.0], "present": i == 0},
+                "tip": {"uv": [1.0, 2.0], "present": True},
+                "nodes": [
+                    {"uv": [0.0, 0.0], "present": True},
+                    {"present": False},
+                ],
+            },
         }
     ep.save(tmp_path / "seg")
     back = Episode.load(tmp_path / "seg")
@@ -114,11 +121,15 @@ def test_annotation_coverage_is_manifest_only_for_cv_readiness(tmp_path):
         "annotation_steps": 2,
         "sidecars": {"device_mask": 2},
         "keypoint_steps": 2,
+        "keypoints_present": {"base": 1, "tip": 2, "nodes": 2},
+        "keypoints_total": {"base": 2, "tip": 2, "nodes": 4},
     }
     s = summarize(EpisodeDataset(tmp_path, validate_on_load=False))
     assert s["annotations"] == {"device_mask": 2}
     assert s["annotation_steps"] == 2
     assert s["keypoint_steps"] == 2
+    assert s["keypoints_present"] == {"base": 1, "tip": 2, "nodes": 2}
+    assert s["keypoints_total"] == {"base": 2, "tip": 2, "nodes": 4}
 
 
 def test_empty_corpus(tmp_path):
@@ -200,7 +211,10 @@ def test_replay_corpus_example_prints_clinical_endpoint_flags(tmp_path, capsys):
     for i, step in enumerate(ep.steps):
         step.annotations = {
             "device_mask_ref": f"{i:03d}_device_mask.npy",
-            "keypoints": {"tip": {"uv": [1.0, 2.0], "present": True}},
+            "keypoints": {
+                "base": {"uv": [0.0, 0.0], "present": i == 0},
+                "tip": {"uv": [1.0, 2.0], "present": True},
+            },
         }
         step.annotation_arrays = {"device_mask": np.ones((3, 3), dtype=np.uint8)}
     ep.outcome.metrics = {
@@ -217,7 +231,7 @@ def test_replay_corpus_example_prints_clinical_endpoint_flags(tmp_path, capsys):
     assert "wall_risk=False" in out
     assert "branch=True" in out
     assert "device_mask=2/2" in out
-    assert "keypoints=2/2" in out
+    assert "keypoints(base=1/2 tip=2/2)" in out
 
 
 def test_replay_corpus_example_skips_invalid_bundles_but_lists_valid_ones(tmp_path, capsys):
