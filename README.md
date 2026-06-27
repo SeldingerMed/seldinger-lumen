@@ -74,13 +74,17 @@ nav_tube           easy        1.00     1.00        18.6     0.000
 nav_stenotic       medium      1.00     1.00        19.8     0.000
 nav_tree_branch    hard        0.00     1.00        51.0     1.325
 
-overall: safe=0.67  success=1.00  worst max_pen=1.325
+overall: safe=0.67  success=1.00  worst max_pen=1.325  mean_return=60.6
+
+leaderboard (/tmp/lumen-bench):
+  1. forward-baseline         safe=0.67  success=1.00  max_pen=1.325  return=60.6
 ```
 
 `success_rate` is “tip reached the target.” `safe_success_rate` is “tip reached the
-target without crossing the wall-safety threshold,” and the leaderboard ranks safe
-success first. A policy that solves the task by scraping through the vessel wall should
-not win a healthcare benchmark.
+target without crossing the wall-safety threshold.” The leaderboard ranks safe success
+first, then raw success, then lower wall penetration, then higher mean return as the
+efficiency tie-break. A policy that solves the task by scraping through the vessel wall
+should not win a healthcare benchmark.
 
 To submit your own policy, copy the runnable template, replace `policy(obs)`, and
 save a validated scorecard:
