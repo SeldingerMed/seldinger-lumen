@@ -34,8 +34,9 @@ def main():
     write_png(f"{stem}_lateral.png", np.flipud(views[1]["image"]))
     write_png(f"{stem}_device_mask.png", np.flipud(views[0]["masks"]["device"].astype(float)))
     write_png(f"{stem}_vessel_mask.png", np.flipud(views[0]["masks"]["vessel"].astype(float)))
-    write_avi(f"{stem}_biplanar.avi", [v["image"] for v in views], fps=2)
+    write_avi(f"{stem}_biplanar.avi", [np.flipud(v["image"]) for v in views], fps=2)
     tip = views[0]["keypoints"]["tip"]["uv"]
+    tip = (tip[0], views[0]["image"].shape[0] - 1 - tip[1])
     print(f"wrote {out}, {stem}_lateral.png, masks, and {stem}_biplanar.avi; "
           f"tip keypoint view0=({tip[0]:.1f}, {tip[1]:.1f})")
 

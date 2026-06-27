@@ -41,6 +41,7 @@ def write_png(path, arr) -> None:
         return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
 
     raw = b"".join(b"\x00" + row(r) for r in range(h))
+    os.makedirs(os.path.dirname(os.fspath(path)) or ".", exist_ok=True)
     with open(path, "wb") as f:
         f.write(b"\x89PNG\r\n\x1a\n"
                 + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, color, 0, 0, 0))
@@ -82,10 +83,10 @@ def write_avi(path, frames, fps: int = 10) -> None:
         raise ValueError("AVI preview needs at least one frame")
     first = _u8(frames[0])
     h, w = first.shape[:2]
+    if any(_u8(f).shape[:2] != (h, w) for f in frames[1:]):
+        raise ValueError("all AVI frames must have the same shape")
     rgb = [_rgb24(f) for f in frames]
     frame_size = len(rgb[0])
-    if any(len(f) != frame_size for f in rgb):
-        raise ValueError("all AVI frames must have the same shape")
     fps = int(fps)
     if fps <= 0:
         raise ValueError("fps must be positive")

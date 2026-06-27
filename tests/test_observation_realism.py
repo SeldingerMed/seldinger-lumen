@@ -75,3 +75,14 @@ def test_png_and_video_preview_exports(tmp_path):
     assert png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert avi.read_bytes()[:4] == b"RIFF"
     assert avi.stat().st_size > 1024
+
+
+def test_preview_exports_create_parent_dirs_and_reject_mismatched_video_frames(tmp_path):
+    import pytest
+
+    nested = tmp_path / "previews" / "case0" / "frame.png"
+    write_png(nested, np.ones((8, 8), float))
+    assert nested.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+    with pytest.raises(ValueError, match="same shape"):
+        write_avi(tmp_path / "bad.avi", [np.zeros((8, 8)), np.zeros((8, 9))])
