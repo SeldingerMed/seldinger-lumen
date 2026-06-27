@@ -128,6 +128,41 @@ metadata presence. Root-mode validation also checks known `device_mask` annotati
 are 2-D bool/unsigned masks whose shape matches the paired observation, and present
 keypoints are finite in-frame `(u, v)` coordinates.
 
+## Dataloader index
+
+For CV/RL training jobs that want a flat manifest, run:
+
+```bash
+lumen-index episodes --out episodes/index.jsonl --check-sidecars
+```
+
+This writes one JSON object per timestep. By default, path fields are relative to
+the corpus root so the index can move with the bundle:
+
+```jsonc
+{
+  "episode": "stenosis_fluoro",
+  "episode_dir": "stenosis_fluoro",
+  "step_index": 0,
+  "obs_modality": "fluoro",
+  "obs_path": "stenosis_fluoro/obs/0000.npy",
+  "device_mask_path": "stenosis_fluoro/obs/0000_device_mask.npy",
+  "node_positions_path": "stenosis_fluoro/obs/0000_nodes.npy",
+  "keypoints": { "tip": { "uv": [31.5, 12.4], "present": true } },
+  "action": { "insertion": 2.0 },
+  "kinematics": { "tip_s": 17.0, "tip_mm": [0.9, 0.0, 17.0] },
+  "clinical_metrics": { "tip_target": { "success": true }, "wall_safety": { "...": "..." } },
+  "labels": { "procedure": "endovascular_navigation", "outcome": "stenosis_fluoro" },
+  "calibration_type": "carm",
+  "provenance": "procedural",
+  "version": "lumen-episode/0"
+}
+```
+
+Use `--absolute-paths` when the index is intentionally machine-local. The index
+does not replace `manifest.json`; it is a dataloader convenience generated from
+validated case bundles.
+
 ## Clinical Metrics
 
 `outcome.metrics` is the canonical endpoint summary produced by
