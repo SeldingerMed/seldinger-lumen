@@ -129,6 +129,20 @@ def test_scorecard_rejections_explain_why_submissions_are_skipped(tmp_path):
     assert "safe_success_rate" in rejected[0]["error"]
 
 
+def test_scorecard_rejections_handle_malformed_nested_payloads(tmp_path):
+    (tmp_path / "bad_overall.json").write_text(
+        '{"name":"bad","suite_version":"lumen-bench/1","per_task":[],"overall":null}'
+    )
+    Scorecard(name="bad-task", suite_version=SUITE_VERSION, per_task=[0],
+              overall={"success_rate": 0.0, "safe_success_rate": 0.0,
+                       "max_pen": 0.0, "mean_return": 0.0}).save(tmp_path / "bad_task.json")
+
+    errors = "\n".join(r["error"] for r in scorecard_rejections(str(tmp_path)))
+
+    assert "overall must be a dict" in errors
+    assert "per_task[0] must be a dict" in errors
+
+
 def test_run_episode_reports_finite_metrics():
     pytest.importorskip("warp")
     pytest.importorskip("newton")
@@ -197,3 +211,10 @@ def test_submit_policy_example_writes_a_comparable_scorecard(tmp_path):
 
     assert card.name == "example-policy"
     assert [c.name for c in leaderboard(str(tmp_path))] == ["example-policy"]
+
+
+def test_submit_policy_rejects_path_fragment_names(tmp_path):
+    from examples.submit_policy import main
+
+    with pytest.raises(ValueError, match="simple basename"):
+        main(str(tmp_path), name="../other/card")

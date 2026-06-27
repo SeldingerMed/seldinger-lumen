@@ -76,6 +76,18 @@ def test_validate_rejects_malformed():
         validate(Episode(meta=EpisodeMeta(provenance="leaked"), steps=[Step()], outcome=Outcome()))
 
 
+def test_validate_rejects_non_mapping_metadata_fields():
+    bad = _episode()
+    bad.meta.calibration = []
+    with pytest.raises(ValueError, match="meta.calibration must be a mapping"):
+        validate(bad)
+
+    bad = _episode()
+    bad.outcome.metrics = []
+    with pytest.raises(ValueError, match="outcome.metrics must be a mapping"):
+        validate(bad)
+
+
 def test_patient_provenance_is_valid_but_version_pinned():
     validate(Episode(meta=EpisodeMeta(provenance="patient(private)"), steps=[Step()],
                      outcome=Outcome(steps=1)))                  # valid value; firewall (not validate) blocks commit
@@ -134,6 +146,17 @@ def test_validate_root_mode_checks_local_asset_exists(tmp_path):
     (tmp_path / ep.meta.asset_ref).unlink()
     with pytest.raises(ValueError, match="asset_ref sidecar missing"):
         validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_save_rejects_loaded_episode_with_dangling_local_asset_ref(tmp_path):
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    _episode(1).save(src)
+
+    loaded = Episode.load(src)
+
+    with pytest.raises(ValueError, match="local asset_ref requires ep.asset"):
+        loaded.save(dst)
 
 
 def test_save_validates_and_guards_data_loss(tmp_path):

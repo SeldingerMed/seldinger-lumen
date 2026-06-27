@@ -241,7 +241,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
         except SimDiverged:                            # recorder guards divergence; dist stays last-good
             break
         dist = abs(step.kinematics["tip_s"] - target_s)
-        if dist < success_tol:
+        if dist <= success_tol:
             success = True
             break
 

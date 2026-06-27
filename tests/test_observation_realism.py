@@ -4,8 +4,10 @@ import numpy as np
 
 from lumen.assets import procedural
 from lumen.core.frame import CenterlineFrame
+from lumen.sensors.carm import CArm
+from lumen.sensors.fluoro import _projected_radius_px
 from lumen.sensors import FluoroSensor, LuminalCamera
-from lumen.sensors.preview import write_avi, write_png
+from lumen.sensors.preview import _u8, write_avi, write_png
 
 
 def _scene():
@@ -28,6 +30,16 @@ def test_fluoro_scene_returns_vessel_contrast_masks_and_keypoints():
     assert scene["keypoints"]["tip"]["present"] is True
     u, v = scene["keypoints"]["tip"]["uv"]
     assert 0 <= u < 36 and 0 <= v < 36
+
+
+def test_fluoro_mask_radius_tracks_perspective_projection():
+    carm = CArm.looking_at([0.0, 0.0, 0.0], distance=50.0, sdd=100.0,
+                           width=60.0, height=30.0, nu=120, nv=80)
+
+    near = _projected_radius_px(carm, [-25.0, 0.0, 0.0], 1.0)
+    far = _projected_radius_px(carm, [25.0, 0.0, 0.0], 1.0)
+
+    assert near > far > 0.0
 
 
 def test_biplanar_fluoro_uses_two_distinct_calibrated_views():
@@ -92,8 +104,17 @@ def test_png_and_video_preview_exports(tmp_path):
     write_avi(avi, frames, fps=5)
 
     assert png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-    assert avi.read_bytes()[:4] == b"RIFF"
+    data = avi.read_bytes()
+    assert data[:4] == b"RIFF"
+    strh = data.index(b"strh")
+    assert int.from_bytes(data[strh + 4:strh + 8], "little") == 56
     assert avi.stat().st_size > 1024
+
+
+def test_preview_u8_preserves_normalized_constant_frames():
+    assert _u8(np.ones((8, 8), float)).min() == 255
+    ramp = np.array([[0.0, 0.5, 1.0]])
+    assert _u8(ramp).tolist() == [[0, 127, 255]]
 
 
 def test_preview_exports_create_parent_dirs_and_reject_mismatched_video_frames(tmp_path):

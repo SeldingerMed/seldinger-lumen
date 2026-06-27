@@ -177,19 +177,26 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
     if card.suite_version != SUITE_VERSION:
         errors.append(f"suite_version must be {SUITE_VERSION!r}, got {card.suite_version!r}")
     expected_names = [t.name for t in suite]
-    task_names = [t.get("name") for t in card.per_task] if isinstance(card.per_task, list) else []
+    task_names = ([t.get("name") if isinstance(t, dict) else None for t in card.per_task]
+                  if isinstance(card.per_task, list) else [])
     if task_names != expected_names:
         errors.append(f"per_task names must be {expected_names}, got {task_names}")
 
-    for key in ("success_rate", "safe_success_rate"):
-        if not _rate_ok(card.overall.get(key)):
-            errors.append(f"overall.{key} must be a finite rate in [0, 1]")
-    for key in ("max_pen", "mean_return"):
-        if not _finite_number(card.overall.get(key)):
-            errors.append(f"overall.{key} must be finite")
+    if not isinstance(card.overall, dict):
+        errors.append("overall must be a dict")
+    else:
+        for key in ("success_rate", "safe_success_rate"):
+            if not _rate_ok(card.overall.get(key)):
+                errors.append(f"overall.{key} must be a finite rate in [0, 1]")
+        for key in ("max_pen", "mean_return"):
+            if not _finite_number(card.overall.get(key)):
+                errors.append(f"overall.{key} must be finite")
 
     if isinstance(card.per_task, list):
         for i, task in enumerate(card.per_task):
+            if not isinstance(task, dict):
+                errors.append(f"per_task[{i}] must be a dict")
+                continue
             if i < len(suite):
                 expected = suite[i]
                 if task.get("tier") != expected.tier:
@@ -202,7 +209,9 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
             for key in ("episodes", "max_pen", "mean_return"):
                 if not _finite_number(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be finite")
-        if len(card.per_task) == len(suite):
+        if (len(card.per_task) == len(suite)
+                and isinstance(card.overall, dict)
+                and all(isinstance(t, dict) for t in card.per_task)):
             expected_success = float(np.mean([float(t.get("success_rate", np.nan))
                                               for t in card.per_task]))
             expected_safe = float(np.mean([float(t.get("safe_success_rate", np.nan))

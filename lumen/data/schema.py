@@ -170,6 +170,10 @@ class Episode:
             if not self.meta.asset_ref:
                 raise ValueError("episode asset set but meta.asset_ref missing")
             self.asset.save(_safe_root_file(root, self.meta.asset_ref))
+        elif _is_bare_file_ref(self.meta.asset_ref):
+            asset_path = _safe_root_file(root, self.meta.asset_ref)
+            if not os.path.exists(asset_path):
+                raise ValueError("local asset_ref requires ep.asset or an existing asset sidecar")
         for i, s in enumerate(self.steps):
             if s.obs is not None:
                 if not s.obs_ref:                         # don't silently drop data
@@ -222,6 +226,16 @@ def validate(ep: Episode, root: str | None = None) -> None:
 
     The in-memory checks are cheap. Pass `root` (the episode dir) to also verify that
     every referenced sidecar file actually exists on disk."""
+    for name, value in (
+        ("meta.device", ep.meta.device),
+        ("meta.sensor", ep.meta.sensor),
+        ("meta.calibration", ep.meta.calibration),
+        ("meta.labels", ep.meta.labels),
+        ("meta.notes", ep.meta.notes),
+        ("outcome.metrics", ep.outcome.metrics),
+    ):
+        if not isinstance(value, dict):
+            raise ValueError(f"{name} must be a mapping")
     if ep.meta.provenance not in ("procedural", "patient(private)"):
         raise ValueError(f"provenance must be 'procedural' or 'patient(private)', got {ep.meta.provenance!r}")
     if ep.meta.version != SCHEMA_VERSION:

@@ -84,7 +84,7 @@ def test_coaxial_wires_thrombectomy_flow_clot_and_stentriever():
     sim.step(dt=2.5e-2, substeps=2, aspiration=0.4)
     assert sim.clot is not None
     assert sim.clot.o.max() > 0.0
-    sim.step(dt=2.5e-2, substeps=2, insertion=-0.5)
+    sim.step(dt=2.5e-2, substeps=2, insertion=-0.5, aspiration=0.4)
     assert getattr(sim, "last_retrieval", {}).get("status") in {"retrieve", "fragment", "miss"}
     assert np.isfinite(sim.body_positions()).all()
     assert np.isfinite(sim.catheter_positions()).all()

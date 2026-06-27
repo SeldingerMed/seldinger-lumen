@@ -153,8 +153,10 @@ def calibrate_from_episode(episode: Episode, root: str | None = None,
     if not isinstance(calib, dict):
         raise ValueError("not a calibration probe episode (no meta.notes['calib']); a "
                          "navigation episode can't be inverted by the device-on-wall model")
-    calibration = episode.meta.calibration or {}
-    if not isinstance(calibration, dict):
+    calibration = episode.meta.calibration
+    if calibration is None:
+        calibration = {}
+    elif not isinstance(calibration, dict):
         raise ValueError("calibration episode is malformed (meta.calibration must be a mapping)")
     carms_d = calibration.get("views") or calib.get("carms")
     if not carms_d:

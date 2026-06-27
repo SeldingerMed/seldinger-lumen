@@ -17,8 +17,15 @@ def _u8(arr):
     a = np.asarray(arr)
     if a.dtype != np.uint8:
         a = np.asarray(a, float)
-        lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
-        a = 255.0 * (a - lo) / (hi - lo + 1e-12)
+        finite = a[np.isfinite(a)]
+        if finite.size == 0:
+            a = np.zeros_like(a, dtype=float)
+        elif float(np.min(finite)) >= 0.0 and float(np.max(finite)) <= 1.0:
+            a = 255.0 * a
+        else:
+            lo, hi = float(np.min(finite)), float(np.max(finite))
+            a = np.zeros_like(a, dtype=float) if hi <= lo else 255.0 * (a - lo) / (hi - lo)
+        a = np.nan_to_num(a, nan=0.0, posinf=255.0, neginf=0.0)
     return np.clip(a, 0, 255).astype(np.uint8)
 
 
@@ -98,9 +105,17 @@ def write_avi(path, frames, fps: int = 10) -> None:
     avih = struct.pack("<IIIIIIIIII4I",
                        usec_per_frame, frame_size * fps, 0, 0x10, len(rgb), 0, 1,
                        frame_size, w, h, 0, 0, 0, 0)
-    strh = struct.pack("<4s4s14I",
-                       b"vids", b"DIB ", 0, 0, 0, 0, 1, fps, 0, len(rgb),
-                       frame_size, 0xffffffff, 0, 0, 0, w | (h << 16))
+    strh = struct.pack("<4s4sIHHIIIIIIIIhhhh",
+                       b"vids", b"DIB ",
+                       0,              # dwFlags
+                       0, 0,           # wPriority, wLanguage
+                       0,              # dwInitialFrames
+                       1, fps,         # dwScale, dwRate
+                       0, len(rgb),    # dwStart, dwLength
+                       frame_size,     # dwSuggestedBufferSize
+                       0xffffffff,     # dwQuality
+                       0,              # dwSampleSize
+                       0, 0, w, h)     # rcFrame
     strf = struct.pack("<IIIHHIIIIII",
                        40, w, h, 1, 24, 0, frame_size, 0, 0, 0, 0)
     hdrl = _list(b"hdrl", _chunk(b"avih", avih)

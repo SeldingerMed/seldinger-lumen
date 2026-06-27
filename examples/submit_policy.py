@@ -28,6 +28,8 @@ def policy(obs):
 
 def main(results_dir="bench_results", name="example-policy"):
     os.makedirs(results_dir, exist_ok=True)
+    if not isinstance(name, str) or os.path.basename(name) != name or name in {"", ".", ".."}:
+        raise ValueError("name must be a simple basename without path separators")
     scorecard = validate_scorecard(evaluate_policy(policy, name))
     path = os.path.join(results_dir, f"{name}.json")
     scorecard.save(path)

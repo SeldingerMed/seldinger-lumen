@@ -98,3 +98,8 @@ def test_calibrate_rejects_malformed_calibration_blocks():
     ep.meta.calibration = "bad"
     with pytest.raises(ValueError, match="meta.calibration"):
         calibrate_from_episode(ep)
+
+    ep = probe_episode(6e3, sensor, carms=_biplanar(sensor))
+    ep.meta.calibration = []
+    with pytest.raises(ValueError, match="meta.calibration"):
+        calibrate_from_episode(ep)

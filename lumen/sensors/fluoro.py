@@ -16,18 +16,39 @@ from lumen.sensors.realism import degrade
 from lumen.sensors.volume import grid_for, voxelize_device
 
 
+def _projected_radius_px(carm: CArm, point, radius):
+    if radius <= 0:
+        return 0.0
+    uv0 = np.asarray(carm.project(point), float)
+    if not np.isfinite(uv0).all():
+        return 0.0
+    u_axis, v_axis, _ = carm.axes()
+    scales = []
+    for axis in (u_axis, v_axis):
+        uv = np.asarray(carm.project(np.asarray(point, float) + float(radius) * axis), float)
+        if np.isfinite(uv).all():
+            scales.append(float(np.linalg.norm(uv - uv0)))
+    return max(scales) if scales else 0.0
+
+
 def _project_polyline_mask(carm: CArm, nodes, shape, radius_px=2.0):
     nodes = np.asarray(nodes, float)
     h, w = shape
     uv = np.array([carm.project(p) for p in nodes], float)
+    radii = np.asarray(radius_px, float)
+    if radii.ndim == 0:
+        radii = np.full(len(nodes), float(radii))
+    if len(radii) != len(nodes):
+        raise ValueError("radius_px must be scalar or one value per polyline node")
     yy, xx = np.mgrid[0:h, 0:w]
     d2 = np.full((h, w), np.inf)
     if len(uv) == 1:
         u, v = uv[0]
         if np.isfinite([u, v]).all():
             d2 = (xx - u) ** 2 + (yy - v) ** 2
+            return d2 <= max(float(radii[0]), 0.0) ** 2
     else:
-        for a, b in zip(uv[:-1], uv[1:]):
+        for i, (a, b) in enumerate(zip(uv[:-1], uv[1:])):
             if not np.isfinite([*a, *b]).all():
                 continue
             ab = b - a
@@ -39,8 +60,9 @@ def _project_polyline_mask(carm: CArm, nodes, shape, radius_px=2.0):
                 px = a[0] + t * ab[0]
                 py = a[1] + t * ab[1]
                 dist = (xx - px) ** 2 + (yy - py) ** 2
-            d2 = np.minimum(d2, dist)
-    return d2 <= radius_px ** 2
+            r = max(float(radii[i]), float(radii[i + 1]), 0.0)
+            d2 = np.minimum(d2, dist / max(r * r, 1e-12))
+    return d2 <= 1.0
 
 
 def _keypoint(carm: CArm, point, shape):
@@ -109,10 +131,12 @@ class FluoroSensor:
                                 contrast_radius=contrast_radius, mu_contrast=mu_contrast,
                                 contrast_eps=contrast_eps)
         nodes = np.asarray(nodes, float)
-        device_px = max(1.0, radius / max(carm.width / carm.nu, 1e-9))
+        device_px = [max(1.0, _projected_radius_px(carm, p, radius)) for p in nodes]
         masks = {"device": _project_polyline_mask(carm, nodes, img.shape, device_px)}
         if contrast_nodes is not None:
-            vessel_px = max(1.0, contrast_radius / max(carm.width / carm.nu, 1e-9))
+            contrast_nodes = np.asarray(contrast_nodes, float)
+            vessel_px = [max(1.0, _projected_radius_px(carm, p, contrast_radius))
+                         for p in contrast_nodes]
             masks["vessel"] = _project_polyline_mask(carm, contrast_nodes, img.shape, vessel_px)
         else:
             masks["vessel"] = np.zeros_like(masks["device"], dtype=bool)
