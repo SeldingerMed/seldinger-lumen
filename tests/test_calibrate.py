@@ -53,7 +53,7 @@ def test_calibrate_rejects_navigation_episode():
     from lumen.data import EpisodeMeta, Outcome, Step
     nav = Episode(meta=EpisodeMeta(notes={"target_s": 50.0}),
                   steps=[Step(t=0.0, obs_modality="none")], outcome=Outcome(steps=1))
-    with pytest.raises(ValueError, match="calib"):
+    with pytest.raises(ValueError, match="probe_episode"):
         calibrate_from_episode(nav)
 
 

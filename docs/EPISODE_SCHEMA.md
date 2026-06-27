@@ -157,7 +157,8 @@ inventing a measurement.
   scene (so `t` indexes the view and `dt=0`), not a time series. The calibration
   ground truth and forward-model block lives in `notes["calib"]`; the canonical C-arm
   geometry lives in `meta.calibration["views"]`. `summarize` excludes probes from
-  navigation rates.
+  navigation rates. Generate one with `lumen.data.probe_episode(...)`; a navigation
+  rollout cannot be inverted by the quasi-static wall-probe model.
 
 ## What it deliberately does NOT carry
 

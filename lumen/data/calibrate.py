@@ -152,7 +152,9 @@ def calibrate_from_episode(episode: Episode, root: str | None = None,
     calib = episode.meta.notes.get("calib")
     if not isinstance(calib, dict):
         raise ValueError("not a calibration probe episode (no meta.notes['calib']); a "
-                         "navigation episode can't be inverted by the device-on-wall model")
+                         "navigation episode can't be inverted by the device-on-wall model. "
+                         "Generate a wall probe with lumen.data.probe_episode(...) or run "
+                         "examples/calibrate_from_episode.py")
     calibration = episode.meta.calibration
     if calibration is None:
         calibration = {}
