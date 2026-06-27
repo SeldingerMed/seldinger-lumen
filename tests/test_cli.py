@@ -43,6 +43,21 @@ def test_replay_cli_handles_missing_root_without_warning(tmp_path, capsys):
     assert seen == []
 
 
+def test_render_fluoro_cli_writes_preview_artifacts(tmp_path, capsys):
+    from lumen.cli import render_fluoro_main
+
+    out = tmp_path / "fluoro.png"
+    render_fluoro_main([str(out)])
+
+    msg = capsys.readouterr().out
+    assert "tip keypoint view0=" in msg
+    assert out.exists()
+    assert (tmp_path / "fluoro_lateral.png").exists()
+    assert (tmp_path / "fluoro_device_mask.png").exists()
+    assert (tmp_path / "fluoro_vessel_mask.png").exists()
+    assert (tmp_path / "fluoro_biplanar.avi").exists()
+
+
 def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     from lumen.cli import index_main
 
