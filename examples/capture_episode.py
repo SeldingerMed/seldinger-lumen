@@ -3,9 +3,9 @@
     python examples/capture_episode.py [out_dir]
 
 Generates a few procedural cases (straight / stenotic), runs the guidewire to the
-target while recording the paired fluoro observation each step, and writes one
-`lumen-episode/0` directory per case under <out_dir>. Reloads them and prints a
-summary. Needs the full stack (newton + warp).
+target while recording the paired observation each step, and writes one replayable
+case-bundle directory per case under <out_dir>. Reloads them and prints a summary.
+Needs the full stack (newton + warp).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 
 from lumen.assets import procedural
-from lumen.data import Episode, rollout_episode, validate
+from lumen.data import CaseBundle, Episode, rollout_episode, validate
 from lumen.sensors import FluoroSensor, LuminalCamera
 
 
@@ -33,9 +33,11 @@ def main(out_dir="episodes"):
         ep.save(path)
         back = Episode.load(path)
         validate(back, root=path)
+        bundle = CaseBundle.load(path)
         obs0 = back.steps[0].load_obs(path)
         print(f"{name:18s}  steps={back.outcome.steps:2d}  success={back.outcome.success!s:5s}  "
-              f"final_dist={back.outcome.final_dist:6.2f}  obs{obs0.shape} -> {path}")
+              f"final_dist={back.outcome.final_dist:6.2f}  obs{obs0.shape}  "
+              f"calib={bundle.calibration['type']} -> {path}")
 
 
 if __name__ == "__main__":

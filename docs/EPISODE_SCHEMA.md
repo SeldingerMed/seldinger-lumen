@@ -23,6 +23,7 @@ One directory per episode:
 ```text
 <episode>/
   manifest.json        # scalars: meta, per-step kinematics/actions/outcome, sidecar refs
+  asset.json           # lumen-asset/0 geometry when asset_ref is a local filename
   obs/
     000.npy            # paired observation for step 0 (fluoro grayscale or luminal RGB)
     000_nodes.npy      # device node positions (n,3) for step 0   [optional]
@@ -49,8 +50,13 @@ clobber an earlier step's sidecar).
   "meta": {
     "frame": { "name": "voxel_scaled", "spacing_mm": [...], "origin_mm": [...] },
     "asset_ref": "straight.json",      // the lumen-asset/0 geometry this ran on
-    "device": { "radius": 0.2, ... },  // device knobs
+    "device": { "guidewire": { "radius": 0.2, ... }, ... }, // device definitions/knobs
     "sensor": { "modality": "fluoro", "nu": 128, ... },
+    "calibration": {
+      "type": "carm",
+      "views": [{ "source": [...], "detector_center": [...], "width": 60.0, ... }]
+    },
+    "labels": { "procedure": "endovascular_navigation", "anatomy": "straight_tube" },
     "dt": 0.005,
     "notes": { "episode_kind": "navigation", "true_C10": 4000.0 },  // free-form; see below
     "provenance": "procedural",
@@ -72,6 +78,21 @@ clobber an earlier step's sidecar).
 }
 ```
 
+## Case bundles
+
+`Episode` is intentionally permissive enough to load older manifests and partial
+records for repair. A **case bundle** is the stricter replayable directory contract:
+
+- local `asset_ref` sidecar with `lumen-asset/0` geometry
+- `meta.calibration` with C-arm views for fluoro or scope intrinsics for luminal
+- `meta.device` device definitions/knobs
+- step actions, observations, node positions, outcome, and labels
+
+Use `CaseBundle.load(root)` when a consumer needs a self-contained case rather than
+a loose episode. It validates the sidecars, loads the asset, attaches the episode
+root, and exposes `bundle.replay()` so observations are lazy-loaded from the same
+directory.
+
 ## Episode kinds
 
 `notes["episode_kind"]` discriminates how an episode was produced (default
@@ -81,9 +102,9 @@ clobber an earlier step's sidecar).
   `final_dist` are navigation metrics. `summarize` computes its rates over these.
 - **`"wall_probe"`** — a calibration probe (L2.3): `steps` are *views* of one static
   scene (so `t` indexes the view and `dt=0`), not a time series. The calibration
-  block lives in `notes["calib"]` — `{true_C10, load, R0, bulge_dir, dev_kw, carms}`,
-  where `carms` are the serialized `CArm` views (a calibration-specific extension, not
-  part of `meta.sensor`). `summarize` excludes probes from navigation rates.
+  ground truth and forward-model block lives in `notes["calib"]`; the canonical C-arm
+  geometry lives in `meta.calibration["views"]`. `summarize` excludes probes from
+  navigation rates.
 
 ## What it deliberately does NOT carry
 
@@ -95,13 +116,14 @@ from those is the job of the calibration harness (`lumen.data.calibrate`).
 ## Python API
 
 ```python
-from lumen.data import Episode, EpisodeMeta, Step, Outcome, validate
+from lumen.data import CaseBundle, Episode, EpisodeMeta, Step, Outcome, validate
 
 ep = Episode(meta=EpisodeMeta(asset_ref="straight.json", dt=5e-3), steps=[...], outcome=...)
 validate(ep)            # shape / monotonic-time / finite / provenance / version checks
 ep.save("episodes/ep_0001")
 back = Episode.load("episodes/ep_0001")
 frame = back.steps[10].load_obs("episodes/ep_0001")   # lazy sidecar read
+bundle = CaseBundle.load("episodes/ep_0001")           # stricter self-contained replay contract
 ```
 
 Versioning: `SCHEMA_VERSION` bumps on any breaking change to the manifest shape;

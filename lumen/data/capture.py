@@ -31,11 +31,27 @@ def _sensor_meta(sensor, modality) -> dict:
     if sensor is None:
         return {"modality": modality}
     if modality == "fluoro":   # res + n_samples are render knobs a replay must reproduce
-        return {"modality": modality, "res": sensor.res, "n_samples": sensor.n_samples,
+        return {"modality": modality, "mu_device": sensor.mu_device, "eps": sensor.eps,
+                "res": sensor.res, "n_samples": sensor.n_samples, "margin": sensor.margin,
                 "nu": sensor.nu, "nv": sensor.nv}
     if modality == "luminal":
-        return {"modality": modality, "fov_deg": sensor.fov_deg, "nu": sensor.nu, "nv": sensor.nv}
+        return {"modality": modality, "fov_deg": sensor.fov_deg, "nu": sensor.nu,
+                "nv": sensor.nv, "n_steps": sensor.n_steps, "max_dist": sensor.max_dist,
+                "falloff": sensor.falloff, "ambient": sensor.ambient,
+                "tissue_color": list(sensor.tissue_color),
+                "texture_strength": sensor.texture_strength,
+                "fold_strength": sensor.fold_strength}
     return {"modality": modality}
+
+
+def _scope_intrinsics(sensor) -> dict:
+    return {"model": "pinhole", "fov_deg": sensor.fov_deg, "nu": sensor.nu, "nv": sensor.nv}
+
+
+def _scope_calibration(sensor) -> dict:
+    return {"type": "scope", "intrinsics": _scope_intrinsics(sensor),
+            "render": {k: v for k, v in _sensor_meta(sensor, "luminal").items()
+                       if k != "modality"}}
 
 
 class EpisodeRecorder:
@@ -66,6 +82,12 @@ class EpisodeRecorder:
         self.carm = (sensor.default_carm(np.asarray(self.frame.points), axis=view_axis)
                      if modality == "fluoro" else None)
         self.meta = meta or EpisodeMeta()
+        if not self.meta.calibration:
+            if modality == "fluoro":
+                self.meta.calibration = {"type": "carm", "views": [self.carm.to_dict()],
+                                         "active_view": 0, "view_axis": list(view_axis)}
+            elif modality == "luminal":
+                self.meta.calibration = _scope_calibration(sensor)
         self.steps: list = []
         self._t = 0.0
 
@@ -147,10 +169,13 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                              lumen_field=lumen, vbd_iterations=vbd_iterations, device=device,
                              **(sim_kwargs or {}))
 
+    resolved_label = label if label is not None else asset.edges[0].id
+    guidewire = {"radius": radius, "n_nodes": n_nodes, "node_spacing": node_spacing,
+                 "kappa": kappa, "d_hat": d_hat, "vbd_iterations": vbd_iterations}
     meta = EpisodeMeta(asset_ref=asset_ref, dt=dt,
-                       device={"radius": radius, "n_nodes": n_nodes, "node_spacing": node_spacing,
-                               "kappa": kappa, "d_hat": d_hat, "vbd_iterations": vbd_iterations},
+                       device={**guidewire, "guidewire": guidewire},
                        sensor=_sensor_meta(sensor, modality),
+                       labels={"procedure": procedure, "asset_edge": asset.edges[0].id},
                        notes={**(notes or {}),
                               "episode_kind": "navigation",     # vs "wall_probe" (calibration)
                               "procedure": procedure,
@@ -175,7 +200,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
 
     ep = rec.episode(Outcome(success=success, final_dist=float(dist), steps=len(rec.steps),
                              # explicit None check: keep an intentional "" label, don't fall back
-                             label=(label if label is not None else asset.edges[0].id)))
+                             label=resolved_label))
     if asset_ref:
         ep.asset = asset
     validate(ep)                                        # M2: fail loud rather than return a bad episode

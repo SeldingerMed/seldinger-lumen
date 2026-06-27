@@ -75,6 +75,8 @@ class EpisodeMeta:
     asset_ref: str = ""                           # path/id of the lumen-asset/0 geometry
     device: dict = field(default_factory=dict)    # device knobs (radius, stiffness, ...)
     sensor: dict = field(default_factory=dict)    # modality + render params
+    calibration: dict = field(default_factory=dict)  # C-arm/scope calibration for replay
+    labels: dict = field(default_factory=dict)     # task/anatomy/procedure labels
     dt: float = 0.0                               # sim timestep per recorded step
     notes: dict = field(default_factory=dict)     # free-form (sim2sim ground truth lives here)
     provenance: str = "procedural"                # "procedural" | "patient(private)"

@@ -9,7 +9,7 @@ pytest.importorskip("warp")
 pytest.importorskip("newton")
 
 from lumen.assets import procedural                      # noqa: E402
-from lumen.data import Episode, EpisodeRecorder, rollout_episode, validate  # noqa: E402
+from lumen.data import CaseBundle, Episode, EpisodeRecorder, rollout_episode, validate  # noqa: E402
 from lumen.data.capture import SimDiverged              # noqa: E402
 from lumen.sensors import FluoroSensor, LuminalCamera    # noqa: E402
 
@@ -30,6 +30,9 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     ep.save(tmp_path)
     back = Episode.load(tmp_path)
     validate(back, root=tmp_path)                        # all sidecars present
+    bundle = CaseBundle.load(tmp_path)
+    assert bundle.calibration["type"] == "carm"
+    assert bundle.labels["procedure"] == "endovascular_navigation"
     assert (tmp_path / "straight.json").exists()
     assert back.load_asset(tmp_path).edges[0].centerline_mm
     assert back.steps[0].load_obs(tmp_path).shape == (24, 24)
@@ -42,7 +45,10 @@ def test_rollout_luminal_modality(tmp_path):
                          modality="luminal", max_steps=4)
     validate(ep)
     ep.save(tmp_path)
-    rgb = Episode.load(tmp_path).steps[0].load_obs(tmp_path)
+    bundle = CaseBundle.load(tmp_path)
+    assert bundle.calibration["type"] == "scope"
+    assert bundle.calibration["intrinsics"]["fov_deg"] == 90.0
+    rgb = bundle.episode.steps[0].load_obs(tmp_path)
     assert rgb.shape == (16, 16, 3) and rgb.min() >= 0.0 and rgb.max() <= 1.0
 
 
