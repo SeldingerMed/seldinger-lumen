@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import sys
 
-from lumen.bench import evaluate_policy, forward_policy, leaderboard
+from lumen.bench import evaluate_policy, forward_policy, leaderboard, scorecard_rejections
 
 
 def main():
@@ -40,6 +40,11 @@ def main():
         print(f"  {rank}. {c.name:24} safe={c.overall.get('safe_success_rate', 0.0):.2f}  "
               f"success={c.overall['success_rate']:.2f}  "
               f"max_pen={c.overall['max_pen']:.3f}")
+    skipped = scorecard_rejections(results_dir)
+    if skipped:
+        print("\nskipped scorecards:")
+        for item in skipped:
+            print(f"  {item['path']}: {item['error']}")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from lumen.bench import (SUITE, SUITE_VERSION, Scorecard, evaluate_policy, forward_policy,
-                         leaderboard, run_episode, validate_scorecard)
+                         leaderboard, run_episode, scorecard_rejections, validate_scorecard)
 
 
 def test_suite_is_fixed_and_tiered():
@@ -75,6 +75,21 @@ def test_scorecard_validation_reports_submission_schema_errors():
                                       "max_pen": 0.0, "mean_return": 0.0})
     with pytest.raises(ValueError, match="per_task names"):
         validate_scorecard(missing_task)
+
+
+def test_scorecard_rejections_explain_why_submissions_are_skipped(tmp_path):
+    bad = Scorecard(name="bad", suite_version=SUITE_VERSION,
+                    per_task=[{"name": "nav_tube", "success_rate": 1.0,
+                               "max_pen": 0.0}],
+                    overall={"success_rate": 1.0, "max_pen": 0.0,
+                             "mean_return": 0.0})
+    bad.save(tmp_path / "bad.json")
+
+    rejected = scorecard_rejections(str(tmp_path))
+
+    assert len(rejected) == 1
+    assert rejected[0]["path"].endswith("bad.json")
+    assert "safe_success_rate" in rejected[0]["error"]
 
 
 def test_run_episode_reports_finite_metrics():

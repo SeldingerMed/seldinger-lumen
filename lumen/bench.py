@@ -224,23 +224,38 @@ def _safe_success_for_ranking(card: Scorecard) -> float:
     return success if float(card.overall.get("max_pen", 0.0)) < SAFETY_MAX_PEN else 0.0
 
 
+def _load_scorecards(results_dir: str):
+    cards, rejected = [], []
+    for p in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
+        try:
+            c = Scorecard.load(p)
+        except (json.JSONDecodeError, TypeError) as e:
+            rejected.append({"path": p, "error": f"could not read scorecard: {e}"})
+            continue
+        if c.suite_version != SUITE_VERSION:
+            rejected.append({"path": p, "error": f"suite_version {c.suite_version!r} "
+                             f"is not comparable with {SUITE_VERSION!r}"})
+            continue
+        try:
+            cards.append(validate_scorecard(c))
+        except ValueError as e:
+            rejected.append({"path": p, "error": str(e)})
+    return cards, rejected
+
+
+def scorecard_rejections(results_dir: str) -> list[dict]:
+    """Return scorecard files skipped by the current-suite leaderboard and why."""
+    _, rejected = _load_scorecards(results_dir)
+    return rejected
+
+
 def leaderboard(results_dir: str) -> list[Scorecard]:
     """Read every `*.json` scorecard under `results_dir` and rank them.
 
     Ranking is clinical-first: safe target success, then raw target success, then the
     smaller (safer) max penetration. Scorecards from other suite versions are skipped.
     """
-    cards = []
-    for p in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
-        try:
-            c = Scorecard.load(p)
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if c.suite_version == SUITE_VERSION:
-            try:
-                cards.append(validate_scorecard(c))
-            except ValueError:
-                continue
+    cards, _ = _load_scorecards(results_dir)
     return sorted(cards, key=lambda c: (-_safe_success_for_ranking(c),
                                        -c.overall["success_rate"],
                                        c.overall["max_pen"]))
