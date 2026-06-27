@@ -21,8 +21,10 @@ def test_forward_baseline_scores_the_whole_suite():
     sc = evaluate_policy(forward_policy, "forward-baseline")
     assert sc.suite_version == SUITE_VERSION and len(sc.per_task) == 3
     assert sc.overall["success_rate"] == 1.0          # the baseline solves the suite...
+    assert 0.0 <= sc.overall["safe_success_rate"] < sc.overall["success_rate"]
     assert sc.per_task[2]["mean_steps"] > sc.per_task[0]["mean_steps"]   # ...the tree costs more steps
-    assert all(np.isfinite([t["max_pen"], t["mean_return"]]).all() for t in sc.per_task)
+    assert all(np.isfinite([t["safe_success_rate"], t["max_pen"], t["mean_return"]]).all()
+               for t in sc.per_task)
 
 
 def test_a_better_policy_outranks_the_baseline_on_the_leaderboard(tmp_path):
@@ -41,7 +43,8 @@ def test_a_better_policy_outranks_the_baseline_on_the_leaderboard(tmp_path):
 def test_scorecard_round_trips_and_skips_foreign_suite_versions(tmp_path):
     sc = Scorecard(name="x", suite_version=SUITE_VERSION,
                    per_task=[{"name": "nav_tube", "success_rate": 1.0, "max_pen": 0.0}],
-                   overall={"success_rate": 1.0, "max_pen": 0.0, "mean_return": 1.0})
+                   overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                            "max_pen": 0.0, "mean_return": 1.0})
     sc.save(tmp_path / "x.json")
     assert Scorecard.load(tmp_path / "x.json").overall == sc.overall      # round-trip
     # a scorecard from a different suite version is not comparable -> excluded from the board
@@ -55,7 +58,20 @@ def test_run_episode_reports_finite_metrics():
     pytest.importorskip("newton")
     env = SUITE[0].make_env()
     out = run_episode(env, forward_policy, seed=0)
-    assert set(out) == {"success", "steps", "max_pen", "return", "clinical"}
+    assert set(out) == {"success", "safe_success", "steps", "max_pen", "return", "clinical"}
     assert out["success"] and out["steps"] > 0 and np.isfinite(out["return"])
     assert out["clinical"]["tip_target"]["success"] is True
     assert out["clinical"]["wall_safety"]["max_penetration"] >= 0.0
+
+
+def test_leaderboard_ranks_clinically_safe_success_before_unsafe_target_hits(tmp_path):
+    unsafe = Scorecard(name="unsafe-fast", suite_version=SUITE_VERSION, per_task=[],
+                       overall={"success_rate": 1.0, "safe_success_rate": 0.0,
+                                "max_pen": 2.0, "mean_return": 100.0})
+    safe = Scorecard(name="safe-partial", suite_version=SUITE_VERSION, per_task=[],
+                     overall={"success_rate": 0.8, "safe_success_rate": 0.8,
+                              "max_pen": 0.0, "mean_return": 20.0})
+    unsafe.save(tmp_path / "unsafe.json")
+    safe.save(tmp_path / "safe.json")
+
+    assert [c.name for c in leaderboard(str(tmp_path))] == ["safe-partial", "unsafe-fast"]

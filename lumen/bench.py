@@ -11,13 +11,14 @@ gymnasium dependency — so anyone can reproduce a number and submit a scorecard
 
 Metrics per task (over a fixed set of seeded episodes):
   * ``success_rate``  — fraction of episodes whose tip reaches the target band.
+  * ``safe_success_rate`` — fraction that reach the target without a wall-safety breach.
   * ``mean_steps``    — mean steps on the successful episodes (efficiency; lower is better).
   * ``max_pen``       — worst wall over-penetration seen (safety; lower is better).
   * ``mean_return``   — mean episode reward.
 Each raw episode result also carries ``clinical`` metrics from
 ``lumen.data.compute_clinical_metrics``: tip-target success, branch choice, wall
 safety, clot/flow fields when present, and catheter support when coaxial.
-The overall score is the macro-average success_rate across tasks (tie-broken by safety).
+The leaderboard ranks safe target success first, then raw target success, then wall safety.
 """
 
 from __future__ import annotations
@@ -32,7 +33,8 @@ import numpy as np
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, compute_clinical_metrics
 from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_nav
 
-SUITE_VERSION = "lumen-bench/0"
+SUITE_VERSION = "lumen-bench/1"
+SAFETY_MAX_PEN = 0.3
 
 
 def forward_policy(obs):
@@ -65,6 +67,7 @@ def run_episode(env, policy, seed) -> dict:
     obs, _ = env.reset(seed=seed)
     total_r, max_pen, success, steps = 0.0, 0.0, False, 0
     R = float(getattr(env, "R", 0.0))
+    safety_max_pen = float(getattr(env, "safety_max_pen", SAFETY_MAX_PEN))
     trace = []
     target_edge = None
     if getattr(env, "tree", None) is not None and getattr(env, "route", None):
@@ -91,26 +94,31 @@ def run_episode(env, policy, seed) -> dict:
             break
     notes = {"target_s": float(getattr(env, "target_s", 0.0)),
              "success_tol": float(getattr(env, "success_tol", 2.5)),
-             "perforation_penetration_threshold": float(getattr(env, "d_hat", 0.3))}
+             "perforation_penetration_threshold": safety_max_pen}
     labels = {"target_edge": target_edge} if target_edge else {}
     ep = Episode(meta=EpisodeMeta(labels=labels, notes=notes), steps=trace,
                  outcome=Outcome(success=success, final_dist=float(info.get("dist", 0.0)),
                                  steps=steps))
     clinical = compute_clinical_metrics(ep)
-    return {"success": success, "steps": steps, "max_pen": max_pen, "return": total_r,
-            "clinical": clinical}
+    safe_success = bool(success and not clinical["wall_safety"]["perforation_risk"])
+    return {"success": success, "safe_success": safe_success, "steps": steps,
+            "max_pen": max_pen, "return": total_r, "clinical": clinical}
 
 
 def evaluate_task(task: BenchTask, policy) -> dict:
     """Run a task's seeded episodes and aggregate the per-task metrics."""
     env = task.make_env()
+    safety_max_pen = float(getattr(env, "safety_max_pen", SAFETY_MAX_PEN))
     eps = [run_episode(env, policy, seed=task.seed + i) for i in range(task.episodes)]
     won = [e for e in eps if e["success"]]
+    safe_won = [e for e in eps if e["safe_success"]]
     return {
         "name": task.name, "tier": task.tier, "episodes": task.episodes,
         "success_rate": len(won) / len(eps),
+        "safe_success_rate": len(safe_won) / len(eps),
         "mean_steps": (float(np.mean([e["steps"] for e in won])) if won else None),
         "max_pen": max(e["max_pen"] for e in eps),
+        "safety_max_pen": safety_max_pen,
         "mean_return": float(np.mean([e["return"] for e in eps])),
     }
 
@@ -140,12 +148,16 @@ class Scorecard:
 
 
 def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
-    """Evaluate `policy` over the whole suite and return a Scorecard. The overall score is
-    the macro-average success_rate (every tier weighted equally); `max_pen` is the worst
-    safety violation across all tasks."""
+    """Evaluate `policy` over the whole suite and return a Scorecard.
+
+    ``success_rate`` is raw target reach. ``safe_success_rate`` is the clinical
+    leaderboard metric: target reach with wall penetration below the safety limit.
+    Every tier is weighted equally; ``max_pen`` is the worst violation across tasks.
+    """
     per = [evaluate_task(t, policy) for t in suite]
     overall = {
         "success_rate": float(np.mean([t["success_rate"] for t in per])),
+        "safe_success_rate": float(np.mean([t["safe_success_rate"] for t in per])),
         "max_pen": max(t["max_pen"] for t in per),
         "mean_return": float(np.mean([t["mean_return"] for t in per])),
     }
@@ -153,10 +165,21 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
                      notes=notes or {})
 
 
+def _safe_success_for_ranking(card: Scorecard) -> float:
+    if "safe_success_rate" in card.overall:
+        return float(card.overall["safe_success_rate"])
+    # Backward-compatible reading of older scorecards from the same suite: if they
+    # predate the explicit field, conservatively zero out unsafe target hits.
+    success = float(card.overall.get("success_rate", 0.0))
+    return success if float(card.overall.get("max_pen", 0.0)) < SAFETY_MAX_PEN else 0.0
+
+
 def leaderboard(results_dir: str) -> list[Scorecard]:
-    """Read every `*.json` scorecard under `results_dir` and rank them: highest overall
-    success_rate first, ties broken by the smaller (safer) max_pen. Scorecards from a
-    different suite version are skipped (not comparable)."""
+    """Read every `*.json` scorecard under `results_dir` and rank them.
+
+    Ranking is clinical-first: safe target success, then raw target success, then the
+    smaller (safer) max penetration. Scorecards from other suite versions are skipped.
+    """
     cards = []
     for p in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
         try:
@@ -165,4 +188,6 @@ def leaderboard(results_dir: str) -> list[Scorecard]:
             continue
         if c.suite_version == SUITE_VERSION:
             cards.append(c)
-    return sorted(cards, key=lambda c: (-c.overall["success_rate"], c.overall["max_pen"]))
+    return sorted(cards, key=lambda c: (-_safe_success_for_ranking(c),
+                                       -c.overall["success_rate"],
+                                       c.overall["max_pen"]))
