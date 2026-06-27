@@ -37,6 +37,10 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     assert back.load_asset(tmp_path).edges[0].centerline_mm
     assert back.steps[0].load_obs(tmp_path).shape == (24, 24)
     assert back.steps[0].load_nodes(tmp_path).shape[1] == 3
+    assert back.steps[0].load_annotation(tmp_path, "device_mask").shape == (24, 24)
+    assert back.steps[0].load_annotation(tmp_path, "device_mask").dtype == np.uint8
+    assert back.steps[0].load_annotation(tmp_path, "device_mask").sum() > 0
+    assert back.steps[0].annotations["keypoints"]["tip"]["present"] is True
     assert back.outcome.metrics["tip_target"]["success"] == back.outcome.success
     assert back.outcome.metrics["wall_safety"]["perforation_risk"] is False
     assert "flow" in back.outcome.metrics and "catheter_support" in back.outcome.metrics
@@ -64,6 +68,8 @@ def test_every_skips_render_but_keeps_kinematics():
     skipped = [i for i, s in enumerate(ep.steps) if s.obs_modality == "none"]
     assert rendered == [i for i in range(len(ep.steps)) if i % 2 == 0]
     assert all(ep.steps[i].obs_ref is None for i in skipped)         # none-steps carry no ref
+    assert all(ep.steps[i].annotations == {} for i in skipped)       # and no fake CV labels
+    assert all("device_mask_ref" in ep.steps[i].annotations for i in rendered)
     assert all("tip_mm" in s.kinematics for s in ep.steps)           # but kinematics every step
 
 

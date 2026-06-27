@@ -155,16 +155,23 @@ class EpisodeRecorder:
 
         render = self.modality != "none" and (i % self.every == 0)
         obs_arr, obs_ref, modality = None, None, "none"
+        annotations, annotation_arrays = {}, {}
         if render:
             modality, obs_ref = self.modality, f"{i:04d}.npy"
             if self.modality == "fluoro":
-                obs_arr, _ = self.sensor.render(nodes, carm=self.carm)
+                scene = self.sensor.render_scene(nodes, carm=self.carm)
+                obs_arr = scene["image"]
+                annotations = {"device_mask_ref": f"{i:04d}_device_mask.npy",
+                               "keypoints": scene["keypoints"]}
+                annotation_arrays = {"device_mask": scene["masks"]["device"].astype(np.uint8)}
             else:                                   # luminal: camera at the tip
                 obs_arr = self.sensor.render(self.frame, self.lumen, nodes)
 
         step = Step(t=self._t, action=dict(action), kinematics=kin,
+                    annotations=annotations,
                     obs_modality=modality, obs_ref=obs_ref, force=None,
-                    obs=obs_arr, node_positions=(nodes if self.record_nodes else None))
+                    obs=obs_arr, node_positions=(nodes if self.record_nodes else None),
+                    annotation_arrays=annotation_arrays)
         self.steps.append(step)
         self._t += self.dt
         return step

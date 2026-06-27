@@ -102,20 +102,24 @@ class Step:
     t: float = 0.0
     action: dict = field(default_factory=dict)      # {insertion, twist, aspiration}
     kinematics: dict = field(default_factory=dict)  # {tip_mm, tip_s, tip_r, max_r, node_positions_ref}
+    annotations: dict = field(default_factory=dict)  # CV labels/keypoints + sidecar refs
     obs_modality: str = "none"                      # "fluoro" | "luminal" | "none"
     obs_ref: str | None = None                      # observation sidecar filename (.npy)
     force: float | None = None                      # measured where instrumented; else None
     obs: object = field(default=None, repr=False, compare=False)             # transient array
     node_positions: object = field(default=None, repr=False, compare=False)  # transient (n,3)
+    annotation_arrays: dict = field(default_factory=dict, repr=False, compare=False)
 
     def to_dict(self) -> dict:                       # manifest entry: scalars + refs only
         return {"t": self.t, "action": self.action, "kinematics": self.kinematics,
+                "annotations": self.annotations,
                 "obs_modality": self.obs_modality, "obs_ref": self.obs_ref, "force": self.force}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Step":
         return cls(t=d.get("t", 0.0), action=d.get("action", {}),
-                   kinematics=d.get("kinematics", {}), obs_modality=d.get("obs_modality", "none"),
+                   kinematics=d.get("kinematics", {}), annotations=d.get("annotations", {}),
+                   obs_modality=d.get("obs_modality", "none"),
                    obs_ref=d.get("obs_ref"), force=d.get("force"))
 
     def load_obs(self, root: str):
@@ -127,6 +131,11 @@ class Step:
     def load_nodes(self, root: str):
         """Lazy-load this step's device node positions (n,3) if recorded."""
         ref = self.kinematics.get("node_positions_ref")
+        return np.load(_safe_path(root, ref)) if ref else None
+
+    def load_annotation(self, root: str, name: str):
+        """Lazy-load a named annotation sidecar, e.g. ``device_mask``."""
+        ref = self.annotations.get(f"{name}_ref")
         return np.load(_safe_path(root, ref)) if ref else None
 
 
@@ -184,6 +193,11 @@ class Episode:
                 if not ref:
                     raise ValueError(f"step {i}: node_positions set but node_positions_ref missing")
                 np.save(_safe_path(root, ref), np.asarray(s.node_positions))
+            for name, arr in s.annotation_arrays.items():
+                ref = s.annotations.get(f"{name}_ref")
+                if not ref:
+                    raise ValueError(f"step {i}: annotation {name!r} set but {name}_ref missing")
+                np.save(_safe_path(root, ref), np.asarray(arr))
         # atomic manifest write: a crash mid-write must not leave an unloadable episode.
         tmp = os.path.join(root, "manifest.json.tmp")
         with open(tmp, "w") as f:
@@ -247,7 +261,7 @@ def validate(ep: Episode, root: str | None = None) -> None:
     if not np.isfinite(ep.outcome.final_dist):
         raise ValueError("outcome.final_dist is non-finite")
 
-    obs_refs, node_refs = [], []
+    obs_refs, node_refs, ann_refs = [], [], []
     last_t = -np.inf
     for i, s in enumerate(ep.steps):
         if not np.isfinite(s.t):
@@ -268,6 +282,12 @@ def validate(ep: Episode, root: str | None = None) -> None:
         nref = s.kinematics.get("node_positions_ref")
         if nref:
             _check_ref(nref, i, "node_positions_ref"); node_refs.append(nref)
+        if not isinstance(s.annotations, dict):
+            raise ValueError(f"step {i}: annotations must be a mapping")
+        for key, ref in s.annotations.items():
+            if key.endswith("_ref") and ref:
+                _check_ref(ref, i, key)
+                ann_refs.append(ref)
         tip = s.kinematics.get("tip_mm")
         if tip is not None:
             try:
@@ -282,6 +302,11 @@ def validate(ep: Episode, root: str | None = None) -> None:
         raise ValueError("duplicate obs_ref across steps (would clobber sidecars)")
     if len(set(node_refs)) != len(node_refs):
         raise ValueError("duplicate node_positions_ref across steps (would clobber sidecars)")
+    if len(set(ann_refs)) != len(ann_refs):
+        raise ValueError("duplicate annotation refs across steps (would clobber sidecars)")
+    all_sidecar_refs = obs_refs + node_refs + ann_refs
+    if len(set(all_sidecar_refs)) != len(all_sidecar_refs):
+        raise ValueError("duplicate sidecar refs across observations, nodes, or annotations")
     if root is not None:                                    # closed-loop: referenced files must exist
         # Local asset refs make a captured episode self-contained. External/private ids
         # can still live in asset_ref, but bare filenames must resolve inside the episode.
@@ -295,6 +320,9 @@ def validate(ep: Episode, root: str | None = None) -> None:
             nref = s.kinematics.get("node_positions_ref")
             if nref and not os.path.exists(_safe_path(root, nref)):
                 raise ValueError(f"step {i}: node_positions_ref sidecar missing on disk: {nref}")
+            for key, ref in s.annotations.items():
+                if key.endswith("_ref") and ref and not os.path.exists(_safe_path(root, ref)):
+                    raise ValueError(f"step {i}: annotation sidecar missing on disk: {ref}")
 
 
 if __name__ == "__main__":  # self-check: round-trip + validation

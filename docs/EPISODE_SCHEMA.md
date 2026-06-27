@@ -27,6 +27,7 @@ One directory per episode:
   obs/
     000.npy            # paired observation for step 0 (fluoro grayscale or luminal RGB)
     000_nodes.npy      # device node positions (n,3) for step 0   [optional]
+    000_device_mask.npy # CV supervision mask for fluoro capture  [optional]
     ...
 ```
 
@@ -71,6 +72,13 @@ clobber an earlier step's sidecar).
       "action": { "insertion": 1.0, "twist": 0.0, "aspiration": 0.0 },
       "kinematics": { "tip_mm": [x,y,z], "tip_s": 0.0, "tip_r": 0.1, "max_r": 0.2,
                       "node_positions_ref": "000_nodes.npy" },
+      "annotations": {
+        "device_mask_ref": "000_device_mask.npy",
+        "keypoints": {
+          "tip": { "uv": [u, v], "present": true },
+          "base": { "uv": [u, v], "present": true }
+        }
+      },
       "obs_modality": "fluoro",        // "fluoro" | "luminal" | "none"
       "obs_ref": "000.npy",
       "force": null                     // measured where instrumented; null for procedural
@@ -106,6 +114,7 @@ records for repair. A **case bundle** is the stricter replayable directory contr
 - `meta.calibration` with C-arm views for fluoro or scope intrinsics for luminal
 - `meta.device` device definitions/knobs
 - step actions, observations, node positions, outcome, and labels
+- optional per-step CV annotations such as fluoro device masks and projected keypoints
 
 Use `CaseBundle.load(root)` when a consumer needs a self-contained case rather than
 a loose episode. It validates the sidecars, loads the asset, attaches the episode
@@ -160,6 +169,7 @@ validate(ep)            # shape / monotonic-time / finite / provenance / version
 ep.save("episodes/ep_0001")
 back = Episode.load("episodes/ep_0001")
 frame = back.steps[10].load_obs("episodes/ep_0001")   # lazy sidecar read
+mask = back.steps[10].load_annotation("episodes/ep_0001", "device_mask")
 bundle = CaseBundle.load("episodes/ep_0001")           # stricter self-contained replay contract
 ```
 

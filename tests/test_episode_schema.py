@@ -140,6 +140,27 @@ def test_validate_root_mode_checks_files_exist(tmp_path):
         validate(Episode.load(tmp_path), root=tmp_path)
 
 
+def test_validate_root_mode_checks_annotation_sidecars(tmp_path):
+    ep = _episode(1)
+    ep.steps[0].annotations = {"device_mask_ref": "000_device_mask.npy"}
+    ep.steps[0].annotation_arrays = {"device_mask": np.ones((4, 4), dtype=np.uint8)}
+    ep.save(tmp_path)
+    assert np.array_equal(Episode.load(tmp_path).steps[0].load_annotation(tmp_path, "device_mask"),
+                          np.ones((4, 4), dtype=np.uint8))
+
+    (tmp_path / "obs" / "000_device_mask.npy").unlink()
+    with pytest.raises(ValueError, match="annotation sidecar missing"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_validate_rejects_cross_type_sidecar_clobbering():
+    ep = _episode(1)
+    ep.steps[0].annotations = {"device_mask_ref": ep.steps[0].obs_ref}
+
+    with pytest.raises(ValueError, match="duplicate sidecar refs"):
+        validate(ep)
+
+
 def test_validate_root_mode_checks_local_asset_exists(tmp_path):
     ep = _episode(1)
     ep.save(tmp_path)
