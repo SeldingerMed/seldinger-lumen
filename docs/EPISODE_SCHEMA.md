@@ -37,7 +37,8 @@ fluoroscopy and RGB luminal frames. A viewer PNG is an example-side extra, not p
 of the canonical load path; `examples/capture_episode.py` writes `preview.png` from
 the first observation and `preview_contact_sheet.png` from the first/mid/last
 observations, plus `device_mask_contact_sheet.png` and
-`vessel_mask_contact_sheet.png` for fluoro labels, for quick visual inspection.
+`vessel_mask_contact_sheet.png` for fluoro labels, and
+`label_overlay_contact_sheet.png` for visual QA, for quick visual inspection.
 Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
 `Step.load_nodes(root)`) so a large corpus iterates without exhausting memory.
 

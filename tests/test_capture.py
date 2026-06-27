@@ -53,6 +53,7 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     assert preview.exists() and sheet.exists()
     assert mask_sheet is not None and mask_sheet.exists()
     assert (tmp_path / "vessel_mask_contact_sheet.png").exists()
+    assert (tmp_path / "label_overlay_contact_sheet.png").exists()
 
 
 def test_rollout_luminal_modality(tmp_path):

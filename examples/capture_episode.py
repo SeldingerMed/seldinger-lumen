@@ -20,6 +20,30 @@ from lumen.data import CaseBundle, Episode, rollout_episode, validate
 from lumen.sensors import FluoroSensor, LuminalCamera, write_png
 
 
+def _display01(frame):
+    arr = np.asarray(frame, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return np.zeros_like(arr, dtype=float)
+    lo, hi = float(np.min(finite)), float(np.max(finite))
+    if hi <= lo:
+        return np.zeros_like(arr, dtype=float)
+    return np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+
+
+def _label_overlay(frame, device_mask, vessel_mask):
+    gray = _display01(frame)
+    rgb = np.repeat((0.55 * gray)[..., None], 3, axis=2)
+    if vessel_mask is not None:
+        vessel = np.asarray(vessel_mask, bool)
+        rgb[vessel, 1] = 0.85
+    if device_mask is not None:
+        device = np.asarray(device_mask, bool)
+        rgb[device, 0] = 1.0
+        rgb[device, 1:] *= 0.2
+    return rgb
+
+
 def _write_preview_sheet(ep, root: Path) -> tuple[Path, Path, Path | None]:
     obs_steps = [s for s in ep.steps if s.obs_ref]
     if not obs_steps:
@@ -39,6 +63,10 @@ def _write_preview_sheet(ep, root: Path) -> tuple[Path, Path, Path | None]:
     if all(m is not None for m in vessel_masks):
         write_png(root / "vessel_mask_contact_sheet.png",
                   np.concatenate([m.astype(float) for m in vessel_masks], axis=1))
+    if all(m is not None for m in masks) or all(m is not None for m in vessel_masks):
+        overlays = [_label_overlay(frame, dev, vessel)
+                    for frame, dev, vessel in zip(frames, masks, vessel_masks)]
+        write_png(root / "label_overlay_contact_sheet.png", np.concatenate(overlays, axis=1))
     return preview, sheet, mask_sheet
 
 
@@ -68,11 +96,13 @@ def main(out_dir="episodes"):
         mask_msg = f"  mask_sheet={mask_sheet}" if mask_sheet else ""
         vessel_sheet = path / "vessel_mask_contact_sheet.png"
         vessel_msg = f"  vessel_sheet={vessel_sheet}" if vessel_sheet.exists() else ""
+        overlay_sheet = path / "label_overlay_contact_sheet.png"
+        overlay_msg = f"  overlay={overlay_sheet}" if overlay_sheet.exists() else ""
         print(f"{name:18s}  steps={back.outcome.steps:2d}  success={back.outcome.success!s:5s}  "
               f"final_dist={back.outcome.final_dist:6.2f}  obs{obs0.shape}  "
               f"calib={bundle.calibration['type']}  tip_target={tip_ok!s:5s}  "
               f"wall_risk={wall_risk!s:5s}  preview={preview}  sheet={sheet}"
-              f"{mask_msg}{vessel_msg}",
+              f"{mask_msg}{vessel_msg}{overlay_msg}",
               flush=True)
 
 
