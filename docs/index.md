@@ -41,6 +41,34 @@ sim = NewtonGuidewireSim(pts, R=2.0, device_points=device)
 sim.step(insertion=1.0)
 ```
 
+## First 10 minutes for RL/CV users
+
+```bash
+python -m lumen.hardware
+python examples/run_benchmark.py /tmp/lumen-bench
+python examples/render_fluoro.py /tmp/lumen_fluoro.png
+python examples/capture_episode.py /tmp/lumen-episodes
+python examples/replay_corpus.py /tmp/lumen-episodes
+python examples/calibrate_from_episode.py
+```
+
+`capture_episode.py` writes replayable case bundles with `preview.png`,
+`preview_contact_sheet.png`, and fluoro `device_mask_contact_sheet.png`. The replay
+summary reports clinical flags plus annotation coverage such as
+`device_mask=19/19` and `keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV
+pipeline can screen masks/keypoints before loading arrays. For training loops,
+`CaseBundle.load(path).replay(include_annotations=True)` yields each observation
+with lazy-loaded annotation arrays.
+
+The benchmark separates raw target reach from clinically safe reach:
+`safe_success_rate` is target reach without wall-safety breach, while
+`unsafe_success_rate` is target reach that required a safety breach. The leaderboard
+ranks safe success before raw success, then lower wall penetration, then return.
+
+Calibration uses wall-probe episodes, not navigation rollouts:
+`examples/calibrate_from_episode.py` shows the biplanar identifiability check and
+`lumen.data.probe_episode(...)` creates the replayable probe.
+
 ## What it models
 
 - **Tube-intrinsic contact** injected (force + Hessian) into Newton's AVBD solve — implicit and stable.
