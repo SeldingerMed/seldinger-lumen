@@ -67,7 +67,9 @@ ranks safe success before raw success, then lower wall penetration, then return.
 
 Calibration uses wall-probe episodes, not navigation rollouts:
 `examples/calibrate_from_episode.py` shows the biplanar identifiability check and
-`lumen.data.probe_episode(...)` creates the replayable probe.
+`lumen.data.probe_episode(...)` creates the replayable probe. Use
+`lumen.data.joint_probe_episode(...)` when you need the wall+friction calibration
+seam (`C10` and `mu`) instead of stiffness alone.
 
 ## What it models
 

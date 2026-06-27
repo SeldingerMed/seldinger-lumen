@@ -159,6 +159,9 @@ inventing a measurement.
   geometry lives in `meta.calibration["views"]`. `summarize` excludes probes from
   navigation rates. Generate one with `lumen.data.probe_episode(...)`; a navigation
   rollout cannot be inverted by the quasi-static wall-probe model.
+- **`"wall_friction_probe"`** — a joint wall+friction probe created with
+  `lumen.data.joint_probe_episode(...)`; `calibrate_from_episode(...)` recovers
+  both `C10` and `mu` from the same episode seam.
 
 ## What it deliberately does NOT carry
 

@@ -110,7 +110,7 @@ def test_joint_identifiability_is_resolved_by_biplanar():
 
 # ---- the Layer-2 episode seam (wall+friction probe -> joint recovery) ---------
 def test_joint_probe_episode_recovers_both_through_the_seam():
-    from lumen.data.calibrate import calibrate_from_episode, joint_probe_episode
+    from lumen.data import calibrate_from_episode, joint_probe_episode
     s = _sensor()
     nodes = device_wall_and_friction(6.0e3, 0.6)
     cx = s.default_carm(nodes, axis=(1, 0, 0))
