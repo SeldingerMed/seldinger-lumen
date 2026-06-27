@@ -40,6 +40,7 @@ Issues = "https://github.com/SeldingerMed/seldinger-lumen/issues"
 lumen-hardware = "lumen.cli:hardware_main"
 lumen-benchmark = "lumen.cli:benchmark_main"
 lumen-replay = "lumen.cli:replay_main"
+lumen-index = "lumen.cli:index_main"
 lumen-calibrate = "lumen.cli:calibrate_main"
 
 [tool.setuptools.packages.find]

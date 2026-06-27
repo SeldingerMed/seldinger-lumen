@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 from lumen.hardware import describe
@@ -124,6 +125,50 @@ def replay_main(argv=None) -> None:
         print("\nskipped invalid bundles:")
         for path, err in skipped:
             print(f"  {path}: {err}")
+
+
+def index_main(argv=None) -> None:
+    from lumen.data import Episode, EpisodeDataset, iter_step_records, validate_case_bundle
+
+    parser = argparse.ArgumentParser(description="Write a JSONL index for a Lumen case-bundle corpus.")
+    parser.add_argument("episodes_dir", nargs="?", default="episodes")
+    parser.add_argument("--out", help="Output JSONL file. Defaults to stdout.")
+    parser.add_argument("--check-sidecars", action="store_true",
+                        help="Validate referenced arrays exist before indexing.")
+    args = parser.parse_args(argv)
+
+    root = Path(args.episodes_dir)
+    if not root.is_dir():
+        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        return
+
+    ds = EpisodeDataset(root, validate_on_load=False)
+    out = open(args.out, "w") if args.out else sys.stdout
+    records = episodes = 0
+    skipped = []
+    try:
+        for d in ds.dirs:
+            try:
+                ep = Episode.load(d)
+                validate_case_bundle(ep, root=d if args.check_sidecars else None)
+            except Exception as e:
+                skipped.append((d, f"{type(e).__name__}: {e}"))
+                continue
+            episodes += 1
+            for record in iter_step_records(ep, d):
+                out.write(json.dumps(record, sort_keys=True) + "\n")
+                records += 1
+    finally:
+        if args.out:
+            out.close()
+
+    target = args.out or "stdout"
+    msg = f"indexed {records} step records from {episodes} case bundles -> {target}"
+    print(msg, file=(sys.stdout if args.out else sys.stderr))
+    if skipped:
+        print("skipped invalid bundles:", file=(sys.stdout if args.out else sys.stderr))
+        for path, err in skipped:
+            print(f"  {path}: {err}", file=(sys.stdout if args.out else sys.stderr))
 
 
 def calibrate_main(argv=None) -> None:

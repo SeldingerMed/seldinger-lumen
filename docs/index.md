@@ -49,6 +49,7 @@ lumen-benchmark /tmp/lumen-bench
 python examples/render_fluoro.py /tmp/lumen_fluoro.png
 python examples/capture_episode.py /tmp/lumen-episodes
 lumen-replay /tmp/lumen-episodes
+lumen-index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl
 lumen-calibrate
 ```
 
@@ -56,7 +57,9 @@ lumen-calibrate
 `preview_contact_sheet.png`, and fluoro `device_mask_contact_sheet.png`. The replay
 summary reports clinical flags plus annotation coverage such as
 `device_mask=19/19` and `keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV
-pipeline can screen masks/keypoints before loading arrays. For training loops,
+pipeline can screen masks/keypoints before loading arrays. `lumen-index` writes a
+JSONL dataloader index with observation, mask, node-position, keypoint, action,
+clinical-metric, label, calibration, and provenance fields. For training loops,
 `CaseBundle.load(path).replay(include_annotations=True)` yields each observation
 with lazy-loaded annotation arrays.
 

@@ -67,18 +67,21 @@ lumen-benchmark /tmp/lumen-bench
 python examples/render_fluoro.py /tmp/lumen_fluoro.png
 python examples/capture_episode.py /tmp/lumen-episodes
 lumen-replay /tmp/lumen-episodes
+lumen-index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl
 lumen-calibrate
 ```
 
 `capture_episode.py` writes one self-contained case directory per scenario plus
 `preview.png`, `preview_contact_sheet.png`, and fluoro `device_mask_contact_sheet.png`
 convenience images, so you can inspect observations and CV labels without opening
-NumPy sidecars. `replay_corpus.py` prints clinical endpoint flags and skips invalid
+NumPy sidecars. `lumen-replay` prints clinical endpoint flags and skips invalid
 bundles with an explicit reason. It also reports manifest-only annotation coverage
 (`device_mask=19/19`, `keypoints(base=18/19 tip=19/19 nodes=170/171)`) so a CV
-pipeline can screen a corpus before loading image arrays. For training loops,
-`CaseBundle.load(path).replay(include_annotations=True)` yields each observation
-with its lazy-loaded masks/keypoints.
+pipeline can screen a corpus before loading image arrays. `lumen-index` writes one
+JSONL row per timestep with observation, mask, node-position, keypoint, action,
+clinical-metric, label, calibration, and provenance fields for dataloaders. For
+training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
+each observation with its lazy-loaded masks/keypoints.
 
 The benchmark intentionally separates raw target reach from clinically safe reach:
 
