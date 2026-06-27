@@ -79,10 +79,11 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     assert len(rows) == 1
     row = rows[0]
     assert row["episode"] == "case"
+    assert row["episode_dir"] == "case"
     assert row["obs_modality"] == "fluoro"
-    assert row["obs_path"].endswith("/case/obs/000.npy")
-    assert row["device_mask_path"].endswith("/case/obs/000_device_mask.npy")
-    assert row["node_positions_path"].endswith("/case/obs/000_nodes.npy")
+    assert row["obs_path"] == "case/obs/000.npy"
+    assert row["device_mask_path"] == "case/obs/000_device_mask.npy"
+    assert row["node_positions_path"] == "case/obs/000_nodes.npy"
     assert row["keypoints"]["tip"]["present"] is True
     assert row["labels"] == {
         "procedure": "navigation",
@@ -91,3 +92,9 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     }
     assert row["clinical_metrics"]["tip_target"]["success"] is True
     assert row["calibration_type"] == "carm"
+
+    abs_path = tmp_path / "absolute.jsonl"
+    index_main([str(tmp_path), "--out", str(abs_path), "--absolute-paths"])
+    abs_row = json.loads(abs_path.read_text().splitlines()[0])
+    assert abs_row["obs_path"].endswith("/case/obs/000.npy")
+    assert abs_row["obs_path"].startswith("/")

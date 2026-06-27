@@ -59,9 +59,10 @@ summary reports clinical flags plus annotation coverage such as
 `device_mask=19/19` and `keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV
 pipeline can screen masks/keypoints before loading arrays. `lumen-index` writes a
 JSONL dataloader index with observation, mask, node-position, keypoint, action,
-clinical-metric, label, calibration, and provenance fields. For training loops,
-`CaseBundle.load(path).replay(include_annotations=True)` yields each observation
-with lazy-loaded annotation arrays.
+clinical-metric, label, calibration, and provenance fields. Paths are
+corpus-relative by default; pass `--absolute-paths` for a machine-local index. For
+training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
+each observation with lazy-loaded annotation arrays.
 
 The benchmark separates raw target reach from clinically safe reach:
 `safe_success_rate` is target reach without wall-safety breach, while

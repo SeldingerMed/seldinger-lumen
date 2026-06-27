@@ -7,10 +7,17 @@ from pathlib import Path
 from lumen.data.schema import Episode, _safe_path
 
 
-def _sidecar_path(root: str | Path, ref: str | None) -> str | None:
+def _record_path(path: str | Path, base_dir: str | Path | None = None) -> str:
+    path = Path(path).resolve()
+    if base_dir is None:
+        return str(path)
+    return str(path.relative_to(Path(base_dir).resolve()))
+
+
+def _sidecar_path(root: str | Path, ref: str | None, base_dir: str | Path | None = None) -> str | None:
     if not ref:
         return None
-    return str(Path(_safe_path(str(root), ref)).resolve())
+    return _record_path(_safe_path(str(root), ref), base_dir)
 
 
 def _labels(ep: Episode) -> dict:
@@ -19,15 +26,16 @@ def _labels(ep: Episode) -> dict:
     return labels
 
 
-def iter_step_records(ep: Episode, root: str | Path):
+def iter_step_records(ep: Episode, root: str | Path, base_dir: str | Path | None = None):
     """Yield JSON-serializable per-step records for one episode directory.
 
     The records are manifest-derived paths and metadata. They do not load image,
     mask, or node arrays, so callers can build an index cheaply and let their
-    training dataloader decide when to open sidecars.
+    training dataloader decide when to open sidecars. Pass ``base_dir`` to emit
+    paths relative to a corpus root; omit it for absolute paths.
     """
     root = Path(root)
-    episode_dir = str(root.resolve())
+    episode_dir = _record_path(root, base_dir)
     labels = _labels(ep)
     outcome = {
         "success": ep.outcome.success,
@@ -45,9 +53,9 @@ def iter_step_records(ep: Episode, root: str | Path):
             "step_index": i,
             "t": step.t,
             "obs_modality": step.obs_modality,
-            "obs_path": _sidecar_path(root, step.obs_ref),
-            "device_mask_path": _sidecar_path(root, annotations.get("device_mask_ref")),
-            "node_positions_path": _sidecar_path(root, step.kinematics.get("node_positions_ref")),
+            "obs_path": _sidecar_path(root, step.obs_ref, base_dir),
+            "device_mask_path": _sidecar_path(root, annotations.get("device_mask_ref"), base_dir),
+            "node_positions_path": _sidecar_path(root, step.kinematics.get("node_positions_ref"), base_dir),
             "keypoints": annotations.get("keypoints", {}),
             "action": dict(step.action),
             "kinematics": dict(step.kinematics),

@@ -79,9 +79,11 @@ bundles with an explicit reason. It also reports manifest-only annotation covera
 (`device_mask=19/19`, `keypoints(base=18/19 tip=19/19 nodes=170/171)`) so a CV
 pipeline can screen a corpus before loading image arrays. `lumen-index` writes one
 JSONL row per timestep with observation, mask, node-position, keypoint, action,
-clinical-metric, label, calibration, and provenance fields for dataloaders. For
-training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
-each observation with its lazy-loaded masks/keypoints.
+clinical-metric, label, calibration, and provenance fields for dataloaders. Paths
+are corpus-relative by default so the index moves with the bundle; pass
+`--absolute-paths` for a machine-local index. For training loops,
+`CaseBundle.load(path).replay(include_annotations=True)` yields each observation
+with its lazy-loaded masks/keypoints.
 
 The benchmark intentionally separates raw target reach from clinically safe reach:
 

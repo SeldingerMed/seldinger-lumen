@@ -133,6 +133,8 @@ def index_main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="Write a JSONL index for a Lumen case-bundle corpus.")
     parser.add_argument("episodes_dir", nargs="?", default="episodes")
     parser.add_argument("--out", help="Output JSONL file. Defaults to stdout.")
+    parser.add_argument("--absolute-paths", action="store_true",
+                        help="Emit machine-local absolute sidecar paths instead of corpus-relative paths.")
     parser.add_argument("--check-sidecars", action="store_true",
                         help="Validate referenced arrays exist before indexing.")
     args = parser.parse_args(argv)
@@ -155,7 +157,8 @@ def index_main(argv=None) -> None:
                 skipped.append((d, f"{type(e).__name__}: {e}"))
                 continue
             episodes += 1
-            for record in iter_step_records(ep, d):
+            base_dir = None if args.absolute_paths else root
+            for record in iter_step_records(ep, d, base_dir=base_dir):
                 out.write(json.dumps(record, sort_keys=True) + "\n")
                 records += 1
     finally:
