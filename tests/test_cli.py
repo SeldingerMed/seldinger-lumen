@@ -1,11 +1,14 @@
 """Installed command entry points for first-run workflows."""
 
-import tomllib
+from importlib.metadata import entry_points
 
 
 def test_pyproject_exposes_first_run_console_scripts():
-    with open("pyproject.toml", "rb") as f:
-        scripts = tomllib.load(f)["project"]["scripts"]
+    scripts = {
+        ep.name: ep.value
+        for ep in entry_points(group="console_scripts")
+        if ep.name.startswith("lumen-")
+    }
 
     assert scripts == {
         "lumen-hardware": "lumen.cli:hardware_main",
