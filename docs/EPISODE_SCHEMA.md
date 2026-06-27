@@ -168,6 +168,17 @@ Use `--absolute-paths` when the index is intentionally machine-local. The index
 does not replace `manifest.json`; it is a dataloader convenience generated from
 validated case bundles.
 
+Read it back without depending on a training framework:
+
+```python
+from lumen.data import iter_index_records
+
+for sample in iter_index_records("episodes/index.jsonl", load_arrays=True):
+    obs = sample["obs"]
+    device_mask = sample.get("device_mask")
+    vessel_mask = sample.get("vessel_mask")
+```
+
 ## Clinical Metrics
 
 `outcome.metrics` is the canonical endpoint summary produced by

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+import numpy as np
 
 from lumen.data.schema import Episode, _safe_path
 
@@ -67,3 +70,51 @@ def iter_step_records(ep: Episode, root: str | Path, base_dir: str | Path | None
             "provenance": ep.meta.provenance,
             "version": ep.meta.version,
         }
+
+
+def resolve_record_paths(record: dict, base_dir: str | Path) -> dict:
+    """Return a copy with relative ``*_path`` fields resolved under ``base_dir``."""
+    out = dict(record)
+    base = Path(base_dir)
+    for key, value in record.items():
+        if not key.endswith("_path") or not value:
+            continue
+        path = Path(value)
+        out[key] = str(path if path.is_absolute() else base / path)
+    return out
+
+
+def load_step_record(record: dict, base_dir: str | Path | None = None) -> dict:
+    """Load arrays referenced by one JSONL index row.
+
+    Returns a copy of the record with resolved path fields and array entries:
+    ``obs``, ``device_mask``, ``vessel_mask``, and ``node_positions`` when the
+    corresponding path exists in the row.
+    """
+    sample = resolve_record_paths(record, base_dir or ".")
+    for key, name in (
+        ("obs_path", "obs"),
+        ("device_mask_path", "device_mask"),
+        ("vessel_mask_path", "vessel_mask"),
+        ("node_positions_path", "node_positions"),
+    ):
+        path = sample.get(key)
+        if path:
+            sample[name] = np.load(path)
+    return sample
+
+
+def iter_index_records(index_path: str | Path, load_arrays: bool = False,
+                       base_dir: str | Path | None = None):
+    """Iterate a ``lumen-index`` JSONL file.
+
+    Relative sidecar paths are resolved against ``base_dir``. If ``base_dir`` is
+    omitted, they are resolved against the directory containing the index file,
+    which matches the recommended ``episodes/index.jsonl`` layout.
+    """
+    index_path = Path(index_path)
+    root = Path(base_dir) if base_dir is not None else index_path.parent
+    with open(index_path) as f:
+        for line in f:
+            record = json.loads(line)
+            yield load_step_record(record, root) if load_arrays else resolve_record_paths(record, root)

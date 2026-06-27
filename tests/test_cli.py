@@ -6,7 +6,7 @@ from importlib.metadata import entry_points
 import numpy as np
 
 from lumen.assets import procedural
-from lumen.data import Episode, EpisodeMeta, Outcome, Step
+from lumen.data import Episode, EpisodeMeta, Outcome, Step, iter_index_records, load_step_record
 from lumen.sensors.carm import CArm
 
 
@@ -101,3 +101,16 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     abs_row = json.loads(abs_path.read_text().splitlines()[0])
     assert abs_row["obs_path"].endswith("/case/obs/000.npy")
     assert abs_row["obs_path"].startswith("/")
+
+    resolved = next(iter_index_records(out_path))
+    assert resolved["obs_path"].endswith("/case/obs/000.npy")
+    assert resolved["device_mask_path"].endswith("/case/obs/000_device_mask.npy")
+
+    sample = next(iter_index_records(out_path, load_arrays=True))
+    assert sample["obs"].shape == (16, 16)
+    assert sample["device_mask"].shape == (16, 16)
+    assert sample["vessel_mask"].shape == (16, 16)
+    assert sample["node_positions"].shape == (3, 3)
+
+    direct = load_step_record(row, base_dir=tmp_path)
+    assert np.array_equal(direct["device_mask"], np.eye(16, dtype=np.uint8))
