@@ -27,7 +27,8 @@ One directory per episode:
   obs/
     000.npy            # paired observation for step 0 (fluoro grayscale or luminal RGB)
     000_nodes.npy      # device node positions (n,3) for step 0   [optional]
-    000_device_mask.npy # CV supervision mask for fluoro capture  [optional]
+    000_device_mask.npy # device CV supervision mask for fluoro capture  [optional]
+    000_vessel_mask.npy # vessel-roadmap CV supervision mask             [optional]
     ...
 ```
 
@@ -35,8 +36,9 @@ Observations are stored as `.npy` — lossless and dependency-free for both gray
 fluoroscopy and RGB luminal frames. A viewer PNG is an example-side extra, not part
 of the canonical load path; `examples/capture_episode.py` writes `preview.png` from
 the first observation and `preview_contact_sheet.png` from the first/mid/last
-observations, plus `device_mask_contact_sheet.png` for fluoro labels, for quick
-visual inspection. Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
+observations, plus `device_mask_contact_sheet.png` and
+`vessel_mask_contact_sheet.png` for fluoro labels, for quick visual inspection.
+Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
 `Step.load_nodes(root)`) so a large corpus iterates without exhausting memory.
 
 `obs_ref` and `node_positions_ref` must be **bare filenames** (no path components,
@@ -74,6 +76,7 @@ clobber an earlier step's sidecar).
                       "node_positions_ref": "000_nodes.npy" },
       "annotations": {
         "device_mask_ref": "000_device_mask.npy",
+        "vessel_mask_ref": "000_vessel_mask.npy",
         "keypoints": {
           "tip": { "uv": [u, v], "present": true },
           "base": { "uv": [u, v], "present": true }
@@ -114,7 +117,7 @@ records for repair. A **case bundle** is the stricter replayable directory contr
 - `meta.calibration` with C-arm views for fluoro or scope intrinsics for luminal
 - `meta.device` device definitions/knobs
 - step actions, observations, node positions, outcome, and labels
-- optional per-step CV annotations such as fluoro device masks and projected keypoints
+- optional per-step CV annotations such as fluoro device/vessel masks and projected keypoints
 
 Use `CaseBundle.load(root)` when a consumer needs a self-contained case rather than
 a loose episode. It validates the sidecars, loads the asset, attaches the episode
@@ -147,6 +150,7 @@ the corpus root so the index can move with the bundle:
   "obs_modality": "fluoro",
   "obs_path": "stenosis_fluoro/obs/0000.npy",
   "device_mask_path": "stenosis_fluoro/obs/0000_device_mask.npy",
+  "vessel_mask_path": "stenosis_fluoro/obs/0000_vessel_mask.npy",
   "node_positions_path": "stenosis_fluoro/obs/0000_nodes.npy",
   "keypoints": { "tip": { "uv": [31.5, 12.4], "present": true } },
   "action": { "insertion": 2.0 },

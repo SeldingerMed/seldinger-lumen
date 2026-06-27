@@ -72,13 +72,14 @@ lumen-calibrate
 ```
 
 `capture_episode.py` writes one self-contained case directory per scenario plus
-`preview.png`, `preview_contact_sheet.png`, and fluoro `device_mask_contact_sheet.png`
-convenience images, so you can inspect observations and CV labels without opening
-NumPy sidecars. `lumen-replay` prints clinical endpoint flags and skips invalid
-bundles with an explicit reason. It also reports manifest-only annotation coverage
-(`device_mask=19/19`, `keypoints(base=18/19 tip=19/19 nodes=170/171)`) so a CV
-pipeline can screen a corpus before loading image arrays. `lumen-index` writes one
-JSONL row per timestep with observation, mask, node-position, keypoint, action,
+`preview.png`, `preview_contact_sheet.png`, and fluoro device/vessel mask contact
+sheets, so you can inspect observations and CV labels without opening NumPy
+sidecars. `lumen-replay` prints clinical endpoint flags and skips invalid bundles
+with an explicit reason. It also reports manifest-only annotation coverage
+(`device_mask=19/19`, `vessel_mask=19/19`,
+`keypoints(base=18/19 tip=19/19 nodes=170/171)`) so a CV pipeline can screen a
+corpus before loading image arrays. `lumen-index` writes one JSONL row per timestep
+with observation, mask, node-position, keypoint, action,
 clinical-metric, label, calibration, and provenance fields for dataloaders. Paths
 are corpus-relative by default so the index moves with the bundle; pass
 `--absolute-paths` for a machine-local index. For training loops,

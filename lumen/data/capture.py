@@ -159,11 +159,22 @@ class EpisodeRecorder:
         if render:
             modality, obs_ref = self.modality, f"{i:04d}.npy"
             if self.modality == "fluoro":
-                scene = self.sensor.render_scene(nodes, carm=self.carm)
+                contrast_radius = (float(np.asarray(self.lumen.R).mean())
+                                   if self.lumen is not None else 1.5)
+                scene = self.sensor.render_scene(
+                    nodes,
+                    carm=self.carm,
+                    contrast_nodes=np.asarray(self.frame.points),
+                    contrast_radius=contrast_radius,
+                )
                 obs_arr = scene["image"]
                 annotations = {"device_mask_ref": f"{i:04d}_device_mask.npy",
+                               "vessel_mask_ref": f"{i:04d}_vessel_mask.npy",
                                "keypoints": scene["keypoints"]}
-                annotation_arrays = {"device_mask": scene["masks"]["device"].astype(np.uint8)}
+                annotation_arrays = {
+                    "device_mask": scene["masks"]["device"].astype(np.uint8),
+                    "vessel_mask": scene["masks"]["vessel"].astype(np.uint8),
+                }
             else:                                   # luminal: camera at the tip
                 obs_arr = self.sensor.render(self.frame, self.lumen, nodes)
 

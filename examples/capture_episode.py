@@ -35,6 +35,10 @@ def _write_preview_sheet(ep, root: Path) -> tuple[Path, Path, Path | None]:
     if all(m is not None for m in masks):
         mask_sheet = root / "device_mask_contact_sheet.png"
         write_png(mask_sheet, np.concatenate([m.astype(float) for m in masks], axis=1))
+    vessel_masks = [obs_steps[i].load_annotation(root, "vessel_mask") for i in picks]
+    if all(m is not None for m in vessel_masks):
+        write_png(root / "vessel_mask_contact_sheet.png",
+                  np.concatenate([m.astype(float) for m in vessel_masks], axis=1))
     return preview, sheet, mask_sheet
 
 
@@ -62,10 +66,13 @@ def main(out_dir="episodes"):
         tip_ok = back.outcome.metrics["tip_target"]["success"]
         wall_risk = back.outcome.metrics["wall_safety"]["perforation_risk"]
         mask_msg = f"  mask_sheet={mask_sheet}" if mask_sheet else ""
+        vessel_sheet = path / "vessel_mask_contact_sheet.png"
+        vessel_msg = f"  vessel_sheet={vessel_sheet}" if vessel_sheet.exists() else ""
         print(f"{name:18s}  steps={back.outcome.steps:2d}  success={back.outcome.success!s:5s}  "
               f"final_dist={back.outcome.final_dist:6.2f}  obs{obs0.shape}  "
               f"calib={bundle.calibration['type']}  tip_target={tip_ok!s:5s}  "
-              f"wall_risk={wall_risk!s:5s}  preview={preview}  sheet={sheet}{mask_msg}",
+              f"wall_risk={wall_risk!s:5s}  preview={preview}  sheet={sheet}"
+              f"{mask_msg}{vessel_msg}",
               flush=True)
 
 

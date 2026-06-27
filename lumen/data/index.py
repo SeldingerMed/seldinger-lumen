@@ -55,6 +55,7 @@ def iter_step_records(ep: Episode, root: str | Path, base_dir: str | Path | None
             "obs_modality": step.obs_modality,
             "obs_path": _sidecar_path(root, step.obs_ref, base_dir),
             "device_mask_path": _sidecar_path(root, annotations.get("device_mask_ref"), base_dir),
+            "vessel_mask_path": _sidecar_path(root, annotations.get("vessel_mask_ref"), base_dir),
             "node_positions_path": _sidecar_path(root, step.kinematics.get("node_positions_ref"), base_dir),
             "keypoints": annotations.get("keypoints", {}),
             "action": dict(step.action),

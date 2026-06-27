@@ -58,11 +58,13 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
                  kinematics={"tip_mm": [0.0, 0.0, 2.0],
                              "node_positions_ref": "000_nodes.npy"},
                  annotations={"device_mask_ref": "000_device_mask.npy",
+                              "vessel_mask_ref": "000_vessel_mask.npy",
                               "keypoints": {"tip": {"uv": [8.0, 9.0], "present": True}}},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((16, 16)),
                  node_positions=np.zeros((3, 3)),
-                 annotation_arrays={"device_mask": np.eye(16, dtype=np.uint8)}),
+                 annotation_arrays={"device_mask": np.eye(16, dtype=np.uint8),
+                                    "vessel_mask": np.ones((16, 16), dtype=np.uint8)}),
         ],
         outcome=Outcome(success=True, final_dist=0.5, steps=1, label="straight_success",
                         metrics={"tip_target": {"success": True}}),
@@ -83,6 +85,7 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     assert row["obs_modality"] == "fluoro"
     assert row["obs_path"] == "case/obs/000.npy"
     assert row["device_mask_path"] == "case/obs/000_device_mask.npy"
+    assert row["vessel_mask_path"] == "case/obs/000_vessel_mask.npy"
     assert row["node_positions_path"] == "case/obs/000_nodes.npy"
     assert row["keypoints"]["tip"]["present"] is True
     assert row["labels"] == {

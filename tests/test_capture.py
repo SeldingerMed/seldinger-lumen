@@ -40,6 +40,9 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     assert back.steps[0].load_annotation(tmp_path, "device_mask").shape == (24, 24)
     assert back.steps[0].load_annotation(tmp_path, "device_mask").dtype == np.uint8
     assert back.steps[0].load_annotation(tmp_path, "device_mask").sum() > 0
+    assert back.steps[0].load_annotation(tmp_path, "vessel_mask").shape == (24, 24)
+    assert back.steps[0].load_annotation(tmp_path, "vessel_mask").dtype == np.uint8
+    assert back.steps[0].load_annotation(tmp_path, "vessel_mask").sum() > 0
     assert back.steps[0].annotations["keypoints"]["tip"]["present"] is True
     assert back.outcome.metrics["tip_target"]["success"] == back.outcome.success
     assert back.outcome.metrics["wall_safety"]["perforation_risk"] is False
@@ -49,6 +52,7 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     preview, sheet, mask_sheet = _write_preview_sheet(back, tmp_path)
     assert preview.exists() and sheet.exists()
     assert mask_sheet is not None and mask_sheet.exists()
+    assert (tmp_path / "vessel_mask_contact_sheet.png").exists()
 
 
 def test_rollout_luminal_modality(tmp_path):
@@ -75,6 +79,7 @@ def test_every_skips_render_but_keeps_kinematics():
     assert all(ep.steps[i].obs_ref is None for i in skipped)         # none-steps carry no ref
     assert all(ep.steps[i].annotations == {} for i in skipped)       # and no fake CV labels
     assert all("device_mask_ref" in ep.steps[i].annotations for i in rendered)
+    assert all("vessel_mask_ref" in ep.steps[i].annotations for i in rendered)
     assert all("tip_mm" in s.kinematics for s in ep.steps)           # but kinematics every step
 
 

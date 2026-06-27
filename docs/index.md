@@ -54,10 +54,11 @@ lumen-calibrate
 ```
 
 `capture_episode.py` writes replayable case bundles with `preview.png`,
-`preview_contact_sheet.png`, and fluoro `device_mask_contact_sheet.png`. The replay
-summary reports clinical flags plus annotation coverage such as
-`device_mask=19/19` and `keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV
-pipeline can screen masks/keypoints before loading arrays. `lumen-index` writes a
+`preview_contact_sheet.png`, and fluoro device/vessel mask contact sheets. The
+replay summary reports clinical flags plus annotation coverage such as
+`device_mask=19/19`, `vessel_mask=19/19`, and
+`keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV pipeline can screen
+masks/keypoints before loading arrays. `lumen-index` writes a
 JSONL dataloader index with observation, mask, node-position, keypoint, action,
 clinical-metric, label, calibration, and provenance fields. Paths are
 corpus-relative by default; pass `--absolute-paths` for a machine-local index. For
