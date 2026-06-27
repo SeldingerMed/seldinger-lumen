@@ -45,6 +45,32 @@ def test_replay_yields_steps_with_lazy_obs(tmp_path):
     assert obs.shape == (3, 3) and np.array_equal(obs, np.full((3, 3), 2.0))   # loaded on demand
 
 
+def test_replay_can_yield_lazy_annotations_with_obs(tmp_path):
+    ep = _ep("seg", 2, True)
+    ep.steps[1].annotations = {
+        "device_mask_ref": "001_device_mask.npy",
+        "keypoints": {"tip": {"uv": [1.0, 2.0], "present": True}},
+    }
+    ep.steps[1].annotation_arrays = {"device_mask": np.ones((3, 3), dtype=np.uint8)}
+    ep.save(tmp_path / "seg")
+    ds = EpisodeDataset(tmp_path)
+
+    sample = list(replay(ds[0], include_annotations=True))[1]
+    t, action, kin, obs, annotations = sample
+
+    assert t == pytest.approx(0.1)
+    assert action["insertion"] == 1.0
+    assert kin["tip_s"] == 1.0
+    assert np.array_equal(obs, np.full((3, 3), 1.0))
+    assert np.array_equal(annotations["device_mask"], np.ones((3, 3), dtype=np.uint8))
+    assert annotations["device_mask_ref"] == "001_device_mask.npy"
+    assert annotations["keypoints"]["tip"]["present"] is True
+    annotations["device_mask_ref"] = "mutated.npy"
+    annotations["keypoints"]["tip"]["present"] = False
+    assert ds[0].steps[1].annotations["device_mask_ref"] == "001_device_mask.npy"
+    assert ds[0].steps[1].annotations["keypoints"]["tip"]["present"] is True
+
+
 def test_replay_none_modality_has_no_obs(tmp_path):
     _ep("plain", 2, True, modality="none").save(tmp_path / "p")
     ds = EpisodeDataset(tmp_path)

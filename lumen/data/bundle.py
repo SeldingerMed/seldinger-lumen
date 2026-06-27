@@ -92,5 +92,5 @@ class CaseBundle:
             labels["outcome"] = self.episode.outcome.label
         return labels
 
-    def replay(self):
-        return replay(self.episode, root=self.root)
+    def replay(self, include_annotations: bool = False):
+        return replay(self.episode, root=self.root, include_annotations=include_annotations)

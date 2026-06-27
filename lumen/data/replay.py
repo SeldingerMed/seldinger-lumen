@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import pathlib
 import warnings
+from copy import deepcopy
 from collections import Counter
 
 import numpy as np
@@ -67,16 +68,32 @@ class EpisodeDataset:
             yield self[i]
 
 
-def replay(episode: Episode, root: str | None = None):
-    """Yield `(t, action, kinematics, obs)` per step. `obs` is lazily loaded from the
-    sidecar (None for a "none"-modality step, or if no root is known). `root` defaults
-    to the episode's runtime `.root` (set by EpisodeDataset)."""
+def replay(episode: Episode, root: str | None = None, include_annotations: bool = False):
+    """Yield one lazy-loaded sample per step.
+
+    By default this preserves the original `(t, action, kinematics, obs)` contract.
+    Pass `include_annotations=True` to yield
+    `(t, action, kinematics, obs, annotations)`, where annotation metadata is copied
+    from the manifest and any ``*_ref`` sidecars are loaded under their base name
+    (`device_mask_ref` -> `annotations["device_mask"]`).
+
+    `obs` and annotation arrays are lazily loaded from sidecars when `root` is known;
+    `root` defaults to the episode's runtime `.root` (set by EpisodeDataset).
+    """
     root = root or getattr(episode, "root", None)
     for s in episode.steps:
         obs = s.load_obs(root) if (root and s.obs_ref) else None
         # copy the dicts: a consumer mutating them in place must not corrupt the
         # Episode for the next replay (the Step holds them by reference).
-        yield s.t, dict(s.action), dict(s.kinematics), obs
+        if not include_annotations:
+            yield s.t, dict(s.action), dict(s.kinematics), obs
+            continue
+        annotations = deepcopy(s.annotations)
+        if root:
+            for key, ref in s.annotations.items():
+                if key.endswith("_ref") and ref:
+                    annotations[key[:-4]] = s.load_annotation(root, key[:-4])
+        yield s.t, dict(s.action), dict(s.kinematics), obs, annotations
 
 
 def annotation_coverage(episode: Episode) -> dict:

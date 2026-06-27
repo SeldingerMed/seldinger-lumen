@@ -36,9 +36,12 @@ def _bundle_episode():
             Step(t=0.1, action={"insertion": 0.5, "twist": 0.1},
                  kinematics={"tip_mm": [0.0, 0.0, 4.0], "tip_s": 4.0,
                              "node_positions_ref": "001_nodes.npy"},
+                 annotations={"device_mask_ref": "001_device_mask.npy",
+                              "keypoints": {"tip": {"uv": [8.0, 9.0], "present": True}}},
                  obs_modality="fluoro", obs_ref="001.npy",
                  obs=np.full((16, 16), 2.0),
-                 node_positions=np.ones((3, 3))),
+                 node_positions=np.ones((3, 3)),
+                 annotation_arrays={"device_mask": np.eye(16, dtype=np.uint8)}),
         ],
         outcome=Outcome(success=True, final_dist=0.5, steps=2, label="straight_success"),
         asset=asset,
@@ -65,6 +68,11 @@ def test_case_bundle_loads_every_replay_input_from_one_directory(tmp_path):
     assert replayed[1][1] == {"insertion": 0.5, "twist": 0.1}
     assert np.array_equal(replayed[1][3], np.full((16, 16), 2.0))
     assert np.array_equal(bundle.episode.steps[1].load_nodes(bundle.root), np.ones((3, 3)))
+
+    annotated = list(bundle.replay(include_annotations=True))
+    assert np.array_equal(annotated[1][3], np.full((16, 16), 2.0))
+    assert np.array_equal(annotated[1][4]["device_mask"], np.eye(16, dtype=np.uint8))
+    assert annotated[1][4]["keypoints"]["tip"]["present"] is True
 
 
 def test_case_bundle_keeps_meta_labels_and_intentional_empty_outcome_label(tmp_path):

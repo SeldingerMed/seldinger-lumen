@@ -165,7 +165,7 @@ from those is the job of the calibration harness (`lumen.data.calibrate`).
 ## Python API
 
 ```python
-from lumen.data import CaseBundle, Episode, EpisodeMeta, Step, Outcome, validate
+from lumen.data import CaseBundle, Episode, EpisodeMeta, Step, Outcome, replay, validate
 
 ep = Episode(meta=EpisodeMeta(asset_ref="straight.json", dt=5e-3), steps=[...], outcome=...)
 validate(ep)            # shape / monotonic-time / finite / provenance / version checks
@@ -174,6 +174,8 @@ back = Episode.load("episodes/ep_0001")
 frame = back.steps[10].load_obs("episodes/ep_0001")   # lazy sidecar read
 mask = back.steps[10].load_annotation("episodes/ep_0001", "device_mask")
 bundle = CaseBundle.load("episodes/ep_0001")           # stricter self-contained replay contract
+for t, action, kinematics, obs, annotations in replay(bundle.episode, include_annotations=True):
+    mask = annotations.get("device_mask")               # lazy CV label array, if present
 ```
 
 Versioning: `SCHEMA_VERSION` bumps on any breaking change to the manifest shape;
