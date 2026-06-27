@@ -55,5 +55,7 @@ def test_run_episode_reports_finite_metrics():
     pytest.importorskip("newton")
     env = SUITE[0].make_env()
     out = run_episode(env, forward_policy, seed=0)
-    assert set(out) == {"success", "steps", "max_pen", "return"}
+    assert set(out) == {"success", "steps", "max_pen", "return", "clinical"}
     assert out["success"] and out["steps"] > 0 and np.isfinite(out["return"])
+    assert out["clinical"]["tip_target"]["success"] is True
+    assert out["clinical"]["wall_safety"]["max_penetration"] >= 0.0

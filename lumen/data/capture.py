@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from lumen.data.metrics import compute_clinical_metrics
 from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step, validate
 
 
@@ -52,6 +53,47 @@ def _scope_calibration(sensor) -> dict:
     return {"type": "scope", "intrinsics": _scope_intrinsics(sensor),
             "render": {k: v for k, v in _sensor_meta(sensor, "luminal").items()
                        if k != "modality"}}
+
+
+def _clinical_step_signals(sim, frame, nodes, R):
+    """Best-effort live sim signals for clinical endpoint metrics."""
+    kin = {}
+    wall = getattr(getattr(sim, "solver", None), "_wall", None)
+    if wall is None:
+        wall = getattr(getattr(sim, "solver", None), "_tree_wall", None)
+    if wall is not None and getattr(wall, "wall_load", None) is not None:
+        wl = np.asarray(wall.wall_load.numpy(), dtype=float)
+        if wl.size:
+            kin["wall_force_max"] = float(np.nanmax(wl))
+            kin["wall_force_sum"] = float(np.nansum(wl))
+    if R:
+        kin["max_penetration"] = float(max(0.0, sim.node_radii().max() - R))
+    if getattr(sim, "tree", None) is not None:
+        try:
+            kin["edge"] = sim.tree.project(nodes[-1]).edge_id
+        except Exception:
+            pass
+    flow = getattr(sim, "flow", None)
+    if flow is not None:
+        for key, fn in (("flow_downstream_Q", flow.downstream_Q), ("flow_baseline_Q", flow.Q)):
+            try:
+                kin[key] = float(fn())
+            except Exception:
+                pass
+    clot = getattr(sim, "clot", None)
+    if clot is not None:
+        kin["clot_damage_max"] = float(clot.max_damage())
+        kin["clot_occlusion_max"] = float(np.max(clot.o)) if np.size(clot.o) else 0.0
+    retrieval = getattr(sim, "last_retrieval", None)
+    if isinstance(retrieval, dict):
+        kin["retrieval_status"] = retrieval.get("status", "none")
+    cath = sim.catheter_positions()
+    if len(cath):
+        cath_s = frame.project(cath[-1]).s
+        tip_s = frame.project(nodes[-1]).s
+        kin["catheter_tip_s"] = float(cath_s)
+        kin["support_gap"] = float(tip_s - cath_s)
+    return kin
 
 
 class EpisodeRecorder:
@@ -105,6 +147,7 @@ class EpisodeRecorder:
         pr = self.frame.project(nodes[-1])
         kin = {"tip_mm": [float(x) for x in nodes[-1]], "tip_s": float(pr.s),
                "tip_r": float(pr.r), "max_r": float(self.sim.node_radii().max())}
+        kin.update(_clinical_step_signals(self.sim, self.frame, nodes, getattr(self.sim, "R", 0.0)))
         if self.record_nodes:
             kin["node_positions_ref"] = f"{i:04d}_nodes.npy"
 
@@ -179,7 +222,9 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                        notes={**(notes or {}),
                               "episode_kind": "navigation",     # vs "wall_probe" (calibration)
                               "procedure": procedure,
-                              "target_s": target_s, "target_frac": target_frac})
+                              "target_s": target_s, "target_frac": target_frac,
+                              "success_tol": success_tol,
+                              "perforation_penetration_threshold": d_hat})
     rec = EpisodeRecorder(sim, sensor=sensor, modality=modality, lumen=lumen, every=every,
                           dt=dt, substeps=substeps, view_axis=view_axis,
                           record_nodes=record_nodes, meta=meta)
@@ -203,6 +248,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                              label=resolved_label))
     if asset_ref:
         ep.asset = asset
+    ep.outcome.metrics = compute_clinical_metrics(ep)
     validate(ep)                                        # M2: fail loud rather than return a bad episode
     return ep
 

@@ -35,9 +35,12 @@ def main(out_dir="episodes"):
         validate(back, root=path)
         bundle = CaseBundle.load(path)
         obs0 = back.steps[0].load_obs(path)
+        tip_ok = back.outcome.metrics["tip_target"]["success"]
+        wall_risk = back.outcome.metrics["wall_safety"]["perforation_risk"]
         print(f"{name:18s}  steps={back.outcome.steps:2d}  success={back.outcome.success!s:5s}  "
               f"final_dist={back.outcome.final_dist:6.2f}  obs{obs0.shape}  "
-              f"calib={bundle.calibration['type']} -> {path}")
+              f"calib={bundle.calibration['type']}  tip_target={tip_ok!s:5s}  "
+              f"wall_risk={wall_risk!s:5s} -> {path}")
 
 
 if __name__ == "__main__":

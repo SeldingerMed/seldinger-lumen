@@ -137,6 +137,7 @@ class Outcome:
     steps: int = 0
     retrieval: str | None = None       # clot outcome where relevant (retrieve/slip/fragment)
     label: str = ""                    # free-form
+    metrics: dict = field(default_factory=dict)  # clinically meaningful endpoint summary
 
     def to_dict(self) -> dict:
         return asdict(self)

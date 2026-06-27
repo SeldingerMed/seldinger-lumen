@@ -14,6 +14,9 @@ Metrics per task (over a fixed set of seeded episodes):
   * ``mean_steps``    — mean steps on the successful episodes (efficiency; lower is better).
   * ``max_pen``       — worst wall over-penetration seen (safety; lower is better).
   * ``mean_return``   — mean episode reward.
+Each raw episode result also carries ``clinical`` metrics from
+``lumen.data.compute_clinical_metrics``: tip-target success, branch choice, wall
+safety, clot/flow fields when present, and catheter support when coaxial.
 The overall score is the macro-average success_rate across tasks (tie-broken by safety).
 """
 
@@ -26,6 +29,7 @@ from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
+from lumen.data import Episode, EpisodeMeta, Outcome, Step, compute_clinical_metrics
 from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_nav
 
 SUITE_VERSION = "lumen-bench/0"
@@ -57,13 +61,17 @@ SUITE = [
 
 
 def run_episode(env, policy, seed) -> dict:
-    """Roll one episode to termination/truncation. Returns success / steps / max wall
-    over-penetration / total reward. Robust to a diverged env (info carries finite values)."""
+    """Roll one episode to termination/truncation and return generic + clinical metrics."""
     obs, _ = env.reset(seed=seed)
     total_r, max_pen, success, steps = 0.0, 0.0, False, 0
     R = float(getattr(env, "R", 0.0))
+    trace = []
+    target_edge = None
+    if getattr(env, "tree", None) is not None and getattr(env, "route", None):
+        target_edge = env.tree.edges[env.route[-1]].id
     while True:
-        obs, r, terminated, truncated, info = env.step(policy(obs))
+        action = policy(obs)
+        obs, r, terminated, truncated, info = env.step(action)
         total_r += float(r)
         steps += 1
         if "max_pen" in info:
@@ -71,9 +79,26 @@ def run_episode(env, policy, seed) -> dict:
         else:
             max_pen = max(max_pen, max(0.0, float(info.get("max_r", 0.0)) - R))
         success = success or bool(info.get("success", False))
+        kin = {
+            "tip_s": float(info.get("route_s", info.get("tip_s", 0.0))),
+            "max_penetration": float(info.get("max_pen", max(0.0, float(info.get("max_r", 0.0)) - R))),
+        }
+        if info.get("edge") is not None:
+            kin["edge"] = info["edge"]
+        trace.append(Step(t=float(steps), action={"policy_action": np.asarray(action).reshape(-1).tolist()},
+                          kinematics=kin, obs_modality="none"))
         if terminated or truncated:
             break
-    return {"success": success, "steps": steps, "max_pen": max_pen, "return": total_r}
+    notes = {"target_s": float(getattr(env, "target_s", 0.0)),
+             "success_tol": float(getattr(env, "success_tol", 2.5)),
+             "perforation_penetration_threshold": float(getattr(env, "d_hat", 0.3))}
+    labels = {"target_edge": target_edge} if target_edge else {}
+    ep = Episode(meta=EpisodeMeta(labels=labels, notes=notes), steps=trace,
+                 outcome=Outcome(success=success, final_dist=float(info.get("dist", 0.0)),
+                                 steps=steps))
+    clinical = compute_clinical_metrics(ep)
+    return {"success": success, "steps": steps, "max_pen": max_pen, "return": total_r,
+            "clinical": clinical}
 
 
 def evaluate_task(task: BenchTask, policy) -> dict:

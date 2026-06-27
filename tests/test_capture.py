@@ -37,6 +37,9 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     assert back.load_asset(tmp_path).edges[0].centerline_mm
     assert back.steps[0].load_obs(tmp_path).shape == (24, 24)
     assert back.steps[0].load_nodes(tmp_path).shape[1] == 3
+    assert back.outcome.metrics["tip_target"]["success"] == back.outcome.success
+    assert back.outcome.metrics["wall_safety"]["perforation_risk"] is False
+    assert "flow" in back.outcome.metrics and "catheter_support" in back.outcome.metrics
 
 
 def test_rollout_luminal_modality(tmp_path):

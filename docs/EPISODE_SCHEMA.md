@@ -73,8 +73,24 @@ clobber an earlier step's sidecar).
       "force": null                     // measured where instrumented; null for procedural
     }
   ],
-  "outcome": { "success": true, "final_dist": 0.4, "steps": 40,
-               "retrieval": null, "label": "straight" }
+  "outcome": {
+    "success": true,
+    "final_dist": 0.4,
+    "steps": 40,
+    "retrieval": null,
+    "label": "straight",
+    "metrics": {
+      "tip_target": { "success": true, "final_dist": 0.4 },
+      "branch_choice": { "target": "left", "final": "left", "correct": true },
+      "wall_safety": { "max_wall_force": 1.2, "max_penetration": 0.0,
+                       "perforation_risk": false },
+      "clot": { "retrieval": "retrieve", "fragmentation": false,
+                "distal_emboli_proxy": 0.0 },
+      "flow": { "baseline_Q": 4.0, "final_Q": 3.6, "restoration": 0.9,
+                "restored": true },
+      "catheter_support": { "final_gap": 3.0, "supported": true }
+    }
+  }
 }
 ```
 
@@ -92,6 +108,24 @@ Use `CaseBundle.load(root)` when a consumer needs a self-contained case rather t
 a loose episode. It validates the sidecars, loads the asset, attaches the episode
 root, and exposes `bundle.replay()` so observations are lazy-loaded from the same
 directory.
+
+## Clinical Metrics
+
+`outcome.metrics` is the canonical endpoint summary produced by
+`lumen.data.compute_clinical_metrics(ep)` and populated by synthetic capture. The
+metrics are named to match review questions rather than generic RL reward terms:
+
+- `tip_target` — target-band success and final tip-target distance
+- `branch_choice` — target branch/edge, final branch/edge, and correctness
+- `wall_safety` — peak wall force, penetration, normalized risk score, and perforation-risk flag
+- `clot` — retrieval/slip/fragment status, fragmentation, damage, residual occlusion, and distal-emboli proxy
+- `flow` — baseline distal flow, final distal flow, restoration fraction, and restored flag
+- `catheter_support` — final/min/max guidewire-catheter support gap and unsupported lead
+
+The recorder fills these from live sim signals when present: solver wall load,
+tree edge projection, clot damage/retrieval status, downstream flow, and coaxial
+catheter tip position. Missing subsystems degrade to `null`/`false` rather than
+inventing a measurement.
 
 ## Episode kinds
 
