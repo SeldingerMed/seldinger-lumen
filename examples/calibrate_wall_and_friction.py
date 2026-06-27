@@ -41,7 +41,8 @@ def main():
         print(f"  {view:11s}: cond = {r['cond']:10.1f}   lam_min = {r['lam_min']:.2e}   "
               f"cross-coupling = {r['corr']:+.2f}")
     print("=> the bulge-aligned mono view (+x) confounds stiffness and friction (cond -> huge); "
-          "biplanar rescues it and strictly improves the worst-determined direction (doc §3.6)")
+          "adding the complementary view makes the joint inverse separable and improves the "
+          "worst-determined direction versus that confounded mono view (doc §3.6)")
 
 
 if __name__ == "__main__":
