@@ -236,3 +236,16 @@ def test_submit_policy_reports_skipped_scorecards(tmp_path, capsys):
     assert "skipped scorecards" in out
     assert "bad.json" in out
     assert "overall must be a dict" in out
+
+
+def test_legacy_benchmarks_leaderboard_uses_canonical_scorecard_fields():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+    from benchmarks.leaderboard import proportional_policy, run_leaderboard
+
+    out = run_leaderboard(proportional_policy, "proportional")
+
+    assert out["suite_version"] == SUITE_VERSION
+    assert set(out) >= {"safe_success_rate", "success_rate", "max_pen", "mean_return", "cases"}
+    assert all("safe_success_rate" in task and "max_pen" in task for task in out["cases"])
