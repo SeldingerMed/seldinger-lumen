@@ -67,8 +67,7 @@ def _project_polyline_mask(carm: CArm, nodes, shape, radius_px=2.0):
 
 def _keypoint(carm: CArm, point, shape):
     u, v = carm.project(point)
-    present = bool(np.isfinite([u, v]).all() and -0.5 <= u < shape[1] - 0.5
-                   and -0.5 <= v < shape[0] - 0.5)
+    present = bool(np.isfinite([u, v]).all() and 0.0 <= u < shape[1] and 0.0 <= v < shape[0])
     return {"uv": (float(u), float(v)), "present": present}
 
 

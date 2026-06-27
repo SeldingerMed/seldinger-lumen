@@ -69,6 +69,71 @@ def _safe_root_file(root: str, ref: str) -> str:
     return full
 
 
+def _validate_device_mask_array(mask, i: int, obs_shape: tuple | None = None) -> None:
+    mask = np.asarray(mask)
+    if mask.ndim != 2:
+        raise ValueError(f"step {i}: device_mask annotation must be 2-D, got shape {mask.shape}")
+    if mask.dtype.kind not in ("b", "u"):
+        raise ValueError(f"step {i}: device_mask annotation must be bool/unsigned integer, "
+                         f"got {mask.dtype}")
+    if obs_shape is not None and tuple(obs_shape[:2]) != mask.shape:
+        raise ValueError(f"step {i}: device_mask shape {mask.shape} does not match "
+                             f"observation shape {tuple(obs_shape[:2])}")
+
+
+def _validate_keypoint_record(kp, i: int, name: str, obs_shape: tuple | None = None) -> None:
+    if not isinstance(kp, dict):
+        raise ValueError(f"step {i}: keypoint {name!r} must be a mapping")
+    present = kp.get("present", True)
+    if not isinstance(present, bool):
+        raise ValueError(f"step {i}: keypoint {name!r} present must be bool")
+    uv = kp.get("uv")
+    if uv is None:
+        if present:
+            raise ValueError(f"step {i}: present keypoint {name!r} missing uv")
+        return
+    try:
+        arr = np.asarray(uv, dtype=float)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"step {i}: keypoint {name!r} uv not numeric: {uv!r}") from e
+    if arr.shape != (2,):
+        raise ValueError(f"step {i}: keypoint {name!r} uv must be length-2, got {uv!r}")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"step {i}: keypoint {name!r} uv is non-finite")
+    if present and obs_shape is not None:
+        h, w = tuple(obs_shape[:2])
+        u, v = float(arr[0]), float(arr[1])
+        if not (0.0 <= u < w and 0.0 <= v < h):
+            raise ValueError(f"step {i}: keypoint {name!r} uv {uv!r} outside "
+                             f"observation shape {(h, w)}")
+
+
+def _validate_keypoints(annotations: dict, i: int, obs_shape: tuple | None = None) -> None:
+    keypoints = annotations.get("keypoints")
+    if keypoints is None:
+        return
+    if not isinstance(keypoints, dict):
+        raise ValueError(f"step {i}: annotations.keypoints must be a mapping")
+    for name, value in keypoints.items():
+        if isinstance(value, list):
+            for j, kp in enumerate(value):
+                _validate_keypoint_record(kp, i, f"{name}[{j}]", obs_shape)
+        else:
+            _validate_keypoint_record(value, i, str(name), obs_shape)
+
+
+def _validate_device_mask_sidecar(root: str, step: "Step", i: int) -> None:
+    ref = step.annotations.get("device_mask_ref")
+    if not ref:
+        return
+    mask = np.load(_safe_path(root, ref))
+    obs_shape = None
+    if step.obs_ref:
+        obs = np.load(_safe_path(root, step.obs_ref))
+        obs_shape = obs.shape
+    _validate_device_mask_array(mask, i, obs_shape)
+
+
 @dataclass
 class EpisodeMeta:
     frame: Frame = field(default_factory=Frame)   # declared coordinate convention (reused)
@@ -284,10 +349,16 @@ def validate(ep: Episode, root: str | None = None) -> None:
             _check_ref(nref, i, "node_positions_ref"); node_refs.append(nref)
         if not isinstance(s.annotations, dict):
             raise ValueError(f"step {i}: annotations must be a mapping")
+        if not isinstance(s.annotation_arrays, dict):
+            raise ValueError(f"step {i}: annotation_arrays must be a mapping")
         for key, ref in s.annotations.items():
             if key.endswith("_ref") and ref:
                 _check_ref(ref, i, key)
                 ann_refs.append(ref)
+        obs_shape = np.asarray(s.obs).shape if s.obs is not None else None
+        _validate_keypoints(s.annotations, i, obs_shape)
+        if "device_mask" in s.annotation_arrays:
+            _validate_device_mask_array(s.annotation_arrays["device_mask"], i, obs_shape)
         tip = s.kinematics.get("tip_mm")
         if tip is not None:
             try:
@@ -323,6 +394,9 @@ def validate(ep: Episode, root: str | None = None) -> None:
             for key, ref in s.annotations.items():
                 if key.endswith("_ref") and ref and not os.path.exists(_safe_path(root, ref)):
                     raise ValueError(f"step {i}: annotation sidecar missing on disk: {ref}")
+            if s.obs_ref:
+                _validate_keypoints(s.annotations, i, np.load(_safe_path(root, s.obs_ref)).shape)
+            _validate_device_mask_sidecar(root, s, i)
 
 
 if __name__ == "__main__":  # self-check: round-trip + validation

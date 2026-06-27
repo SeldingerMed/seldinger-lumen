@@ -122,7 +122,10 @@ root, and exposes `bundle.replay()` so observations are lazy-loaded from the sam
 directory.
 
 Use `lumen.data.annotation_coverage(ep)` or corpus-level `summarize(...)` before
-loading arrays to check whether a bundle has CV-ready masks/keypoints.
+loading arrays to check whether a bundle has CV-ready masks/keypoints. Root-mode
+validation also checks known `device_mask` annotations are 2-D bool/unsigned masks
+whose shape matches the paired observation, and present keypoints are finite
+in-frame `(u, v)` coordinates.
 
 ## Clinical Metrics
 

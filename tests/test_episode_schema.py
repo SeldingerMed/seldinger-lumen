@@ -153,6 +153,67 @@ def test_validate_root_mode_checks_annotation_sidecars(tmp_path):
         validate(Episode.load(tmp_path), root=tmp_path)
 
 
+def test_validate_root_mode_checks_device_mask_shape_and_dtype(tmp_path):
+    ep = _episode(1)
+    ep.steps[0].annotations = {"device_mask_ref": "000_device_mask.npy"}
+    ep.steps[0].annotation_arrays = {"device_mask": np.ones((4, 4), dtype=np.uint8)}
+    ep.save(tmp_path)
+
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((3, 4), dtype=np.uint8))
+    with pytest.raises(ValueError, match="device_mask shape"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((4, 4), dtype=float))
+    with pytest.raises(ValueError, match="bool/unsigned integer"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((4, 4, 1), dtype=np.uint8))
+    with pytest.raises(ValueError, match="must be 2-D"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_save_rejects_bad_in_memory_device_mask(tmp_path):
+    ep = _episode(1)
+    ep.steps[0].annotations = {"device_mask_ref": "000_device_mask.npy"}
+    ep.steps[0].annotation_arrays = {"device_mask": np.ones((3, 4), dtype=np.uint8)}
+
+    with pytest.raises(ValueError, match="device_mask shape"):
+        ep.save(tmp_path)
+
+
+def test_validate_checks_keypoint_metadata_and_bounds(tmp_path):
+    good = _episode(1)
+    good.steps[0].annotations = {
+        "keypoints": {
+            "tip": {"uv": [1.0, 2.0], "present": True},
+            "base": {"present": False},
+        }
+    }
+    good.save(tmp_path / "good")
+    validate(Episode.load(tmp_path / "good"), root=tmp_path / "good")
+
+    bad_uv = _episode(1)
+    bad_uv.steps[0].annotations = {"keypoints": {"tip": {"uv": [1.0], "present": True}}}
+    with pytest.raises(ValueError, match="uv must be length-2"):
+        bad_uv.save(tmp_path / "bad_uv")
+
+    missing_uv = _episode(1)
+    missing_uv.steps[0].annotations = {"keypoints": {"tip": {"present": True}}}
+    with pytest.raises(ValueError, match="missing uv"):
+        missing_uv.save(tmp_path / "missing_uv")
+
+    out_of_bounds = _episode(1)
+    out_of_bounds.steps[0].annotations = {
+        "keypoints": {"tip": {"uv": [1.0, 0.0], "present": True}}
+    }
+    out_of_bounds.save(tmp_path / "out_of_bounds")
+    man = json.loads((tmp_path / "out_of_bounds" / "manifest.json").read_text())
+    man["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [4.0, 0.0]
+    (tmp_path / "out_of_bounds" / "manifest.json").write_text(json.dumps(man))
+    with pytest.raises(ValueError, match="outside observation shape"):
+        validate(Episode.load(tmp_path / "out_of_bounds"), root=tmp_path / "out_of_bounds")
+
+
 def test_validate_rejects_cross_type_sidecar_clobbering():
     ep = _episode(1)
     ep.steps[0].annotations = {"device_mask_ref": ep.steps[0].obs_ref}
