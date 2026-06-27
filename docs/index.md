@@ -19,11 +19,11 @@ the [NVIDIA Newton](https://github.com/newton-physics/newton) engine.
 
 ```bash
 pip install -e ".[dev]"
-# Newton is pinned (pre-1.0; our solver forks an internal) — see the repo README
-pip install "git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7"
 ```
 
-Runs on **CPU and CUDA** from the same code (Warp picks the device at runtime).
+`.[dev]` includes tests, Gymnasium, Warp, and the pinned Newton commit this solver is
+validated against. For runtime-only solver use, install `.[solver]` instead. Runs on
+**CPU and CUDA** from the same code (Warp picks the device at runtime).
 
 ## A 20-second taste
 
