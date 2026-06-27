@@ -13,7 +13,7 @@ import sys
 
 import numpy as np
 
-from lumen.bench import evaluate_policy, leaderboard, validate_scorecard
+from lumen.bench import evaluate_policy, leaderboard, scorecard_rejections, validate_scorecard
 
 
 def policy(obs):
@@ -40,6 +40,11 @@ def main(results_dir="bench_results", name="example-policy"):
               f"success={card.overall['success_rate']:.2f}  "
               f"max_pen={card.overall['max_pen']:.3f}  "
               f"return={card.overall['mean_return']:.1f}", flush=True)
+    skipped = scorecard_rejections(results_dir)
+    if skipped:
+        print("\nskipped scorecards:", flush=True)
+        for item in skipped:
+            print(f"  {item['path']}: {item['error']}", flush=True)
     return path
 
 

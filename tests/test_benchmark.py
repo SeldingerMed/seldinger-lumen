@@ -218,3 +218,21 @@ def test_submit_policy_rejects_path_fragment_names(tmp_path):
 
     with pytest.raises(ValueError, match="simple basename"):
         main(str(tmp_path), name="../other/card")
+
+
+def test_submit_policy_reports_skipped_scorecards(tmp_path, capsys):
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+    from examples.submit_policy import main
+
+    (tmp_path / "bad.json").write_text(
+        '{"name":"bad","suite_version":"lumen-bench/1","per_task":[],"overall":null}'
+    )
+
+    main(str(tmp_path), name="example-policy")
+
+    out = capsys.readouterr().out
+    assert "skipped scorecards" in out
+    assert "bad.json" in out
+    assert "overall must be a dict" in out

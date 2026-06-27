@@ -95,7 +95,8 @@ efficiency tie-break. A policy that solves the task by scraping through the vess
 should not win a healthcare benchmark.
 
 To submit your own policy, copy the runnable template, replace `policy(obs)`, and
-save a validated scorecard:
+save a validated scorecard. Both benchmark examples print rejected scorecards with
+the schema/comparability reason so a bad JSON file does not disappear silently:
 
 ```bash
 python examples/submit_policy.py /tmp/lumen-bench my-lab-policy
