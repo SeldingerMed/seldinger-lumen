@@ -38,7 +38,10 @@ def main():
     # standard DRR display (A has no fixed range) and shows the device BRIGHT. For the
     # clinical Beer-Lambert look (dark device on a bright field) use beer_lambert=True
     # and scale I*255 directly (I is already in [0,1]).
-    A, _ = FluoroSensor(mu_device=1.2, res=96, n_samples=260).render(wire, radius=0.6)
+    vessel = np.stack([30 * np.sin(a), np.zeros_like(a),
+                       30 * (1 - np.cos(a))], axis=1)
+    A, _ = FluoroSensor(mu_device=1.2, res=96, n_samples=260).render(
+        wire, radius=0.6, contrast_nodes=vessel, contrast_radius=2.0, mu_contrast=0.16)
     u8 = (255 * (A - A.min()) / (float(A.max() - A.min()) + 1e-9)).astype(np.uint8)
     write_png(out, np.ascontiguousarray(np.flipud(u8)))
     print(f"wrote {out}  ({u8.shape[1]}x{u8.shape[0]})")

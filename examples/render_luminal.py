@@ -43,12 +43,14 @@ def main(prefix="out"):
     frame = CenterlineFrame(pts)
     device = np.stack([pts[1], pts[4]])                          # short device at the inlet, forward
 
-    rgb = LuminalCamera(nu=128, nv=128).render(frame, lumen, device)
+    rgb = LuminalCamera(nu=128, nv=128, texture_strength=0.18,
+                        fold_strength=0.12).render(frame, lumen, device)
     _png(f"{prefix}_luminal.png", (255 * rgb).astype(np.uint8))
 
     sensor = FluoroSensor(res=48, nu=128, nv=128)
     realism = RealismParams(i0=3e3, psf_sigma=1.0, scatter_frac=0.15, beam_hardening=0.05, seed=0)
-    A, _ = sensor.render(pts, realism=realism)                   # realistic dose-limited DRR
+    A, _ = sensor.render(device, contrast_nodes=pts, contrast_radius=3.5,
+                         mu_contrast=0.18, realism=realism)      # realistic dose-limited DRR
     g = A - A.min(); g = (255 * g / (g.max() + 1e-9)).astype(np.uint8)
     _png(f"{prefix}_fluoro_noisy.png", g)
     print(f"wrote {prefix}_luminal.png (RGB tunnel) and {prefix}_fluoro_noisy.png (noisy DRR)")

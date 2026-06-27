@@ -25,10 +25,13 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     # every step carries a paired fluoro frame + node positions
     assert all(s.obs_modality == "fluoro" and s.obs_ref for s in ep.steps)
     assert ep.meta.notes["true_C10"] == 4000.0          # sim2sim ground truth rides in notes
+    assert ep.meta.notes["procedure"] == "endovascular_navigation"
 
     ep.save(tmp_path)
     back = Episode.load(tmp_path)
     validate(back, root=tmp_path)                        # all sidecars present
+    assert (tmp_path / "straight.json").exists()
+    assert back.load_asset(tmp_path).edges[0].centerline_mm
     assert back.steps[0].load_obs(tmp_path).shape == (24, 24)
     assert back.steps[0].load_nodes(tmp_path).shape[1] == 3
 

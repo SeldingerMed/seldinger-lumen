@@ -12,6 +12,10 @@ solver code runs everywhere, and this module just picks the device.
 
 from __future__ import annotations
 
+VALIDATED_WARP_VERSION = "1.14.0"
+VALIDATED_NEWTON_VERSION = "1.4.0.dev0"
+VALIDATED_NEWTON_REF = "6dfe7303d9ca50f7505cac31bee9885c813d89d7"
+
 
 def detect_device(prefer: str = "auto") -> str:
     """Return the Warp device to run on: 'cuda' (if available) or 'cpu'.
@@ -31,7 +35,11 @@ def detect_device(prefer: str = "auto") -> str:
 def describe() -> dict:
     """Report the hardware/software the Layer-0 stack will use."""
     info = {"device": detect_device(), "warp": None, "cuda_devices": 0,
-            "newton": None, "newton_available": False}
+            "newton": None, "newton_available": False,
+            "validated": {"warp": VALIDATED_WARP_VERSION,
+                          "newton": VALIDATED_NEWTON_VERSION,
+                          "newton_ref": VALIDATED_NEWTON_REF},
+            "backend_validated": False}
     try:
         import warp as wp
         wp.init()
@@ -45,6 +53,10 @@ def describe() -> dict:
         info["newton_available"] = True
     except Exception:
         pass
+    info["backend_validated"] = (
+        info["warp"] == VALIDATED_WARP_VERSION
+        and info["newton"] == VALIDATED_NEWTON_VERSION
+    )
     return info
 
 

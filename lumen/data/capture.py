@@ -116,8 +116,9 @@ def _state_obs(frame, sim, R, L, target_s):
 
 def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                     target_frac=0.7, max_insertion=2.0, max_steps=40, success_tol=2.5,
-                    every=1, substeps=4, dt=5e-3, device=None, asset_ref="", label=None,
-                    notes=None, sim_kwargs=None, record_nodes=True, view_axis=(1.0, 0.0, 0.0)):
+                    every=1, substeps=4, dt=5e-3, device=None, asset_ref="asset.json", label=None,
+                    notes=None, sim_kwargs=None, record_nodes=True, view_axis=(1.0, 0.0, 0.0),
+                    procedure="endovascular_navigation"):
     """Build a sim from `asset`, drive it to the target with `policy` (None = constant
     forward insertion), record every step, and return a validated `Episode`.
 
@@ -152,6 +153,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                        sensor=_sensor_meta(sensor, modality),
                        notes={**(notes or {}),
                               "episode_kind": "navigation",     # vs "wall_probe" (calibration)
+                              "procedure": procedure,
                               "target_s": target_s, "target_frac": target_frac})
     rec = EpisodeRecorder(sim, sensor=sensor, modality=modality, lumen=lumen, every=every,
                           dt=dt, substeps=substeps, view_axis=view_axis,
@@ -174,6 +176,8 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
     ep = rec.episode(Outcome(success=success, final_dist=float(dist), steps=len(rec.steps),
                              # explicit None check: keep an intentional "" label, don't fall back
                              label=(label if label is not None else asset.edges[0].id)))
+    if asset_ref:
+        ep.asset = asset
     validate(ep)                                        # M2: fail loud rather than return a bad episode
     return ep
 

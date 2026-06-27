@@ -14,6 +14,8 @@ matches the continuum action space (§1.2).
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import warp as wp
 import newton
@@ -48,19 +50,15 @@ class NewtonGuidewireSim:
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
         self.n_envs = int(n_envs)
         # L0d.2a — optional COAXIAL microcatheter: a second rod (larger radius, stiffer)
-        # sharing the lumen with the guidewire. Single-env, rigid wall, no flow/clot for
-        # now (the host flow/clot paths project only the guidewire nodes); the sliding
-        # gw-in-catheter COUPLING is L0d.2b — here the two rods interact only through the
-        # shared wall contact.
+        # sharing the lumen with the guidewire. Single-env for now; flow/clot/stentriever
+        # run through the host path, with aspiration keyed to the catheter tip and
+        # flow-drag applied to the guidewire.
         self.coaxial = catheter_points is not None
         if self.coaxial:
             if len(catheter_points) < 2:          # fail fast, before _add_rod's opaque error
                 raise ValueError("catheter_points needs >= 2 nodes (a rod centerline)")
             if self.n_envs != 1:
                 raise NotImplementedError("coaxial assemblies are single-env (batched coaxial is future)")
-            if flow is not None or clot_segment is not None or stentriever is not None:
-                raise NotImplementedError("coaxial + flow/clot/stentriever is not wired "
-                                          "(those paths project only the guidewire)")
         self.contact_frame = CenterlineFrame(vessel_centerline)
         # Batched envs share one vessel (the contact is wire-vs-wall, never wire-vs-wire,
         # so E rods in one model are independent). For n_envs>1 the wall/clot/flow co-sim
@@ -83,8 +81,12 @@ class NewtonGuidewireSim:
         def _add_rod(seed_pts, rod_radius, stretch, bend):
             pts = [wp.vec3(*map(float, p)) for p in seed_pts]
             quats = newton.utils.create_parallel_transport_cable_quaternions(pts)
+            # Newton 1.4 interprets damping as an absolute physical coefficient; Lumen's
+            # public knob remains a stiffness-relative multiplier for continuity with
+            # the validated pre-1.4 behavior.
+            bend_damping_abs = bend_damping * bend
             bodies, _ = builder.add_rod(pts, quats, radius=rod_radius, stretch_stiffness=stretch,
-                                        bend_stiffness=bend, bend_damping=bend_damping,
+                                        bend_stiffness=bend, bend_damping=bend_damping_abs,
                                         body_frame_origin="com")
             builder.body_mass[bodies[0]] = 0.0       # kinematic base (proximal actuation)
             builder.body_inv_mass[bodies[0]] = 0.0
@@ -124,12 +126,12 @@ class NewtonGuidewireSim:
         builder.color()
         self.model = builder.finalize(device=self.device)
 
-        self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="SolverVBD damping behavior changed.*",
+                                    category=UserWarning)
+            self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
         self.tree = tree
         if tree is not None:                          # multi-edge vascular tree (single-env)
-            if self.coaxial:
-                raise NotImplementedError("a coaxial assembly inside a vascular tree is not "
-                                          "combined yet (tree contact is single-rod)")
             if self.n_envs != 1:
                 raise NotImplementedError("tree contact is single-env (batched trees are future)")
             # the tree uses each edge's own lumen field for the base R0, so a sim-level
@@ -142,7 +144,7 @@ class NewtonGuidewireSim:
                 raise NotImplementedError(
                     "tree + flow/clot is not wired (flow drag / clot grids use a single "
                     "centerline, not the edge graph)")
-            self.solver.set_tree_contact(tree, self.bodies, kappa=kappa, d_hat=d_hat,
+            self.solver.set_tree_contact(tree, self._contact_bodies, kappa=kappa, d_hat=d_hat,
                                          barrier_mode=barrier_mode, mu_along=mu_along,
                                          mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
                                          actuation_centerline=route_centerline,
@@ -165,6 +167,8 @@ class NewtonGuidewireSim:
         self.contacts = self.model.contacts()
         self.body_ids = wp.array(np.array(self._contact_bodies, dtype=np.int32),  # forces on both rods
                                  dtype=wp.int32, device=self.device)
+        self._guidewire_body_ids = wp.array(np.array(self.bodies, dtype=np.int32),
+                                            dtype=wp.int32, device=self.device)
         # on-device base actuation (no per-substep body_q host round-trip), one per env
         self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
                                   device=self.device)
@@ -366,7 +370,12 @@ class NewtonGuidewireSim:
             tang /= (np.linalg.norm(tang, axis=1, keepdims=True) + 1e-12)
             if self._flow_is_field:                  # device-node arc-lengths for local v(s)
                 s_nodes = np.array([self.contact_frame.project(p).s for p in pos])
-                self.flow.set_tip(float(s_nodes.max()))   # catheter tip = deepest node
+                if self.coaxial and len(self.cath_bodies):
+                    cath_pos = self.state_0.body_q.numpy()[self.cath_bodies, :3]
+                    cath_s = np.array([self.contact_frame.project(p).s for p in cath_pos])
+                    self.flow.set_tip(float(cath_s.max()))   # aspiration point = catheter tip
+                else:
+                    self.flow.set_tip(float(s_nodes.max()))   # no catheter: deepest wire node
         for _ in range(substeps):
             self.state_0.clear_forces()
             self._actuate_base(insertion / substeps, twist / substeps)
@@ -409,8 +418,8 @@ class NewtonGuidewireSim:
                     drag = self.flow.drag_per_unit_tangent()
                 dvecs = wp.array((drag * tang).astype(np.float32),
                                  dtype=wp.vec3, device=self.device)
-                wp.launch(add_body_forces, dim=self.body_ids.shape[0],
-                          inputs=[self.body_ids, dvecs, 1],
+                wp.launch(add_body_forces, dim=self._guidewire_body_ids.shape[0],
+                          inputs=[self._guidewire_body_ids, dvecs, 1],
                           outputs=[self.state_0.body_f], device=self.device)
             self.solver.step(self.state_0, self.state_1, self.control,
                              self.contacts, sub_dt)
@@ -448,7 +457,8 @@ class NewtonGuidewireSim:
         return np.array([proj(p).r for p in self.body_positions()])
 
     def catheter_node_radii(self) -> np.ndarray:
-        return np.array([self.contact_frame.project(p).r for p in self.catheter_positions()])
+        proj = self.tree.project if self.tree is not None else self.contact_frame.project
+        return np.array([proj(p).r for p in self.catheter_positions()])
 
     def wall_max_deflection(self) -> float:
         return self.solver.wall_max_deflection()      # tree-aware (per-edge HGO wall, L0d.1d)

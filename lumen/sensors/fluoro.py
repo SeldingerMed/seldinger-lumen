@@ -39,17 +39,27 @@ class FluoroSensor:
                                nu=self.nu, nv=self.nv, **kw)
 
     def render(self, nodes, radius=0.2, carm: CArm | None = None, beer_lambert=False,
-               realism=None):
+               realism=None, contrast_nodes=None, contrast_radius=1.5, mu_contrast=0.25,
+               contrast_eps=1.0):
         """Render the device polyline to a DRR line-integral image (or a Beer–Lambert
         radiograph if beer_lambert=True). Returns (image, carm).
 
         Pass `realism` (a RealismParams) to apply the detector-physics seam (L1.4 —
         Poisson noise, PSF, scatter, beam hardening) to the line integral before the
-        optional Beer–Lambert step; default None leaves the clean DRR unchanged."""
+        optional Beer–Lambert step; default None leaves the clean DRR unchanged.
+
+        Pass `contrast_nodes` to add a low-attenuation contrast-filled lumen roadmap
+        behind the radio-opaque device. This makes synthetic fluoro usable for CV
+        tasks that need vessel context instead of an isolated wire on a blank field."""
         nodes = np.asarray(nodes, float)
-        carm = carm or self.default_carm(nodes)
-        grid = grid_for(nodes, margin=self.margin, res=self.res)
+        scene_nodes = nodes if contrast_nodes is None else np.concatenate(
+            [nodes, np.asarray(contrast_nodes, float)], axis=0)
+        carm = carm or self.default_carm(scene_nodes)
+        grid = grid_for(scene_nodes, margin=self.margin, res=self.res)
         mu = voxelize_device(nodes, radius, grid, mu_device=self.mu_device, eps=self.eps)
+        if contrast_nodes is not None and mu_contrast:
+            mu = mu + voxelize_device(contrast_nodes, contrast_radius, grid,
+                                      mu_device=mu_contrast, eps=contrast_eps)
         A = raycast(mu, grid, carm, n_samples=self.n_samples)
         if realism is not None:
             A = degrade(A, realism)
