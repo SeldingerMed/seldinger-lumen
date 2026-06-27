@@ -18,7 +18,8 @@ Metrics per task (over a fixed set of seeded episodes):
 Each raw episode result also carries ``clinical`` metrics from
 ``lumen.data.compute_clinical_metrics``: tip-target success, branch choice, wall
 safety, clot/flow fields when present, and catheter support when coaxial.
-The leaderboard ranks safe target success first, then raw target success, then wall safety.
+The leaderboard ranks safe target success first, then raw target success, then wall
+safety, then return as a deterministic efficiency tie-break.
 """
 
 from __future__ import annotations
@@ -282,9 +283,12 @@ def leaderboard(results_dir: str) -> list[Scorecard]:
     """Read every `*.json` scorecard under `results_dir` and rank them.
 
     Ranking is clinical-first: safe target success, then raw target success, then the
-    smaller (safer) max penetration. Scorecards from other suite versions are skipped.
+    smaller (safer) max penetration, then higher mean return. Scorecards from other
+    suite versions are skipped.
     """
     cards, _ = _load_scorecards(results_dir)
     return sorted(cards, key=lambda c: (-_safe_success_for_ranking(c),
                                        -c.overall["success_rate"],
-                                       c.overall["max_pen"]))
+                                       c.overall["max_pen"],
+                                       -c.overall["mean_return"],
+                                       c.name))

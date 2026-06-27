@@ -39,7 +39,8 @@ def main():
     for rank, c in enumerate(leaderboard(results_dir), 1):
         print(f"  {rank}. {c.name:24} safe={c.overall.get('safe_success_rate', 0.0):.2f}  "
               f"success={c.overall['success_rate']:.2f}  "
-              f"max_pen={c.overall['max_pen']:.3f}")
+              f"max_pen={c.overall['max_pen']:.3f}  "
+              f"return={c.overall['mean_return']:.1f}")
     skipped = scorecard_rejections(results_dir)
     if skipped:
         print("\nskipped scorecards:")

@@ -163,6 +163,29 @@ def test_leaderboard_ranks_clinically_safe_success_before_unsafe_target_hits(tmp
     assert [c.name for c in leaderboard(str(tmp_path))] == ["safe-partial", "unsafe-fast"]
 
 
+def test_leaderboard_uses_return_as_deterministic_final_tiebreak(tmp_path):
+    low = Scorecard(name="aaa-low-return", suite_version=SUITE_VERSION, per_task=[
+                        {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                         "success_rate": 1.0, "safe_success_rate": 1.0,
+                         "max_pen": 0.0, "mean_return": 1.0}
+                        for t in SUITE
+                    ],
+                    overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                             "max_pen": 0.0, "mean_return": 1.0})
+    high = Scorecard(name="zzz-high-return", suite_version=SUITE_VERSION, per_task=[
+                         {"name": t.name, "tier": t.tier, "episodes": t.episodes,
+                          "success_rate": 1.0, "safe_success_rate": 1.0,
+                          "max_pen": 0.0, "mean_return": 2.0}
+                         for t in SUITE
+                     ],
+                     overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                              "max_pen": 0.0, "mean_return": 2.0})
+    low.save(tmp_path / "a.json")
+    high.save(tmp_path / "z.json")
+
+    assert [c.name for c in leaderboard(str(tmp_path))] == ["zzz-high-return", "aaa-low-return"]
+
+
 def test_submit_policy_example_writes_a_comparable_scorecard(tmp_path):
     pytest.importorskip("warp")
     pytest.importorskip("newton")
