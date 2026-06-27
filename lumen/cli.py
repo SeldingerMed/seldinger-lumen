@@ -54,6 +54,24 @@ def benchmark_main(argv=None) -> None:
             print(f"  {item['path']}: {item['error']}")
 
 
+def render_fluoro_main(argv=None) -> None:
+    from lumen.workflows import render_fluoro_example
+
+    parser = argparse.ArgumentParser(description="Render the canonical Lumen fluoro demo.")
+    parser.add_argument("out_png", nargs="?", default="fluoro.png")
+    args = parser.parse_args(argv)
+    render_fluoro_example(args.out_png)
+
+
+def capture_main(argv=None) -> None:
+    from lumen.workflows import capture_examples
+
+    parser = argparse.ArgumentParser(description="Capture the canonical procedural Lumen case corpus.")
+    parser.add_argument("out_dir", nargs="?", default="episodes")
+    args = parser.parse_args(argv)
+    capture_examples(args.out_dir)
+
+
 def _clinical_flags(ep):
     metrics = ep.outcome.metrics if isinstance(ep.outcome.metrics, dict) else {}
     tip = metrics.get("tip_target") if isinstance(metrics.get("tip_target"), dict) else {}

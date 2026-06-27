@@ -46,8 +46,8 @@ sim.step(insertion=1.0)
 ```bash
 lumen-hardware
 lumen-benchmark /tmp/lumen-bench
-python examples/render_fluoro.py /tmp/lumen_fluoro.png
-python examples/capture_episode.py /tmp/lumen-episodes
+lumen-render-fluoro /tmp/lumen_fluoro.png
+lumen-capture /tmp/lumen-episodes
 lumen-replay /tmp/lumen-episodes
 lumen-index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl
 lumen-calibrate

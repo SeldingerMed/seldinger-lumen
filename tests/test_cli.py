@@ -20,6 +20,8 @@ def test_pyproject_exposes_first_run_console_scripts():
     assert scripts == {
         "lumen-hardware": "lumen.cli:hardware_main",
         "lumen-benchmark": "lumen.cli:benchmark_main",
+        "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
+        "lumen-capture": "lumen.cli:capture_main",
         "lumen-replay": "lumen.cli:replay_main",
         "lumen-index": "lumen.cli:index_main",
         "lumen-calibrate": "lumen.cli:calibrate_main",
