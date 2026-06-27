@@ -52,6 +52,9 @@ class LuminalCamera:
     def __post_init__(self):
         if self.n_steps <= 0:                  # else dtau = max_dist / n_steps blows up
             raise ValueError(f"n_steps must be positive, got {self.n_steps}")
+        if self.artifact_strength < 0:
+            raise ValueError(
+                f"artifact_strength must be non-negative, got {self.artifact_strength}")
 
     def render(self, frame: CenterlineFrame, lumen, device_nodes,
                tip_pos=None, tip_dir=None, up=None):

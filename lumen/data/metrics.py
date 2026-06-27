@@ -88,8 +88,14 @@ def _wall_safety(ep: Episode, notes: dict) -> dict:
     max_pen = _max_value(ep, "max_penetration", "max_pen")
     force_thr = _threshold(notes, "perforation_force_threshold", math.inf)
     pen_thr = _threshold(notes, "perforation_penetration_threshold", math.inf)
-    force_score = 0.0 if max_force is None or not math.isfinite(force_thr) else max_force / force_thr
-    pen_score = 0.0 if max_pen is None or not math.isfinite(pen_thr) else max_pen / pen_thr
+    def _score(value, threshold):
+        if value is None or not math.isfinite(threshold):
+            return 0.0
+        if threshold <= 0.0:
+            return 1.0 if value > 0.0 else 0.0
+        return value / threshold
+    force_score = _score(max_force, force_thr)
+    pen_score = _score(max_pen, pen_thr)
     risk_score = max(force_score, pen_score)
     return {"max_wall_force": max_force, "max_penetration": max_pen,
             "force_threshold": None if not math.isfinite(force_thr) else force_thr,

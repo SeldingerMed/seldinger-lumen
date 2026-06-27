@@ -87,10 +87,9 @@ class CaseBundle:
 
     @property
     def labels(self) -> dict:
-        labels = {}
-        if self.episode.outcome.label:
+        labels = dict(self.episode.meta.labels)
+        if self.episode.outcome.label is not None:
             labels["outcome"] = self.episode.outcome.label
-        labels.update(self.episode.meta.labels)
         return labels
 
     def replay(self):

@@ -86,12 +86,13 @@ class FluoroSensor:
         behind the radio-opaque device. This makes synthetic fluoro usable for CV
         tasks that need vessel context instead of an isolated wire on a blank field."""
         nodes = np.asarray(nodes, float)
-        scene_nodes = nodes if contrast_nodes is None else np.concatenate(
+        has_contrast = contrast_nodes is not None and bool(mu_contrast)
+        scene_nodes = nodes if not has_contrast else np.concatenate(
             [nodes, np.asarray(contrast_nodes, float)], axis=0)
         carm = carm or self.default_carm(scene_nodes)
         grid = grid_for(scene_nodes, margin=self.margin, res=self.res)
         mu = voxelize_device(nodes, radius, grid, mu_device=self.mu_device, eps=self.eps)
-        if contrast_nodes is not None and mu_contrast:
+        if has_contrast:
             mu = mu + voxelize_device(contrast_nodes, contrast_radius, grid,
                                       mu_device=mu_contrast, eps=contrast_eps)
         A = raycast(mu, grid, carm, n_samples=self.n_samples)
@@ -125,7 +126,8 @@ class FluoroSensor:
         """Render two calibrated fluoro views of the same scene."""
         nodes = np.asarray(nodes, float)
         contrast_nodes = kw.get("contrast_nodes")
-        scene_nodes = nodes if contrast_nodes is None else np.concatenate(
+        has_contrast = contrast_nodes is not None and bool(kw.get("mu_contrast", 0.25))
+        scene_nodes = nodes if not has_contrast else np.concatenate(
             [nodes, np.asarray(contrast_nodes, float)], axis=0)
         if carms is None:
             carms = [self.default_carm(scene_nodes, axis=axis) for axis in axes]

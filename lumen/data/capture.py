@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 
 from lumen.data.metrics import compute_clinical_metrics
-from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step, validate
+from lumen.data.schema import Episode, EpisodeMeta, Outcome, Step, _is_bare_file_ref, validate
 
 
 class SimDiverged(RuntimeError):
@@ -217,7 +217,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
     resolved_label = label if label is not None else asset.edges[0].id
     guidewire = {"radius": radius, "n_nodes": n_nodes, "node_spacing": node_spacing,
                  "kappa": kappa, "d_hat": d_hat, "vbd_iterations": vbd_iterations}
-    meta = EpisodeMeta(asset_ref=asset_ref, dt=dt,
+    meta = EpisodeMeta(asset_ref=asset_ref, dt=dt, provenance=asset.provenance,
                        device={**guidewire, "guidewire": guidewire},
                        sensor=_sensor_meta(sensor, modality),
                        labels={"procedure": procedure, "asset_edge": asset.edges[0].id},
@@ -248,7 +248,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
     ep = rec.episode(Outcome(success=success, final_dist=float(dist), steps=len(rec.steps),
                              # explicit None check: keep an intentional "" label, don't fall back
                              label=resolved_label))
-    if asset_ref:
+    if _is_bare_file_ref(asset_ref):
         ep.asset = asset
     ep.outcome.metrics = compute_clinical_metrics(ep)
     validate(ep)                                        # M2: fail loud rather than return a bad episode
