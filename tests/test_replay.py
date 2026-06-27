@@ -159,6 +159,27 @@ def test_replay_corpus_example_prints_clinical_endpoint_flags(tmp_path, capsys):
     assert "branch=True" in out
 
 
+def test_replay_corpus_example_skips_invalid_bundles_but_lists_valid_ones(tmp_path, capsys):
+    from examples.replay_corpus import main
+    from lumen.sensors.carm import CArm
+
+    good = _ep("valid", 2, True)
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=8, nv=8)
+    good.meta.device = {"guidewire": {"radius": 0.2}}
+    good.meta.sensor = {"modality": "fluoro", "nu": 8, "nv": 8}
+    good.meta.calibration = {"type": "carm", "views": [carm.to_dict()]}
+    good.meta.labels = {"procedure": "navigation"}
+    good.save(tmp_path / "valid")
+    _ep("loose", 2, True).save(tmp_path / "loose")       # episode-valid, not bundle-valid
+
+    main(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "valid" in out
+    assert "skipped invalid bundles" in out
+    assert "loose" in out
+
+
 def test_summarize_segregates_probe_from_navigation(tmp_path):
     _ep("straight", 3, True).save(tmp_path / "nav")        # navigation (no kind -> default)
     probe = _ep("wall_probe", 2, True)                     # a wall-probe masquerading as success

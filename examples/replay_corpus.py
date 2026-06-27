@@ -34,19 +34,37 @@ def main(root="episodes"):
     if not Path(root).is_dir():
         print(f"no episodes under {root!r} — run examples/capture_episode.py first")
         return
-    ds = EpisodeDataset(root)
+    ds = EpisodeDataset(root, validate_on_load=False)
     if len(ds) == 0:
         print(f"no episodes under {root!r} — run examples/capture_episode.py first")
         return
-    print(f"corpus: {summarize(ds)}\n")
-    for ep in ds:
-        bundle = CaseBundle.load(ep.root)
+    bundles = []
+    skipped = []
+    for d in ds.dirs:
+        try:
+            bundles.append(CaseBundle.load(d))
+        except KeyError as e:
+            skipped.append((d, f"manifest missing required key {e!s}"))
+        except Exception as e:
+            skipped.append((d, f"{type(e).__name__}: {e}"))
+    if not bundles:
+        print(f"no valid case bundles under {root!r}")
+        for path, err in skipped:
+            print(f"  skipped {path}: {err}")
+        return
+    print(f"corpus: {summarize([b.episode for b in bundles])}\n")
+    for bundle in bundles:
+        ep = bundle.episode
         first_obs = next((obs for *_, obs in replay(ep) if obs is not None), None)  # lazy
         shape = None if first_obs is None else first_obs.shape
         print(f"{ep.outcome.label:18s}  steps={ep.outcome.steps:2d}  "
               f"success={ep.outcome.success!s:5s}  final_dist={ep.outcome.final_dist:6.2f}  "
               f"obs{shape}  calib={bundle.calibration.get('type')}  "
               f"{_clinical_flags(ep)}  @ {ep.root}")
+    if skipped:
+        print("\nskipped invalid bundles:")
+        for path, err in skipped:
+            print(f"  {path}: {err}")
 
 
 if __name__ == "__main__":
