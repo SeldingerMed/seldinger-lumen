@@ -75,20 +75,28 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
         steps=[
             Step(t=0.0, action={"insertion": 1.0},
                  kinematics={"tip_mm": [0.0, 0.0, 2.0]},
-                 annotations={"keypoints": {
-                     "base": {"uv": [4.0, 1.0], "present": True},
-                     "tip": {"uv": [4.0, 3.0], "present": True},
-                 }},
+                 annotations={"device_mask_ref": "000_device_mask.npy",
+                              "vessel_mask_ref": "000_vessel_mask.npy",
+                              "keypoints": {
+                                  "base": {"uv": [4.0, 1.0], "present": True},
+                                  "tip": {"uv": [4.0, 3.0], "present": True},
+                              }},
                  obs_modality="fluoro", obs_ref="000.npy",
-                 obs=np.ones((8, 8))),
+                 obs=np.ones((8, 8)),
+                 annotation_arrays={"device_mask": np.eye(8, dtype=np.uint8),
+                                    "vessel_mask": np.ones((8, 8), dtype=np.uint8)}),
             Step(t=1.0, action={"insertion": 1.0},
                  kinematics={"tip_mm": [0.0, 0.0, 3.0]},
-                 annotations={"keypoints": {
-                     "base": {"uv": [4.0, 1.0], "present": True},
-                     "tip": {"uv": [4.0, 4.0], "present": True},
-                 }},
+                 annotations={"device_mask_ref": "001_device_mask.npy",
+                              "vessel_mask_ref": "001_vessel_mask.npy",
+                              "keypoints": {
+                                  "base": {"uv": [4.0, 1.0], "present": True},
+                                  "tip": {"uv": [4.0, 4.0], "present": True},
+                              }},
                  obs_modality="fluoro", obs_ref="001.npy",
-                 obs=np.ones((8, 8))),
+                 obs=np.ones((8, 8)),
+                 annotation_arrays={"device_mask": np.eye(8, dtype=np.uint8),
+                                    "vessel_mask": np.ones((8, 8), dtype=np.uint8)}),
         ],
         outcome=Outcome(success=True, final_dist=0.5, steps=2, label="inspect_case",
                         metrics={"tip_target": {"success": True, "final_dist": 0.5},
@@ -100,7 +108,7 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     index_main([str(tmp_path), "--out", str(index_path)])
     capsys.readouterr()
 
-    main(["inspect-index", str(index_path), "--check-paths"])
+    main(["inspect-index", str(index_path), "--check-paths", "--require-cv-labels"])
     human = capsys.readouterr().out
     assert "records: 2" in human
     assert "modalities: fluoro=2" in human
@@ -111,9 +119,10 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "final_dist: mean=0.500 min=0.500 max=0.500 n=1" in human
     assert "keypoint_steps: 2/2" in human
     assert "keypoints: base=2/2, tip=2/2" in human
+    assert "cv_labels_required: true" in human
     assert "obs_path: 2 refs, 0 missing" in human
 
-    main(["inspect-index", str(index_path), "--check-paths", "--json"])
+    main(["inspect-index", str(index_path), "--check-paths", "--require-cv-labels", "--json"])
     summary = json.loads(capsys.readouterr().out)
     assert summary["records"] == 2
     assert summary["episodes"] == {"case": 2}
@@ -128,6 +137,8 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["annotations"]["keypoint_steps"] == 2
     assert summary["annotations"]["keypoints_present"] == {"base": 2, "tip": 2}
     assert summary["annotations"]["keypoints_total"] == {"base": 2, "tip": 2}
+    assert summary["annotations"]["cv_labels_required"] is True
+    assert summary["annotations"]["cv_label_errors"] == []
     assert summary["path_fields"]["obs_path"] == 2
     assert summary["missing_paths"]["obs_path"] == 0
 
@@ -151,6 +162,19 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
         "first_line": 1,
         "line": 2,
     }]
+
+    weak_cv_path = tmp_path / "indexes" / "weak_cv.jsonl"
+    rows = [json.loads(line) for line in index_path.read_text().splitlines()]
+    rows[0]["device_mask_path"] = None
+    rows[0]["keypoints"].pop("tip")
+    weak_cv_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(weak_cv_path), "--require-cv-labels"])
+    assert seen.value.code == 1
+    weak_out = capsys.readouterr().out
+    assert "cv label errors:" in weak_out
+    assert "device_mask_path" in weak_out
+    assert "keypoints.tip" in weak_out
 
     (tmp_path / "case" / "obs" / "000.npy").unlink()
     with pytest.raises(SystemExit) as seen:

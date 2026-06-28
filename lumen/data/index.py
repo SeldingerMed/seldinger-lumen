@@ -13,6 +13,7 @@ from lumen.data.schema import Episode, _safe_path
 
 
 PATH_FIELDS = ("obs_path", "device_mask_path", "vessel_mask_path", "node_positions_path")
+CV_KEYPOINTS = ("base", "tip")
 
 
 def _record_path(path: str | Path, base_dir: str | Path | None = None) -> str:
@@ -164,8 +165,23 @@ def _count_keypoints(keypoints, present: Counter, total: Counter) -> bool:
     return counted
 
 
+def _cv_label_errors(record: dict) -> list[str]:
+    if record.get("obs_modality") != "fluoro":
+        return []
+    errors = []
+    for field in ("device_mask_path", "vessel_mask_path"):
+        if not record.get(field):
+            errors.append(field)
+    keypoints = record.get("keypoints") if isinstance(record.get("keypoints"), dict) else {}
+    for name in CV_KEYPOINTS:
+        kp = keypoints.get(name)
+        if not isinstance(kp, dict) or not kp.get("present", True):
+            errors.append(f"keypoints.{name}")
+    return errors
+
+
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
-                    check_paths: bool = False) -> dict:
+                    check_paths: bool = False, require_cv_labels: bool = False) -> dict:
     """Return a compact JSON-serializable summary of a Lumen dataloader index."""
     index_path = Path(index_path)
     root = Path(base_dir) if base_dir is not None else index_path.parent
@@ -184,6 +200,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     keypoint_steps = 0
     keypoints_present = Counter()
     keypoints_total = Counter()
+    cv_label_errors = []
     missing_examples = []
     records = 0
     with open(index_path) as f:
@@ -237,6 +254,14 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                 })
             if _count_keypoints(record.get("keypoints"), keypoints_present, keypoints_total):
                 keypoint_steps += 1
+            if require_cv_labels:
+                errors = _cv_label_errors(record)
+                if errors and len(cv_label_errors) < 5:
+                    cv_label_errors.append({
+                        "line": line_no,
+                        "episode": record.get("episode"),
+                        "missing": errors,
+                    })
             resolved = resolve_record_paths(record, root) if check_paths else record
             for field in PATH_FIELDS:
                 value = record.get(field)
@@ -271,6 +296,8 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             "keypoint_steps": keypoint_steps,
             "keypoints_present": _counter_dict(keypoints_present),
             "keypoints_total": _counter_dict(keypoints_total),
+            "cv_labels_required": require_cv_labels,
+            "cv_label_errors": cv_label_errors,
         },
         "paths_checked": check_paths,
         "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},

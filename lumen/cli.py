@@ -354,13 +354,16 @@ def inspect_index_main(argv=None, prog=None) -> None:
                              "of the index file's parent.")
     parser.add_argument("--check-paths", action="store_true",
                         help="Check that referenced observation/mask/node sidecars exist.")
+    parser.add_argument("--require-cv-labels", action="store_true",
+                        help="Fail if fluoro rows lack mask refs or present tip/base keypoints.")
     parser.add_argument("--json", action="store_true",
                         help="Print the raw machine-readable summary JSON.")
     args = parser.parse_args(argv)
 
     try:
         summary = summarize_index(args.index_path, base_dir=args.base_dir,
-                                  check_paths=args.check_paths)
+                                  check_paths=args.check_paths,
+                                  require_cv_labels=args.require_cv_labels)
     except FileNotFoundError:
         print(f"no index file at {args.index_path!r}")
         raise SystemExit(1) from None
@@ -373,7 +376,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
         _print_index_summary(summary)
     if (summary["records"] == 0
             or any(summary["missing_paths"].values())
-            or summary.get("clinical", {}).get("episode_inconsistencies")):
+            or summary.get("clinical", {}).get("episode_inconsistencies")
+            or summary.get("annotations", {}).get("cv_label_errors")):
         raise SystemExit(1)
 
 
@@ -420,6 +424,13 @@ def _print_index_summary(summary: dict) -> None:
         annotations.get("keypoints_present", {}),
         annotations.get("keypoints_total", {}),
     ))
+    if annotations.get("cv_labels_required"):
+        print("  cv_labels_required: true")
+    if annotations.get("cv_label_errors"):
+        print("  cv label errors:")
+        for item in annotations["cv_label_errors"]:
+            print(f"    line {item['line']} {item.get('episode')}: "
+                  f"missing {', '.join(item['missing'])}")
     path_status = "checked" if summary["paths_checked"] else "not checked"
     print(f"paths: {path_status}")
     for field, count in summary["path_fields"].items():
