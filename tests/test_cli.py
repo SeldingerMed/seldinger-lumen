@@ -78,7 +78,9 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((8, 8))),
         ],
-        outcome=Outcome(success=True, final_dist=0.5, steps=1, label="inspect_case"),
+        outcome=Outcome(success=True, final_dist=0.5, steps=1, label="inspect_case",
+                        metrics={"tip_target": {"success": True, "final_dist": 0.5},
+                                 "wall_safety": {"perforation_risk": False}}),
         asset=procedural.straight_tube(80.0, 2.0),
     )
     ep.save(tmp_path / "case")
@@ -90,6 +92,10 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     human = capsys.readouterr().out
     assert "records: 1" in human
     assert "modalities: fluoro=1" in human
+    assert "outcome_success: true=1" in human
+    assert "tip_target_success: true=1" in human
+    assert "wall_perforation_risk: false=1" in human
+    assert "final_dist: mean=0.500 min=0.500 max=0.500 n=1" in human
     assert "obs_path: 1 refs, 0 missing" in human
 
     main(["inspect-index", str(index_path), "--check-paths", "--json"])
@@ -98,6 +104,10 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["episodes"] == {"case": 1}
     assert summary["modalities"] == {"fluoro": 1}
     assert summary["labels"] == {"inspect_case": 1}
+    assert summary["clinical"]["outcome_success"] == {"true": 1}
+    assert summary["clinical"]["tip_target_success"] == {"true": 1}
+    assert summary["clinical"]["wall_perforation_risk"] == {"false": 1}
+    assert summary["clinical"]["final_dist"]["mean"] == 0.5
     assert summary["path_fields"]["obs_path"] == 1
     assert summary["missing_paths"]["obs_path"] == 0
 

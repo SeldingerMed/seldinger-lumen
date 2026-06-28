@@ -130,6 +130,25 @@ def _counter_dict(counter: Counter) -> dict:
     return {str(k): counter[k] for k in sorted(counter, key=str)}
 
 
+def _bool_key(value) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return "missing"
+
+
+def _numeric_summary(values: list[float]) -> dict:
+    if not values:
+        return {"count": 0, "min": None, "max": None, "mean": None}
+    return {
+        "count": len(values),
+        "min": min(values),
+        "max": max(values),
+        "mean": sum(values) / len(values),
+    }
+
+
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                     check_paths: bool = False) -> dict:
     """Return a compact JSON-serializable summary of a Lumen dataloader index."""
@@ -141,6 +160,10 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     calibration_types = Counter()
     path_counts = Counter({field: 0 for field in PATH_FIELDS})
     missing_paths = Counter({field: 0 for field in PATH_FIELDS})
+    outcome_success = Counter()
+    tip_target_success = Counter()
+    wall_perforation_risk = Counter()
+    final_dists = []
     missing_examples = []
     records = 0
     with open(index_path) as f:
@@ -160,6 +183,19 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             modalities[record.get("obs_modality", "<missing>")] += 1
             labels[record.get("label", "<missing>")] += 1
             calibration_types[record.get("calibration_type", "<missing>")] += 1
+            outcome = record.get("outcome") if isinstance(record.get("outcome"), dict) else {}
+            clinical = (record.get("clinical_metrics")
+                        if isinstance(record.get("clinical_metrics"), dict) else {})
+            tip_target = (clinical.get("tip_target")
+                          if isinstance(clinical.get("tip_target"), dict) else {})
+            wall_safety = (clinical.get("wall_safety")
+                           if isinstance(clinical.get("wall_safety"), dict) else {})
+            outcome_success[_bool_key(outcome.get("success"))] += 1
+            tip_target_success[_bool_key(tip_target.get("success"))] += 1
+            wall_perforation_risk[_bool_key(wall_safety.get("perforation_risk"))] += 1
+            final_dist = outcome.get("final_dist")
+            if isinstance(final_dist, (int, float)) and not isinstance(final_dist, bool):
+                final_dists.append(float(final_dist))
             resolved = resolve_record_paths(record, root) if check_paths else record
             for field in PATH_FIELDS:
                 value = record.get(field)
@@ -183,6 +219,12 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
         "labels": _counter_dict(labels),
         "calibration_types": _counter_dict(calibration_types),
         "path_fields": {field: path_counts[field] for field in PATH_FIELDS},
+        "clinical": {
+            "outcome_success": _counter_dict(outcome_success),
+            "tip_target_success": _counter_dict(tip_target_success),
+            "wall_perforation_risk": _counter_dict(wall_perforation_risk),
+            "final_dist": _numeric_summary(final_dists),
+        },
         "paths_checked": check_paths,
         "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},
         "missing_path_examples": missing_examples,

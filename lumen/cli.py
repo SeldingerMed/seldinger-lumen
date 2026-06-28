@@ -388,6 +388,18 @@ def _print_index_summary(summary: dict) -> None:
     print(f"modalities: {_format_counts(summary['modalities'])}")
     print(f"labels: {_format_counts(summary['labels'])}")
     print(f"calibration_types: {_format_counts(summary['calibration_types'])}")
+    clinical = summary.get("clinical", {})
+    print("clinical:")
+    print(f"  outcome_success: {_format_counts(clinical.get('outcome_success', {}))}")
+    print(f"  tip_target_success: {_format_counts(clinical.get('tip_target_success', {}))}")
+    print(f"  wall_perforation_risk: {_format_counts(clinical.get('wall_perforation_risk', {}))}")
+    final_dist = clinical.get("final_dist", {})
+    mean_dist = final_dist.get("mean")
+    if mean_dist is None:
+        print("  final_dist: -")
+    else:
+        print(f"  final_dist: mean={mean_dist:.3f} min={final_dist['min']:.3f} "
+              f"max={final_dist['max']:.3f} n={final_dist['count']}")
     path_status = "checked" if summary["paths_checked"] else "not checked"
     print(f"paths: {path_status}")
     for field, count in summary["path_fields"].items():
