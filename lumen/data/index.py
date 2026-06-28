@@ -149,6 +149,21 @@ def _numeric_summary(values: list[float]) -> dict:
     }
 
 
+def _count_keypoints(keypoints, present: Counter, total: Counter) -> bool:
+    if not isinstance(keypoints, dict) or not keypoints:
+        return False
+    counted = False
+    for name, value in keypoints.items():
+        values = value if isinstance(value, list) else [value]
+        for kp in values:
+            if not isinstance(kp, dict):
+                continue
+            total[str(name)] += 1
+            present[str(name)] += bool(kp.get("present", True))
+            counted = True
+    return counted
+
+
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                     check_paths: bool = False) -> dict:
     """Return a compact JSON-serializable summary of a Lumen dataloader index."""
@@ -166,6 +181,9 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     final_dists = []
     clinical_by_episode = {}
     clinical_inconsistencies = []
+    keypoint_steps = 0
+    keypoints_present = Counter()
+    keypoints_total = Counter()
     missing_examples = []
     records = 0
     with open(index_path) as f:
@@ -217,6 +235,8 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                     "first_line": clinical_by_episode[episode_name]["line"],
                     "line": line_no,
                 })
+            if _count_keypoints(record.get("keypoints"), keypoints_present, keypoints_total):
+                keypoint_steps += 1
             resolved = resolve_record_paths(record, root) if check_paths else record
             for field in PATH_FIELDS:
                 value = record.get(field)
@@ -246,6 +266,11 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             "wall_perforation_risk": _counter_dict(wall_perforation_risk),
             "final_dist": _numeric_summary(final_dists),
             "episode_inconsistencies": clinical_inconsistencies,
+        },
+        "annotations": {
+            "keypoint_steps": keypoint_steps,
+            "keypoints_present": _counter_dict(keypoints_present),
+            "keypoints_total": _counter_dict(keypoints_total),
         },
         "paths_checked": check_paths,
         "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},

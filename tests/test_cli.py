@@ -75,10 +75,18 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
         steps=[
             Step(t=0.0, action={"insertion": 1.0},
                  kinematics={"tip_mm": [0.0, 0.0, 2.0]},
+                 annotations={"keypoints": {
+                     "base": {"uv": [4.0, 1.0], "present": True},
+                     "tip": {"uv": [4.0, 3.0], "present": True},
+                 }},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((8, 8))),
             Step(t=1.0, action={"insertion": 1.0},
                  kinematics={"tip_mm": [0.0, 0.0, 3.0]},
+                 annotations={"keypoints": {
+                     "base": {"uv": [4.0, 1.0], "present": True},
+                     "tip": {"uv": [4.0, 4.0], "present": True},
+                 }},
                  obs_modality="fluoro", obs_ref="001.npy",
                  obs=np.ones((8, 8))),
         ],
@@ -101,6 +109,8 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "tip_target_success: true=1" in human
     assert "wall_perforation_risk: false=1" in human
     assert "final_dist: mean=0.500 min=0.500 max=0.500 n=1" in human
+    assert "keypoint_steps: 2/2" in human
+    assert "keypoints: base=2/2, tip=2/2" in human
     assert "obs_path: 2 refs, 0 missing" in human
 
     main(["inspect-index", str(index_path), "--check-paths", "--json"])
@@ -115,6 +125,9 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["clinical"]["final_dist"]["mean"] == 0.5
     assert summary["clinical"]["final_dist"]["count"] == 1
     assert summary["clinical"]["episode_inconsistencies"] == []
+    assert summary["annotations"]["keypoint_steps"] == 2
+    assert summary["annotations"]["keypoints_present"] == {"base": 2, "tip": 2}
+    assert summary["annotations"]["keypoints_total"] == {"base": 2, "tip": 2}
     assert summary["path_fields"]["obs_path"] == 2
     assert summary["missing_paths"]["obs_path"] == 0
 

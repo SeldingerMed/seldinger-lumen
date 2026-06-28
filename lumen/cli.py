@@ -383,6 +383,13 @@ def _format_counts(counts: dict) -> str:
     return ", ".join(f"{name}={count}" for name, count in counts.items())
 
 
+def _format_present_total(present: dict, total: dict) -> str:
+    if not total:
+        return "-"
+    return ", ".join(f"{name}={present.get(name, 0)}/{count}"
+                     for name, count in total.items())
+
+
 def _print_index_summary(summary: dict) -> None:
     print(f"index: {summary['index_path']}")
     print(f"records: {summary['records']}")
@@ -406,6 +413,13 @@ def _print_index_summary(summary: dict) -> None:
         print("  endpoint inconsistencies:")
         for item in clinical["episode_inconsistencies"]:
             print(f"    {item['episode']}: line {item['line']} differs from line {item['first_line']}")
+    annotations = summary.get("annotations", {})
+    print("annotations:")
+    print(f"  keypoint_steps: {annotations.get('keypoint_steps', 0)}/{summary['records']}")
+    print("  keypoints: " + _format_present_total(
+        annotations.get("keypoints_present", {}),
+        annotations.get("keypoints_total", {}),
+    ))
     path_status = "checked" if summary["paths_checked"] else "not checked"
     print(f"paths: {path_status}")
     for field, count in summary["path_fields"].items():
