@@ -210,6 +210,8 @@ Malformed JSONL rows report the index path and line number. If a referenced
 sidecar cannot be opened, `load_arrays=True` raises an error that names the
 `*_path` field, episode, step, and resolved path so dataloader failures point
 back to the bad index row.
+Notebook/dataloader code can reuse `lumen.data.device_keypoint_mask_errors` to
+apply the same device-keypoint QA rule after custom transforms.
 
 ## Clinical Metrics
 

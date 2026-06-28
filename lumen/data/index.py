@@ -209,6 +209,42 @@ def _nearest_mask_distance(mask: np.ndarray, uv: np.ndarray) -> float | None:
     return float(np.sqrt(((xs - uv[0]) ** 2 + (ys - uv[1]) ** 2).min()))
 
 
+def _device_keypoint_mask_error(label: str, kp: dict, device_mask,
+                                mask_tolerance_px: float) -> str | None:
+    if not isinstance(kp, dict) or not kp.get("present", True):
+        return None
+    uv = kp.get("uv")
+    if uv is None:
+        return None
+    try:
+        arr = np.asarray(uv, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if arr.shape != (2,) or not np.isfinite(arr).all():
+        return None
+    dist = _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
+    if dist is not None and dist > mask_tolerance_px:
+        return f"{label} on-device distance={dist:.2f}px"
+    return None
+
+
+def device_keypoint_mask_errors(keypoints, device_mask,
+                                mask_tolerance_px: float = KEYPOINT_MASK_TOLERANCE_PX) -> list[str]:
+    """Return errors for present device keypoints that sit away from the device mask."""
+    if device_mask is None or not np.asarray(device_mask).any() or not isinstance(keypoints, dict):
+        return []
+    errors = []
+    for name in DEVICE_KEYPOINTS:
+        value = keypoints.get(name)
+        values = value if isinstance(value, list) else [value]
+        for j, kp in enumerate(values):
+            label = f"keypoints.{name}[{j}]" if isinstance(value, list) else f"keypoints.{name}"
+            error = _device_keypoint_mask_error(label, kp, device_mask, mask_tolerance_px)
+            if error:
+                errors.append(error)
+    return errors
+
+
 def _keypoint_errors(record: dict, obs_shape: tuple | None = None,
                      device_mask: np.ndarray | None = None,
                      mask_tolerance_px: float = KEYPOINT_MASK_TOLERANCE_PX) -> list[str]:
@@ -251,9 +287,9 @@ def _keypoint_errors(record: dict, obs_shape: tuple | None = None,
                     errors.append(f"{label} in-frame")
                     continue
             if present and name in DEVICE_KEYPOINTS and device_mask is not None:
-                dist = _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
-                if dist is not None and dist > mask_tolerance_px:
-                    errors.append(f"{label} on-device distance={dist:.2f}px")
+                error = _device_keypoint_mask_error(label, kp, device_mask, mask_tolerance_px)
+                if error:
+                    errors.append(error)
     return errors
 
 

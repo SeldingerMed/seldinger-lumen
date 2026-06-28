@@ -304,6 +304,24 @@ def test_index_record_iterator_reports_invalid_rows_with_context(tmp_path):
         list(iter_index_records(wrong_shape))
 
 
+def test_device_keypoint_mask_error_helper_is_exported():
+    from lumen.data import device_keypoint_mask_errors
+
+    mask = np.eye(8, dtype=np.uint8)
+
+    errors = device_keypoint_mask_errors(
+        {"tip": {"uv": [7.0, 0.0], "present": True}},
+        mask,
+    )
+    assert len(errors) == 1
+    assert errors[0].startswith("keypoints.tip on-device distance=")
+    assert device_keypoint_mask_errors(
+        {"tip": {"uv": [7.0, 0.0], "present": True}},
+        mask,
+        mask_tolerance_px=10.0,
+    ) == []
+
+
 def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
     import lumen.bench as bench
     from lumen.cli import benchmark_main

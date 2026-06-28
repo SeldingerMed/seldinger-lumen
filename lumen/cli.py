@@ -8,13 +8,8 @@ import os
 import sys
 from pathlib import Path
 
-import numpy as np
-
+from lumen.data.index import KEYPOINT_MASK_TOLERANCE_PX, device_keypoint_mask_errors
 from lumen.hardware import describe
-
-
-KEYPOINT_MASK_TOLERANCE_PX = 1.5
-DEVICE_KEYPOINTS = ("base", "tip", "nodes")
 
 
 def _command_table():
@@ -245,13 +240,6 @@ def validate_main(argv=None, prog=None) -> None:
         raise SystemExit(1)
 
 
-def _nearest_mask_distance(mask: np.ndarray, uv: np.ndarray) -> float | None:
-    if mask.ndim != 2 or not mask.any():
-        return None
-    ys, xs = np.nonzero(mask)
-    return float(np.sqrt(((xs - uv[0]) ** 2 + (ys - uv[1]) ** 2).min()))
-
-
 def _require_cv_labels(ep, root, keypoint_mask_tolerance: float = KEYPOINT_MASK_TOLERANCE_PX) -> int:
     fluoro_steps = 0
     for i, step in enumerate(ep.steps):
@@ -274,23 +262,7 @@ def _require_cv_labels(ep, root, keypoint_mask_tolerance: float = KEYPOINT_MASK_
             kp = keypoints.get(name)
             if not isinstance(kp, dict) or not kp.get("present", True):
                 missing.append(f"keypoints.{name}")
-        if device_mask is not None and np.asarray(device_mask).any():
-            for name in DEVICE_KEYPOINTS:
-                value = keypoints.get(name)
-                values = value if isinstance(value, list) else [value]
-                for j, kp in enumerate(values):
-                    if not isinstance(kp, dict) or not kp.get("present", True):
-                        continue
-                    uv = kp.get("uv")
-                    if uv is None:
-                        continue
-                    arr = np.asarray(uv, dtype=float)
-                    if arr.shape != (2,) or not np.isfinite(arr).all():
-                        continue
-                    dist = _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
-                    if dist is not None and dist > keypoint_mask_tolerance:
-                        label = f"keypoints.{name}[{j}]" if isinstance(value, list) else f"keypoints.{name}"
-                        missing.append(f"{label} on-device distance={dist:.2f}px")
+        missing.extend(device_keypoint_mask_errors(keypoints, device_mask, keypoint_mask_tolerance))
         if missing:
             raise ValueError(f"step {i}: missing CV labels: {', '.join(missing)}")
     return fluoro_steps

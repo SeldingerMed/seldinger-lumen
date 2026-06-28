@@ -11,8 +11,9 @@ patient corpus is the proprietary moat (§327) and stays private behind the same
 from lumen.data.bundle import CaseBundle, validate_case_bundle
 from lumen.data.calibrate import calibrate_from_episode, joint_probe_episode, probe_episode
 from lumen.data.capture import EpisodeRecorder, rollout_episode
-from lumen.data.index import (iter_index_records, iter_step_records, load_step_record,
-                              resolve_record_paths, summarize_index)
+from lumen.data.index import (device_keypoint_mask_errors, iter_index_records,
+                              iter_step_records, load_step_record, resolve_record_paths,
+                              summarize_index)
 from lumen.data.metrics import compute_clinical_metrics
 from lumen.data.replay import EpisodeDataset, annotation_coverage, replay, summarize
 from lumen.data.schema import (SCHEMA_VERSION, Episode, EpisodeMeta, Outcome, Step,
@@ -24,5 +25,5 @@ __all__ = ["Episode", "EpisodeMeta", "Step", "Outcome", "validate", "SCHEMA_VERS
            "EpisodeRecorder", "rollout_episode",
            "EpisodeDataset", "replay", "summarize", "annotation_coverage",
            "iter_step_records", "iter_index_records", "load_step_record",
-           "resolve_record_paths", "summarize_index",
+           "resolve_record_paths", "summarize_index", "device_keypoint_mask_errors",
            "probe_episode", "joint_probe_episode", "calibrate_from_episode"]
