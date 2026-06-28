@@ -183,7 +183,8 @@ lumen inspect-index episodes/index.jsonl --check-paths
 The inspection summary reports row counts by episode, observation modality,
 outcome label, and calibration type. With `--check-paths`, it also counts missing
 observation, mask, vessel-mask, and node-position sidecar references without
-loading the arrays.
+loading the arrays. Add `--json` when a CI job or notebook needs the raw
+machine-readable summary.
 
 Read it back without depending on a training framework:
 

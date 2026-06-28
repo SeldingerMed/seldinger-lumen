@@ -73,7 +73,7 @@ loaded with `iter_index_records(path, load_arrays=True)`; pass
 --require-cv-labels` to write a fluoro-only training index that fails on missing
 or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
 modalities, labels, calibration types, and missing sidecar references before a
-training job opens arrays. For
+training job opens arrays; add `--json` for scripts and notebooks. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
 

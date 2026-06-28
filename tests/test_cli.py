@@ -87,6 +87,12 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     capsys.readouterr()
 
     main(["inspect-index", str(index_path), "--check-paths"])
+    human = capsys.readouterr().out
+    assert "records: 1" in human
+    assert "modalities: fluoro=1" in human
+    assert "obs_path: 1 refs, 0 missing" in human
+
+    main(["inspect-index", str(index_path), "--check-paths", "--json"])
     summary = json.loads(capsys.readouterr().out)
     assert summary["records"] == 1
     assert summary["episodes"] == {"case": 1}
@@ -98,6 +104,13 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     (tmp_path / "case" / "obs" / "000.npy").unlink()
     with pytest.raises(SystemExit) as seen:
         inspect_index_main([str(index_path), "--check-paths"])
+    assert seen.value.code == 1
+    broken_out = capsys.readouterr().out
+    assert "obs_path: 1 refs, 1 missing" in broken_out
+    assert "missing examples:" in broken_out
+
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(index_path), "--check-paths", "--json"])
     assert seen.value.code == 1
     broken = json.loads(capsys.readouterr().out)
     assert broken["missing_paths"]["obs_path"] == 1

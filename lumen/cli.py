@@ -354,6 +354,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
                              "of the index file's parent.")
     parser.add_argument("--check-paths", action="store_true",
                         help="Check that referenced observation/mask/node sidecars exist.")
+    parser.add_argument("--json", action="store_true",
+                        help="Print the raw machine-readable summary JSON.")
     args = parser.parse_args(argv)
 
     try:
@@ -365,9 +367,37 @@ def inspect_index_main(argv=None, prog=None) -> None:
     except ValueError as e:
         print(f"invalid index {args.index_path!r}: {e}")
         raise SystemExit(1) from None
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        _print_index_summary(summary)
     if summary["records"] == 0 or any(summary["missing_paths"].values()):
         raise SystemExit(1)
+
+
+def _format_counts(counts: dict) -> str:
+    if not counts:
+        return "-"
+    return ", ".join(f"{name}={count}" for name, count in counts.items())
+
+
+def _print_index_summary(summary: dict) -> None:
+    print(f"index: {summary['index_path']}")
+    print(f"records: {summary['records']}")
+    print(f"episodes: {len(summary['episodes'])} ({_format_counts(summary['episodes'])})")
+    print(f"modalities: {_format_counts(summary['modalities'])}")
+    print(f"labels: {_format_counts(summary['labels'])}")
+    print(f"calibration_types: {_format_counts(summary['calibration_types'])}")
+    path_status = "checked" if summary["paths_checked"] else "not checked"
+    print(f"paths: {path_status}")
+    for field, count in summary["path_fields"].items():
+        missing = summary["missing_paths"].get(field, 0)
+        print(f"  {field}: {count} refs, {missing} missing")
+    if summary["missing_path_examples"]:
+        print("missing examples:")
+        for item in summary["missing_path_examples"]:
+            print(f"  line {item['line']} {item.get('episode')}: "
+                  f"{item['field']} -> {item['path']}")
 
 
 def calibrate_main(argv=None, prog=None) -> None:
