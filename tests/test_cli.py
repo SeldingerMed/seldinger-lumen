@@ -672,6 +672,19 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     assert "indexed 1 step records from 1/2 valid case bundles" in out
     assert "modality=luminal" in out
 
+    shutil.copytree(tmp_path / "fluoro", tmp_path / "z_bad_fluoro")
+    manifest = tmp_path / "z_bad_fluoro" / "manifest.json"
+    payload = json.loads(manifest.read_text())
+    payload["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [0.0, 15.0]
+    manifest.write_text(json.dumps(payload) + "\n")
+    with pytest.raises(SystemExit) as seen:
+        index_main([str(tmp_path), "--modality", "fluoro", "--require-cv-labels"])
+    assert seen.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "keypoints.tip on-device" in captured.err
+    shutil.rmtree(tmp_path / "z_bad_fluoro")
+
     with pytest.raises(SystemExit) as seen:
         index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"),
                     "--modality", "luminal", "--require-cv-labels"])

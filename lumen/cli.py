@@ -331,7 +331,10 @@ def index_main(argv=None, prog=None) -> None:
     ds = EpisodeDataset(root, validate_on_load=False)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    strict_checks = args.check_sidecars or args.require_cv_labels
+    buffered_stdout = args.out is None and strict_checks
     out = open(args.out, "w") if args.out else sys.stdout
+    output_lines = [] if buffered_stdout else None
     index_base_dir = None if args.absolute_paths else (Path(args.out).parent if args.out else root)
     records = episodes = contributing_episodes = 0
     cv_steps = 0
@@ -352,7 +355,11 @@ def index_main(argv=None, prog=None) -> None:
             for record in iter_step_records(ep, d, base_dir=index_base_dir):
                 if args.modality != "all" and record.get("obs_modality") != args.modality:
                     continue
-                out.write(json.dumps(record, sort_keys=True) + "\n")
+                line = json.dumps(record, sort_keys=True) + "\n"
+                if output_lines is not None:
+                    output_lines.append(line)
+                else:
+                    out.write(line)
                 records += 1
                 episode_records += 1
             if episode_records:
@@ -388,6 +395,8 @@ def index_main(argv=None, prog=None) -> None:
             raise SystemExit(1)
     if (args.check_sidecars or args.require_cv_labels) and episodes == 0:
         raise SystemExit(1)
+    if output_lines is not None:
+        out.writelines(output_lines)
 
 
 def inspect_index_main(argv=None, prog=None) -> None:
