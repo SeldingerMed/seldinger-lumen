@@ -545,6 +545,8 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     assert np.array_equal(direct["device_mask"], np.eye(16, dtype=np.uint8))
 
     (tmp_path / "case" / "obs" / "000_device_mask.npy").unlink()
+    with pytest.raises(FileNotFoundError, match="missing device_mask_path.*episode 'case' step 0"):
+        next(iter_index_records(out_path, load_arrays=True))
     with pytest.raises(SystemExit) as seen:
         index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"), "--require-cv-labels"])
     assert seen.value.code == 1

@@ -101,6 +101,8 @@ def load_step_record(record: dict, base_dir: str | Path | None = None) -> dict:
     corresponding path exists in the row.
     """
     sample = resolve_record_paths(record, base_dir or ".")
+    episode = sample.get("episode", "<unknown>")
+    step = sample.get("step_index", "<unknown>")
     for key, name in (
         ("obs_path", "obs"),
         ("device_mask_path", "device_mask"),
@@ -109,7 +111,15 @@ def load_step_record(record: dict, base_dir: str | Path | None = None) -> dict:
     ):
         path = sample.get(key)
         if path:
-            sample[name] = np.load(path)
+            try:
+                sample[name] = np.load(path)
+            except FileNotFoundError as e:
+                raise FileNotFoundError(
+                    f"missing {key} for episode {episode!r} step {step}: {path}") from e
+            except Exception as e:
+                raise ValueError(
+                    f"could not load {key} for episode {episode!r} step {step}: "
+                    f"{path} ({type(e).__name__}: {e})") from e
     return sample
 
 
