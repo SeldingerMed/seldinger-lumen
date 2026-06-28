@@ -92,7 +92,9 @@ def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsy
     validate_main([str(tmp_path)])
     assert "validated 1 case bundles" in capsys.readouterr().out
     validate_main([str(tmp_path), "--require-cv-labels"])
-    assert "validated 1 case bundles" in capsys.readouterr().out
+    strict_out = capsys.readouterr().out
+    assert "validated 1 case bundles" in strict_out
+    assert "cv_label_steps=1" in strict_out
 
     missing_cv = Episode(
         meta=ep.meta,

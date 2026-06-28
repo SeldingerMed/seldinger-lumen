@@ -213,7 +213,8 @@ def validate_main(argv=None, prog=None) -> None:
             continue
         valid += 1
 
-    print(f"validated {valid} case bundles under {root}")
+    cv_msg = f"  cv_label_steps={cv_steps}" if args.require_cv_labels else ""
+    print(f"validated {valid} case bundles under {root}{cv_msg}")
     if args.require_cv_labels and cv_steps == 0:
         skipped.append((root, "ValueError: no fluoro observations found for --require-cv-labels"))
     if skipped:
