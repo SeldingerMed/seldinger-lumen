@@ -86,7 +86,8 @@ manifest-only annotation coverage
 corpus before loading image arrays. `lumen index` writes one JSONL row per timestep
 with observation, mask, node-position, keypoint, action,
 clinical-metric, label, calibration, and provenance fields for dataloaders. Paths
-are corpus-relative by default so the index moves with the bundle; pass
+are relative to the index file by default, so sibling or nested index outputs can
+be loaded with `iter_index_records(path, load_arrays=True)`; pass
 `--absolute-paths` for a machine-local index. Pass `--modality fluoro
 --require-cv-labels` to write a fluoro-only training index that fails on missing
 or empty CV labels. For training loops,

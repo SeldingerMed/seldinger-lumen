@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,7 @@ def _record_path(path: str | Path, base_dir: str | Path | None = None) -> str:
     path = Path(path).resolve()
     if base_dir is None:
         return str(path)
-    return str(path.relative_to(Path(base_dir).resolve()))
+    return os.path.relpath(path, Path(base_dir).resolve())
 
 
 def _sidecar_path(root: str | Path, ref: str | None, base_dir: str | Path | None = None) -> str | None:
@@ -35,7 +36,7 @@ def iter_step_records(ep: Episode, root: str | Path, base_dir: str | Path | None
     The records are manifest-derived paths and metadata. They do not load image,
     mask, or node arrays, so callers can build an index cheaply and let their
     training dataloader decide when to open sidecars. Pass ``base_dir`` to emit
-    paths relative to a corpus root; omit it for absolute paths.
+    paths relative to the index location or corpus root; omit it for absolute paths.
     """
     root = Path(root)
     episode_dir = _record_path(root, base_dir)
@@ -81,7 +82,7 @@ def resolve_record_paths(record: dict, base_dir: str | Path) -> dict:
         if not key.endswith("_path") or not value:
             continue
         path = Path(value)
-        out[key] = str(path if path.is_absolute() else base / path)
+        out[key] = str(path if path.is_absolute() else (base / path).resolve())
     return out
 
 

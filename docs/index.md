@@ -66,9 +66,11 @@ annotation coverage such as
 masks/keypoints before loading arrays. `lumen index` writes a
 JSONL dataloader index with observation, mask, node-position, keypoint, action,
 clinical-metric, label, calibration, and provenance fields. Paths are
-corpus-relative by default; pass `--absolute-paths` for a machine-local index. Pass
-`--modality fluoro --require-cv-labels` to write a fluoro-only training index that
-fails on missing or empty CV labels. For
+relative to the index file by default, so sibling or nested index outputs can be
+loaded with `iter_index_records(path, load_arrays=True)`; pass
+`--absolute-paths` for a machine-local index. Pass `--modality fluoro
+--require-cv-labels` to write a fluoro-only training index that fails on missing
+or empty CV labels. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
 

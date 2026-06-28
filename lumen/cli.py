@@ -285,6 +285,7 @@ def index_main(argv=None, prog=None) -> None:
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     out = open(args.out, "w") if args.out else sys.stdout
+    index_base_dir = None if args.absolute_paths else (Path(args.out).parent if args.out else root)
     records = episodes = contributing_episodes = 0
     cv_steps = 0
     skipped = []
@@ -300,9 +301,8 @@ def index_main(argv=None, prog=None) -> None:
                 skipped.append((d, f"{type(e).__name__}: {e}"))
                 continue
             episodes += 1
-            base_dir = None if args.absolute_paths else root
             episode_records = 0
-            for record in iter_step_records(ep, d, base_dir=base_dir):
+            for record in iter_step_records(ep, d, base_dir=index_base_dir):
                 if args.modality != "all" and record.get("obs_modality") != args.modality:
                     continue
                 out.write(json.dumps(record, sort_keys=True) + "\n")

@@ -140,8 +140,11 @@ For CV/RL training jobs that want a flat manifest, run:
 lumen index episodes --out episodes/index.jsonl --check-sidecars
 ```
 
-This writes one JSON object per timestep. By default, path fields are relative to
-the corpus root so the index can move with the bundle:
+This writes one JSON object per timestep. When `--out` writes a file, path fields
+are relative to the index file's directory, so
+`iter_index_records(path, load_arrays=True)` works without extra arguments even
+if the index lives in a sibling or nested directory. For the recommended
+`episodes/index.jsonl` layout, paths are also corpus-relative:
 
 ```jsonc
 {
@@ -165,8 +168,9 @@ the corpus root so the index can move with the bundle:
 }
 ```
 
-Use `--absolute-paths` when the index is intentionally machine-local. The index
-does not replace `manifest.json`; it is a dataloader convenience generated from
+When streaming to stdout, relative paths are corpus-relative. Use
+`--absolute-paths` when the index is intentionally machine-local. The index does
+not replace `manifest.json`; it is a dataloader convenience generated from
 validated case bundles. Use `--modality fluoro --require-cv-labels` when building
 a fluoro-only mask/keypoint training index.
 

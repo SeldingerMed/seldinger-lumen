@@ -275,6 +275,9 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     nested_path = tmp_path / "indexes" / "case" / "index.jsonl"
     index_main([str(tmp_path), "--out", str(nested_path), "--check-sidecars"])
     assert nested_path.exists()
+    nested_sample = next(iter_index_records(nested_path, load_arrays=True))
+    assert nested_sample["obs"].shape == (16, 16)
+    assert nested_sample["obs_path"] == str((tmp_path / "case" / "obs" / "000.npy").resolve())
     strict_path = tmp_path / "strict.jsonl"
     index_main([str(tmp_path), "--out", str(strict_path), "--require-cv-labels"])
     assert "cv_label_steps=1" in capsys.readouterr().out
