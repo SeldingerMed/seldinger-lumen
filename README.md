@@ -96,8 +96,8 @@ modalities, labels, calibration types, episode-level clinical outcome/safety cou
 keypoint coverage, and missing sidecar references before a training job opens arrays;
 add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
 keypoints, `--check-arrays` to load referenced arrays, report mask coverage, reject
-empty/bad masks, and catch off-frame keypoints, and `--json` for scripts and
-notebooks. For training loops,
+empty/bad masks, and catch off-frame or off-device keypoints, and `--json` for
+scripts and notebooks. For training loops,
 `CaseBundle.load(path).replay(include_annotations=True)` yields each observation
 with its lazy-loaded masks/keypoints.
 

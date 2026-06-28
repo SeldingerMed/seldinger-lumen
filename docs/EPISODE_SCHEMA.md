@@ -189,8 +189,8 @@ Add `--require-cv-labels` when a fluoro training index must have device/vessel
 mask references and present tip/base keypoints on every row. Add `--check-arrays`
 when a CI job should load referenced arrays, report mask coverage, reject empty,
 malformed, or shape-mismatched masks, and catch present keypoints outside the
-observation frame. Add `--json` when a CI job or notebook needs the raw
-machine-readable summary.
+observation frame or away from the device mask. Add `--json` when a CI job or
+notebook needs the raw machine-readable summary.
 
 Read it back without depending on a training framework:
 

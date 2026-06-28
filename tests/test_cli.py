@@ -92,8 +92,8 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
                  annotations={"device_mask_ref": "000_device_mask.npy",
                               "vessel_mask_ref": "000_vessel_mask.npy",
                               "keypoints": {
-                                  "base": {"uv": [4.0, 1.0], "present": True},
-                                  "tip": {"uv": [4.0, 3.0], "present": True},
+                                  "base": {"uv": [1.0, 1.0], "present": True},
+                                  "tip": {"uv": [3.0, 3.0], "present": True},
                               }},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((8, 8)),
@@ -104,7 +104,7 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
                  annotations={"device_mask_ref": "001_device_mask.npy",
                               "vessel_mask_ref": "001_vessel_mask.npy",
                               "keypoints": {
-                                  "base": {"uv": [4.0, 1.0], "present": True},
+                                  "base": {"uv": [1.0, 1.0], "present": True},
                                   "tip": {"uv": [4.0, 4.0], "present": True},
                               }},
                  obs_modality="fluoro", obs_ref="001.npy",
@@ -195,6 +195,16 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     keypoint_out = capsys.readouterr().out
     assert "keypoint errors:" in keypoint_out
     assert "keypoints.tip in-frame" in keypoint_out
+
+    off_device_path = tmp_path / "indexes" / "off_device_keypoint.jsonl"
+    rows = [json.loads(line) for line in index_path.read_text().splitlines()]
+    rows[0]["keypoints"]["tip"]["uv"] = [0.0, 7.0]
+    off_device_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(off_device_path), "--check-arrays", "--require-cv-labels"])
+    assert seen.value.code == 1
+    off_device_out = capsys.readouterr().out
+    assert "keypoints.tip on-device" in off_device_out
 
     inconsistent_path = tmp_path / "indexes" / "inconsistent.jsonl"
     rows = [json.loads(line) for line in index_path.read_text().splitlines()]

@@ -14,6 +14,8 @@ from lumen.data.schema import Episode, _safe_path
 
 PATH_FIELDS = ("obs_path", "device_mask_path", "vessel_mask_path", "node_positions_path")
 CV_KEYPOINTS = ("base", "tip")
+DEVICE_KEYPOINTS = ("base", "tip", "nodes")
+KEYPOINT_MASK_TOLERANCE_PX = 1.5
 
 
 def _record_path(path: str | Path, base_dir: str | Path | None = None) -> str:
@@ -180,7 +182,15 @@ def _cv_label_errors(record: dict) -> list[str]:
     return errors
 
 
-def _keypoint_errors(record: dict, obs_shape: tuple | None = None) -> list[str]:
+def _nearest_mask_distance(mask: np.ndarray, uv: np.ndarray) -> float | None:
+    if mask.ndim != 2 or not mask.any():
+        return None
+    ys, xs = np.nonzero(mask)
+    return float(np.sqrt(((xs - uv[0]) ** 2 + (ys - uv[1]) ** 2).min()))
+
+
+def _keypoint_errors(record: dict, obs_shape: tuple | None = None,
+                     device_mask: np.ndarray | None = None) -> list[str]:
     keypoints = record.get("keypoints")
     if keypoints in (None, {}):
         return []
@@ -218,11 +228,16 @@ def _keypoint_errors(record: dict, obs_shape: tuple | None = None) -> list[str]:
                 u, v = arr
                 if not (0.0 <= u < w and 0.0 <= v < h):
                     errors.append(f"{label} in-frame")
+                    continue
+            if present and name in DEVICE_KEYPOINTS and device_mask is not None:
+                dist = _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
+                if dist is not None and dist > KEYPOINT_MASK_TOLERANCE_PX:
+                    errors.append(f"{label} on-device distance={dist:.2f}px")
     return errors
 
 
 def _array_errors(record: dict, resolved: dict,
-                  mask_coverage: dict | None = None) -> tuple[list[str], tuple | None]:
+                  mask_coverage: dict | None = None) -> tuple[list[str], tuple | None, np.ndarray | None]:
     errors = []
     arrays = {}
     for field in PATH_FIELDS:
@@ -252,7 +267,7 @@ def _array_errors(record: dict, resolved: dict,
             errors.append(f"{name} nonempty")
         if mask_coverage is not None and mask.ndim == 2 and mask.size:
             mask_coverage.setdefault(name, []).append(float(np.count_nonzero(mask) / mask.size))
-    return errors, obs_shape
+    return errors, obs_shape, arrays.get("device_mask_path")
 
 
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
@@ -357,8 +372,9 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                             "path": resolved[field],
                         })
             obs_shape = None
+            device_mask = None
             if check_arrays:
-                errors, obs_shape = _array_errors(record, resolved, mask_coverage)
+                errors, obs_shape, device_mask = _array_errors(record, resolved, mask_coverage)
                 if errors and len(array_errors) < 5:
                     array_errors.append({
                         "line": line_no,
@@ -366,7 +382,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                         "errors": errors,
                     })
             if require_cv_labels or check_arrays:
-                errors = _keypoint_errors(record, obs_shape)
+                errors = _keypoint_errors(record, obs_shape, device_mask)
                 if errors and len(keypoint_errors) < 5:
                     keypoint_errors.append({
                         "line": line_no,

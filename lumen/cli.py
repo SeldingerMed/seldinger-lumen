@@ -355,7 +355,7 @@ def inspect_index_main(argv=None, prog=None) -> None:
     parser.add_argument("--check-paths", action="store_true",
                         help="Check that referenced observation/mask/node sidecars exist.")
     parser.add_argument("--check-arrays", action="store_true",
-                        help="Load referenced arrays and validate mask shape, dtype, and non-emptiness.")
+                        help="Load arrays and validate masks plus device-keypoint agreement.")
     parser.add_argument("--require-cv-labels", action="store_true",
                         help="Fail if fluoro rows lack mask refs or present tip/base keypoints.")
     parser.add_argument("--json", action="store_true",
