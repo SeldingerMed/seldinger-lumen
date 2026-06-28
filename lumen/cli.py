@@ -371,7 +371,9 @@ def inspect_index_main(argv=None, prog=None) -> None:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
         _print_index_summary(summary)
-    if summary["records"] == 0 or any(summary["missing_paths"].values()):
+    if (summary["records"] == 0
+            or any(summary["missing_paths"].values())
+            or summary.get("clinical", {}).get("episode_inconsistencies")):
         raise SystemExit(1)
 
 

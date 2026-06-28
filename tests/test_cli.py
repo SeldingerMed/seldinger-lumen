@@ -122,7 +122,16 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     rows = [json.loads(line) for line in index_path.read_text().splitlines()]
     rows[1]["outcome"]["success"] = False
     inconsistent_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
-    inspect_index_main([str(inconsistent_path), "--json"])
+
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(inconsistent_path)])
+    assert seen.value.code == 1
+    inconsistent_human = capsys.readouterr().out
+    assert "endpoint inconsistencies:" in inconsistent_human
+
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(inconsistent_path), "--json"])
+    assert seen.value.code == 1
     inconsistent = json.loads(capsys.readouterr().out)
     assert inconsistent["clinical"]["episode_inconsistencies"] == [{
         "episode": "case",
