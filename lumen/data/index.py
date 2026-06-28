@@ -211,6 +211,13 @@ def _nearest_mask_distance(mask: np.ndarray, uv: np.ndarray) -> float | None:
 
 def _device_keypoint_mask_error(label: str, kp: dict, device_mask,
                                 mask_tolerance_px: float) -> str | None:
+    dist = _device_keypoint_mask_distance(kp, device_mask)
+    if dist is not None and dist > mask_tolerance_px:
+        return f"{label} on-device distance={dist:.2f}px"
+    return None
+
+
+def _device_keypoint_mask_distance(kp: dict, device_mask) -> float | None:
     if not isinstance(kp, dict) or not kp.get("present", True):
         return None
     uv = kp.get("uv")
@@ -222,10 +229,7 @@ def _device_keypoint_mask_error(label: str, kp: dict, device_mask,
         return None
     if arr.shape != (2,) or not np.isfinite(arr).all():
         return None
-    dist = _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
-    if dist is not None and dist > mask_tolerance_px:
-        return f"{label} on-device distance={dist:.2f}px"
-    return None
+    return _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
 
 
 def device_keypoint_mask_errors(keypoints, device_mask,
@@ -243,6 +247,21 @@ def device_keypoint_mask_errors(keypoints, device_mask,
             if error:
                 errors.append(error)
     return errors
+
+
+def device_keypoint_mask_distances(keypoints, device_mask) -> dict[str, list[float]]:
+    """Return nearest-device-mask distances for present device keypoints."""
+    if device_mask is None or not np.asarray(device_mask).any() or not isinstance(keypoints, dict):
+        return {}
+    distances = {}
+    for name in DEVICE_KEYPOINTS:
+        value = keypoints.get(name)
+        values = value if isinstance(value, list) else [value]
+        for kp in values:
+            dist = _device_keypoint_mask_distance(kp, device_mask)
+            if dist is not None:
+                distances.setdefault(name, []).append(dist)
+    return distances
 
 
 def _keypoint_errors(record: dict, obs_shape: tuple | None = None,
@@ -353,6 +372,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     keypoint_errors = []
     array_errors = []
     mask_coverage = {}
+    keypoint_device_distances = {}
     missing_examples = []
     records = 0
     with open(index_path) as f:
@@ -448,6 +468,11 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                         "episode": record.get("episode"),
                         "errors": errors,
                     })
+                if check_arrays:
+                    for name, distances in device_keypoint_mask_distances(
+                        record.get("keypoints"), device_mask,
+                    ).items():
+                        keypoint_device_distances.setdefault(name, []).extend(distances)
     return {
         "index_path": str(index_path),
         "records": records,
@@ -477,6 +502,11 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
         "array_errors": array_errors,
         "mask_coverage": (
             {name: _numeric_summary(values) for name, values in sorted(mask_coverage.items())}
+            if check_arrays else {}
+        ),
+        "keypoint_device_distance": (
+            {name: _numeric_summary(values)
+             for name, values in sorted(keypoint_device_distances.items())}
             if check_arrays else {}
         ),
         "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},

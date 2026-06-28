@@ -139,6 +139,9 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "mask coverage:" in human
     assert "device_mask: mean=12.500% min=12.500% max=12.500% n=2" in human
     assert "vessel_mask: mean=100.000% min=100.000% max=100.000% n=2" in human
+    assert "keypoint device distance:" in human
+    assert "base: mean=0.000px min=0.000px max=0.000px n=2" in human
+    assert "tip: mean=0.000px min=0.000px max=0.000px n=2" in human
     assert "obs_path: 2 refs, 0 missing" in human
 
     main(["inspect-index", str(index_path), "--check-arrays", "--require-cv-labels", "--json"])
@@ -174,6 +177,18 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
         "min": 1.0,
         "max": 1.0,
         "mean": 1.0,
+    }
+    assert summary["keypoint_device_distance"]["base"] == {
+        "count": 2,
+        "min": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+    }
+    assert summary["keypoint_device_distance"]["tip"] == {
+        "count": 2,
+        "min": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
     }
     assert summary["path_fields"]["obs_path"] == 2
     assert summary["missing_paths"]["obs_path"] == 0

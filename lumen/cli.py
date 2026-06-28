@@ -442,6 +442,14 @@ def _format_fraction_summary(summary: dict) -> str:
             f"max={summary['max']:.3%} n={summary['count']}")
 
 
+def _format_numeric_summary(summary: dict, unit: str = "") -> str:
+    mean = summary.get("mean")
+    if mean is None:
+        return "-"
+    return (f"mean={mean:.3f}{unit} min={summary['min']:.3f}{unit} "
+            f"max={summary['max']:.3f}{unit} n={summary['count']}")
+
+
 def _print_index_summary(summary: dict) -> None:
     print(f"index: {summary['index_path']}")
     print(f"records: {summary['records']}")
@@ -503,6 +511,11 @@ def _print_index_summary(summary: dict) -> None:
             print("mask coverage:")
             for name, values in coverage.items():
                 print(f"  {name}: {_format_fraction_summary(values)}")
+        distances = summary.get("keypoint_device_distance", {})
+        if distances:
+            print("keypoint device distance:")
+            for name, values in distances.items():
+                print(f"  {name}: {_format_numeric_summary(values, 'px')}")
     if summary.get("array_errors"):
         print("array errors:")
         for item in summary["array_errors"]:
