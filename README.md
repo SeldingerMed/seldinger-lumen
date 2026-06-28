@@ -101,6 +101,9 @@ scripts and notebooks. Use `--keypoint-mask-tolerance` to tune how far device
 keypoints may sit from the device mask before the index fails. For training loops,
 `CaseBundle.load(path).replay(include_annotations=True)` yields each observation
 with its lazy-loaded masks/keypoints.
+The same tolerance option is available on `lumen validate` and `lumen index`
+when `--require-cv-labels` is enabled, so bad device labels can be stopped before
+writing an index.
 
 The standalone scripts (`lumen-hardware`, `lumen-validate`, `lumen-index`, and the other
 `lumen-*` commands) are also installed for shell pipelines.

@@ -8,7 +8,13 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from lumen.hardware import describe
+
+
+KEYPOINT_MASK_TOLERANCE_PX = 1.5
+DEVICE_KEYPOINTS = ("base", "tip", "nodes")
 
 
 def _command_table():
@@ -198,7 +204,13 @@ def validate_main(argv=None, prog=None) -> None:
     parser.add_argument("--require-cv-labels", action="store_true",
                         help="Require every fluoro observation to have device/vessel masks "
                              "and present tip/base keypoints.")
+    parser.add_argument("--keypoint-mask-tolerance", type=float,
+                        default=KEYPOINT_MASK_TOLERANCE_PX,
+                        help="Max pixel distance from device keypoints to the device mask "
+                             "when --require-cv-labels is enabled. Defaults to 1.5.")
     args = parser.parse_args(argv)
+    if args.keypoint_mask_tolerance < 0:
+        parser.error("--keypoint-mask-tolerance must be non-negative")
 
     root = Path(args.episodes_dir)
     if not root.is_dir():
@@ -214,7 +226,7 @@ def validate_main(argv=None, prog=None) -> None:
             ep = Episode.load(d)
             validate_case_bundle(ep, root=d)
             if args.require_cv_labels:
-                cv_steps += _require_cv_labels(ep, d)
+                cv_steps += _require_cv_labels(ep, d, args.keypoint_mask_tolerance)
         except Exception as e:
             skipped.append((d, f"{type(e).__name__}: {e}"))
             continue
@@ -233,7 +245,14 @@ def validate_main(argv=None, prog=None) -> None:
         raise SystemExit(1)
 
 
-def _require_cv_labels(ep, root) -> int:
+def _nearest_mask_distance(mask: np.ndarray, uv: np.ndarray) -> float | None:
+    if mask.ndim != 2 or not mask.any():
+        return None
+    ys, xs = np.nonzero(mask)
+    return float(np.sqrt(((xs - uv[0]) ** 2 + (ys - uv[1]) ** 2).min()))
+
+
+def _require_cv_labels(ep, root, keypoint_mask_tolerance: float = KEYPOINT_MASK_TOLERANCE_PX) -> int:
     fluoro_steps = 0
     for i, step in enumerate(ep.steps):
         if step.obs_modality != "fluoro" or not step.obs_ref:
@@ -242,16 +261,36 @@ def _require_cv_labels(ep, root) -> int:
         annotations = step.annotations if isinstance(step.annotations, dict) else {}
         missing = [name for name in ("device_mask_ref", "vessel_mask_ref")
                    if not annotations.get(name)]
+        device_mask = None
         for name in ("device_mask", "vessel_mask"):
             if annotations.get(f"{name}_ref"):
                 mask = step.load_annotation(root, name)
                 if mask is None or not mask.any():
                     missing.append(f"{name} nonempty")
+                if name == "device_mask":
+                    device_mask = mask
         keypoints = annotations.get("keypoints") if isinstance(annotations.get("keypoints"), dict) else {}
         for name in ("tip", "base"):
             kp = keypoints.get(name)
             if not isinstance(kp, dict) or not kp.get("present", True):
                 missing.append(f"keypoints.{name}")
+        if device_mask is not None and np.asarray(device_mask).any():
+            for name in DEVICE_KEYPOINTS:
+                value = keypoints.get(name)
+                values = value if isinstance(value, list) else [value]
+                for j, kp in enumerate(values):
+                    if not isinstance(kp, dict) or not kp.get("present", True):
+                        continue
+                    uv = kp.get("uv")
+                    if uv is None:
+                        continue
+                    arr = np.asarray(uv, dtype=float)
+                    if arr.shape != (2,) or not np.isfinite(arr).all():
+                        continue
+                    dist = _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
+                    if dist is not None and dist > keypoint_mask_tolerance:
+                        label = f"keypoints.{name}[{j}]" if isinstance(value, list) else f"keypoints.{name}"
+                        missing.append(f"{label} on-device distance={dist:.2f}px")
         if missing:
             raise ValueError(f"step {i}: missing CV labels: {', '.join(missing)}")
     return fluoro_steps
@@ -274,9 +313,15 @@ def index_main(argv=None, prog=None) -> None:
     parser.add_argument("--require-cv-labels", action="store_true",
                         help="Require fluoro observations to have non-empty masks and "
                              "present tip/base keypoints before indexing.")
+    parser.add_argument("--keypoint-mask-tolerance", type=float,
+                        default=KEYPOINT_MASK_TOLERANCE_PX,
+                        help="Max pixel distance from device keypoints to the device mask "
+                             "when --require-cv-labels is enabled. Defaults to 1.5.")
     args = parser.parse_args(argv)
     if args.require_cv_labels and args.modality not in ("all", "fluoro"):
         parser.error("--require-cv-labels is only valid with --modality all or fluoro")
+    if args.keypoint_mask_tolerance < 0:
+        parser.error("--keypoint-mask-tolerance must be non-negative")
 
     root = Path(args.episodes_dir)
     if not root.is_dir():
@@ -298,7 +343,7 @@ def index_main(argv=None, prog=None) -> None:
                 check_root = d if (args.check_sidecars or args.require_cv_labels) else None
                 validate_case_bundle(ep, root=check_root)
                 if args.require_cv_labels:
-                    cv_steps += _require_cv_labels(ep, d)
+                    cv_steps += _require_cv_labels(ep, d, args.keypoint_mask_tolerance)
             except Exception as e:
                 skipped.append((d, f"{type(e).__name__}: {e}"))
                 continue
@@ -338,6 +383,8 @@ def index_main(argv=None, prog=None) -> None:
         raise SystemExit(1)
     if skipped:
         if args.check_sidecars or args.require_cv_labels:
+            if args.out:
+                Path(args.out).unlink(missing_ok=True)
             raise SystemExit(1)
     if (args.check_sidecars or args.require_cv_labels) and episodes == 0:
         raise SystemExit(1)
@@ -356,7 +403,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
                         help="Check that referenced observation/mask/node sidecars exist.")
     parser.add_argument("--check-arrays", action="store_true",
                         help="Load arrays and validate masks plus device-keypoint agreement.")
-    parser.add_argument("--keypoint-mask-tolerance", type=float, default=1.5,
+    parser.add_argument("--keypoint-mask-tolerance", type=float,
+                        default=KEYPOINT_MASK_TOLERANCE_PX,
                         help="Max pixel distance from device keypoints to the device mask "
                              "when --check-arrays is enabled. Defaults to 1.5.")
     parser.add_argument("--require-cv-labels", action="store_true",

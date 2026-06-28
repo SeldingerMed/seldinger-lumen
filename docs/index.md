@@ -81,6 +81,9 @@ for scripts and notebooks. Use `--keypoint-mask-tolerance` to tune how far devic
 keypoints may sit from the device mask before the index fails. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
+The same tolerance option is available on `lumen validate` and `lumen index`
+when `--require-cv-labels` is enabled, so bad device labels can be stopped before
+writing an index.
 
 The standalone `lumen-*` scripts, including `lumen-validate`, remain installed for
 shell pipelines.

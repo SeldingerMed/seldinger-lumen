@@ -192,7 +192,8 @@ malformed, or shape-mismatched masks, and catch present keypoints outside the
 observation frame or away from the device mask. Add `--json` when a CI job or
 notebook needs the raw machine-readable summary. Use
 `--keypoint-mask-tolerance` to tune how far device keypoints may sit from the
-device mask before the index fails.
+device mask before the index fails; the same option applies to `lumen validate`
+and `lumen index` when `--require-cv-labels` is enabled.
 
 Read it back without depending on a training framework:
 

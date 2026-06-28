@@ -373,8 +373,8 @@ def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsy
                  annotations={"device_mask_ref": "000_device_mask.npy",
                               "vessel_mask_ref": "000_vessel_mask.npy",
                               "keypoints": {
-                                  "base": {"uv": [8.0, 1.0], "present": True},
-                                  "tip": {"uv": [8.0, 9.0], "present": True},
+                                  "base": {"uv": [1.0, 1.0], "present": True},
+                                  "tip": {"uv": [9.0, 9.0], "present": True},
                               }},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((16, 16)),
@@ -391,6 +391,20 @@ def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsy
     strict_out = capsys.readouterr().out
     assert "validated 1 case bundles" in strict_out
     assert "cv_label_steps=1" in strict_out
+
+    manifest = tmp_path / "ok" / "manifest.json"
+    payload = json.loads(manifest.read_text())
+    payload["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [0.0, 15.0]
+    manifest.write_text(json.dumps(payload) + "\n")
+    with pytest.raises(SystemExit) as seen:
+        validate_main([str(tmp_path), "--require-cv-labels"])
+    assert seen.value.code == 1
+    out = capsys.readouterr().out
+    assert "keypoints.tip on-device" in out
+    validate_main([str(tmp_path), "--require-cv-labels", "--keypoint-mask-tolerance", "100"])
+    assert "validated 1 case bundles" in capsys.readouterr().out
+    payload["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [9.0, 9.0]
+    manifest.write_text(json.dumps(payload) + "\n")
 
     missing_cv = Episode(
         meta=ep.meta,
@@ -497,8 +511,8 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
                  annotations={"device_mask_ref": "000_device_mask.npy",
                               "vessel_mask_ref": "000_vessel_mask.npy",
                               "keypoints": {
-                                  "base": {"uv": [8.0, 1.0], "present": True},
-                                  "tip": {"uv": [8.0, 9.0], "present": True},
+                                  "base": {"uv": [1.0, 1.0], "present": True},
+                                  "tip": {"uv": [9.0, 9.0], "present": True},
                               }},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((16, 16)),
@@ -547,6 +561,22 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     index_main([str(tmp_path), "--out", str(strict_path), "--require-cv-labels"])
     assert "cv_label_steps=1" in capsys.readouterr().out
 
+    manifest = tmp_path / "case" / "manifest.json"
+    payload = json.loads(manifest.read_text())
+    payload["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [0.0, 15.0]
+    manifest.write_text(json.dumps(payload) + "\n")
+    with pytest.raises(SystemExit) as seen:
+        index_main([str(tmp_path), "--out", str(tmp_path / "off_device.jsonl"),
+                    "--require-cv-labels"])
+    assert seen.value.code == 1
+    assert "keypoints.tip on-device" in capsys.readouterr().out
+    assert not (tmp_path / "off_device.jsonl").exists()
+    index_main([str(tmp_path), "--out", str(tmp_path / "loose.jsonl"),
+                "--require-cv-labels", "--keypoint-mask-tolerance", "100"])
+    assert "cv_label_steps=1" in capsys.readouterr().out
+    payload["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [9.0, 9.0]
+    manifest.write_text(json.dumps(payload) + "\n")
+
     abs_path = tmp_path / "absolute.jsonl"
     index_main([str(tmp_path), "--out", str(abs_path), "--absolute-paths"])
     abs_row = json.loads(abs_path.read_text().splitlines()[0])
@@ -573,6 +603,7 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
         index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"), "--require-cv-labels"])
     assert seen.value.code == 1
     assert "skipped invalid bundles" in capsys.readouterr().out
+    assert not (tmp_path / "bad.jsonl").exists()
 
 
 def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
@@ -594,8 +625,8 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
                  annotations={"device_mask_ref": "000_device_mask.npy",
                               "vessel_mask_ref": "000_vessel_mask.npy",
                               "keypoints": {
-                                  "base": {"uv": [8.0, 1.0], "present": True},
-                                  "tip": {"uv": [8.0, 9.0], "present": True},
+                                  "base": {"uv": [1.0, 1.0], "present": True},
+                                  "tip": {"uv": [9.0, 9.0], "present": True},
                               }},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((16, 16)),
