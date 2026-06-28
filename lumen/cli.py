@@ -11,6 +11,37 @@ from pathlib import Path
 from lumen.hardware import describe
 
 
+def _command_table():
+    return {
+        "hardware": ("Print backend hardware/software status.", hardware_main),
+        "benchmark": ("Run the canonical navigation benchmark.", benchmark_main),
+        "render-fluoro": ("Render the canonical synthetic fluoroscopy demo.", render_fluoro_main),
+        "capture": ("Capture the canonical procedural case-bundle corpus.", capture_main),
+        "replay": ("Summarize and replay a case-bundle corpus.", replay_main),
+        "index": ("Write a JSONL dataloader index for a corpus.", index_main),
+        "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
+    }
+
+
+def main(argv=None) -> None:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    commands = _command_table()
+    parser = argparse.ArgumentParser(
+        prog="lumen",
+        description="Lumen first-run workflows for endovascular RL/CV datasets.",
+    )
+    subparsers = parser.add_subparsers(dest="command", metavar="command")
+    for name, (help_text, _) in commands.items():
+        subparsers.add_parser(name, help=help_text)
+    if not argv:
+        parser.print_help()
+        return
+    if argv[0] in commands:
+        commands[argv[0]][1](argv[1:])
+        return
+    parser.parse_args(argv)
+
+
 def hardware_main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="Print Lumen backend hardware/software status.")
     parser.parse_args(argv)

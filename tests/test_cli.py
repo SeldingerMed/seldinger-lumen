@@ -19,10 +19,11 @@ def test_pyproject_exposes_first_run_console_scripts():
     scripts = {
         ep.name: ep.value
         for ep in entry_points(group="console_scripts")
-        if ep.name.startswith("lumen-")
+        if ep.name == "lumen" or ep.name.startswith("lumen-")
     }
 
     assert scripts == {
+        "lumen": "lumen.cli:main",
         "lumen-hardware": "lumen.cli:hardware_main",
         "lumen-benchmark": "lumen.cli:benchmark_main",
         "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
@@ -31,6 +32,16 @@ def test_pyproject_exposes_first_run_console_scripts():
         "lumen-index": "lumen.cli:index_main",
         "lumen-calibrate": "lumen.cli:calibrate_main",
     }
+
+
+def test_umbrella_cli_dispatches_workflows(capsys):
+    from lumen.cli import main
+
+    main(["hardware"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert "newton_available" in payload
+    assert "backend_validated" in payload
 
 
 def test_replay_cli_handles_missing_root_without_warning(tmp_path, capsys):

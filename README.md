@@ -62,13 +62,13 @@ Check the backend, run the fixed benchmark, render a fluoroscopy frame, then wri
 replayable case bundle. These commands use only procedural anatomy.
 
 ```bash
-lumen-hardware
-lumen-benchmark /tmp/lumen-bench
-lumen-render-fluoro /tmp/lumen_fluoro.png
-lumen-capture /tmp/lumen-episodes
-lumen-replay /tmp/lumen-episodes
-lumen-index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl
-lumen-calibrate
+lumen hardware
+lumen benchmark /tmp/lumen-bench
+lumen render-fluoro /tmp/lumen_fluoro.png
+lumen capture /tmp/lumen-episodes
+lumen replay /tmp/lumen-episodes
+lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl
+lumen calibrate
 ```
 
 `capture_episode.py` writes one self-contained case directory per scenario plus
@@ -79,13 +79,16 @@ flags and skips invalid bundles with an explicit reason. It also reports
 manifest-only annotation coverage
 (`device_mask=19/19`, `vessel_mask=19/19`,
 `keypoints(base=18/19 tip=19/19 nodes=170/171)`) so a CV pipeline can screen a
-corpus before loading image arrays. `lumen-index` writes one JSONL row per timestep
+corpus before loading image arrays. `lumen index` writes one JSONL row per timestep
 with observation, mask, node-position, keypoint, action,
 clinical-metric, label, calibration, and provenance fields for dataloaders. Paths
 are corpus-relative by default so the index moves with the bundle; pass
 `--absolute-paths` for a machine-local index. For training loops,
 `CaseBundle.load(path).replay(include_annotations=True)` yields each observation
 with its lazy-loaded masks/keypoints.
+
+The standalone scripts (`lumen-hardware`, `lumen-index`, and the other
+`lumen-*` commands) are also installed for shell pipelines.
 
 The benchmark intentionally separates raw target reach from clinically safe reach:
 
