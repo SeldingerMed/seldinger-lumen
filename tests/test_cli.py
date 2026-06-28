@@ -252,3 +252,72 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
         index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"), "--require-cv-labels"])
     assert seen.value.code == 1
     assert "skipped invalid bundles" in capsys.readouterr().out
+
+
+def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
+    from lumen.cli import index_main
+
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=16, nv=16)
+    asset = procedural.straight_tube(80.0, 2.0)
+    Episode(
+        meta=EpisodeMeta(
+            asset_ref="asset.json",
+            device={"guidewire": {"radius": 0.2}},
+            sensor={"modality": "fluoro", "nu": 16, "nv": 16},
+            calibration={"type": "carm", "views": [carm.to_dict()]},
+            labels={"procedure": "navigation"},
+        ),
+        steps=[
+            Step(t=0.0, action={"insertion": 1.0},
+                 kinematics={"tip_mm": [0.0, 0.0, 2.0]},
+                 annotations={"device_mask_ref": "000_device_mask.npy",
+                              "vessel_mask_ref": "000_vessel_mask.npy",
+                              "keypoints": {
+                                  "base": {"uv": [8.0, 1.0], "present": True},
+                                  "tip": {"uv": [8.0, 9.0], "present": True},
+                              }},
+                 obs_modality="fluoro", obs_ref="000.npy",
+                 obs=np.ones((16, 16)),
+                 annotation_arrays={"device_mask": np.eye(16, dtype=np.uint8),
+                                    "vessel_mask": np.ones((16, 16), dtype=np.uint8)}),
+        ],
+        outcome=Outcome(success=True, final_dist=0.5, steps=1, label="fluoro_case"),
+        asset=asset,
+    ).save(tmp_path / "fluoro")
+    Episode(
+        meta=EpisodeMeta(
+            asset_ref="asset.json",
+            device={"scope": {"diameter": 2.0}},
+            sensor={"modality": "luminal", "nu": 8, "nv": 8},
+            calibration={"type": "scope", "intrinsics": {"fov_deg": 90.0}},
+            labels={"procedure": "navigation"},
+        ),
+        steps=[
+            Step(t=0.0, action={"insertion": 1.0},
+                 kinematics={"tip_mm": [0.0, 0.0, 2.0]},
+                 obs_modality="luminal", obs_ref="000.npy",
+                 obs=np.ones((8, 8, 3))),
+        ],
+        outcome=Outcome(success=True, final_dist=0.5, steps=1, label="luminal_case"),
+        asset=asset,
+    ).save(tmp_path / "luminal")
+
+    fluoro_index = tmp_path / "fluoro.jsonl"
+    index_main([str(tmp_path), "--out", str(fluoro_index),
+                "--modality", "fluoro", "--require-cv-labels"])
+    fluoro_rows = [json.loads(line) for line in fluoro_index.read_text().splitlines()]
+    assert [row["obs_modality"] for row in fluoro_rows] == ["fluoro"]
+    out = capsys.readouterr().out
+    assert "modality=fluoro" in out
+    assert "cv_label_steps=1" in out
+
+    luminal_index = tmp_path / "luminal.jsonl"
+    index_main([str(tmp_path), "--out", str(luminal_index), "--modality", "luminal"])
+    luminal_rows = [json.loads(line) for line in luminal_index.read_text().splitlines()]
+    assert [row["obs_modality"] for row in luminal_rows] == ["luminal"]
+    assert "modality=luminal" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as seen:
+        index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"),
+                    "--modality", "luminal", "--require-cv-labels"])
+    assert seen.value.code == 2

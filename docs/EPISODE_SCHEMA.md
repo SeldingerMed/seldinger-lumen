@@ -167,7 +167,8 @@ the corpus root so the index can move with the bundle:
 
 Use `--absolute-paths` when the index is intentionally machine-local. The index
 does not replace `manifest.json`; it is a dataloader convenience generated from
-validated case bundles.
+validated case bundles. Use `--modality fluoro --require-cv-labels` when building
+a fluoro-only mask/keypoint training index.
 
 Read it back without depending on a training framework:
 

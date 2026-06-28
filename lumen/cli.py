@@ -261,10 +261,15 @@ def index_main(argv=None, prog=None) -> None:
                         help="Emit machine-local absolute sidecar paths instead of corpus-relative paths.")
     parser.add_argument("--check-sidecars", action="store_true",
                         help="Validate referenced arrays exist before indexing.")
+    parser.add_argument("--modality", choices=("all", "fluoro", "luminal", "none"),
+                        default="all",
+                        help="Only emit rows for one observation modality. Defaults to all.")
     parser.add_argument("--require-cv-labels", action="store_true",
                         help="Require fluoro observations to have non-empty masks and "
                              "present tip/base keypoints before indexing.")
     args = parser.parse_args(argv)
+    if args.require_cv_labels and args.modality not in ("all", "fluoro"):
+        parser.error("--require-cv-labels is only valid with --modality all or fluoro")
 
     root = Path(args.episodes_dir)
     if not root.is_dir():
@@ -292,6 +297,8 @@ def index_main(argv=None, prog=None) -> None:
             episodes += 1
             base_dir = None if args.absolute_paths else root
             for record in iter_step_records(ep, d, base_dir=base_dir):
+                if args.modality != "all" and record.get("obs_modality") != args.modality:
+                    continue
                 out.write(json.dumps(record, sort_keys=True) + "\n")
                 records += 1
     finally:
@@ -300,7 +307,9 @@ def index_main(argv=None, prog=None) -> None:
 
     target = args.out or "stdout"
     cv_msg = f"  cv_label_steps={cv_steps}" if args.require_cv_labels else ""
-    msg = f"indexed {records} step records from {episodes} case bundles -> {target}{cv_msg}"
+    modality_msg = "" if args.modality == "all" else f"  modality={args.modality}"
+    msg = (f"indexed {records} step records from {episodes} case bundles -> "
+           f"{target}{modality_msg}{cv_msg}")
     print(msg, file=(sys.stdout if args.out else sys.stderr))
     if args.require_cv_labels and cv_steps == 0:
         skipped.append((root, "ValueError: no fluoro observations found for --require-cv-labels"))
