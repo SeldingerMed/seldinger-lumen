@@ -200,6 +200,8 @@ def index_main(argv=None, prog=None) -> None:
         return
 
     ds = EpisodeDataset(root, validate_on_load=False)
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     out = open(args.out, "w") if args.out else sys.stdout
     records = episodes = 0
     skipped = []

@@ -143,6 +143,10 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     assert row["clinical_metrics"]["tip_target"]["success"] is True
     assert row["calibration_type"] == "carm"
 
+    nested_path = tmp_path / "indexes" / "case" / "index.jsonl"
+    index_main([str(tmp_path), "--out", str(nested_path), "--check-sidecars"])
+    assert nested_path.exists()
+
     abs_path = tmp_path / "absolute.jsonl"
     index_main([str(tmp_path), "--out", str(abs_path), "--absolute-paths"])
     abs_row = json.loads(abs_path.read_text().splitlines()[0])
