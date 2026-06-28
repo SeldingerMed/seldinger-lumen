@@ -58,6 +58,19 @@ def test_realism_threads_through_fluorosensor():
     assert clean.shape == noisy.shape and not np.allclose(clean, noisy)
 
 
+def test_fluoro_can_render_contrast_roadmap_context():
+    sensor = FluoroSensor(res=28, nu=36, nv=36, n_samples=70)
+    vessel = np.stack([np.zeros(24), np.zeros(24), np.linspace(-18, 18, 24)], axis=1)
+    wire = np.stack([np.full(8, 0.3), np.zeros(8), np.linspace(-8, 8, 8)], axis=1)
+    carm = sensor.default_carm(vessel, axis=(1, 0, 0))
+    device_only, _ = sensor.render(wire, carm=carm)
+    with_roadmap, _ = sensor.render(wire, carm=carm, contrast_nodes=vessel,
+                                    contrast_radius=2.0, mu_contrast=0.18)
+    assert with_roadmap.shape == device_only.shape
+    assert with_roadmap.sum() > device_only.sum()          # vessel context contributes signal
+    assert with_roadmap.max() >= device_only.max()         # device remains visible
+
+
 # ---- luminal RGB modality ----------------------------------------------------
 def _tip_setup(asset):
     pts, lumen = asset.edge_arrays(asset.edges[0])
@@ -87,6 +100,16 @@ def test_luminal_stenosis_brightens_the_view():
     wide = LuminalCamera(nu=20, nv=20, n_steps=64).render(fw, lw, dw)
     narrowed = LuminalCamera(nu=20, nv=20, n_steps=64).render(fs, ls, ds)
     assert narrowed.mean() > wide.mean()               # closer wall -> less falloff
+
+
+def test_luminal_texture_adds_spatial_context():
+    frame, lumen, dev = _tip_setup(procedural.straight_tube(80.0, 4.0))
+    smooth = LuminalCamera(nu=24, nv=24, n_steps=64).render(frame, lumen, dev)
+    textured = LuminalCamera(nu=24, nv=24, n_steps=64, texture_strength=0.18,
+                             fold_strength=0.12).render(frame, lumen, dev)
+    assert textured.shape == smooth.shape
+    assert textured.std() > smooth.std()                # not a featureless radial gradient
+    assert not np.allclose(textured, smooth)
 
 
 def test_luminal_rejects_degenerate_device():

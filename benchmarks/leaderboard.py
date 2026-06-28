@@ -1,11 +1,10 @@
-"""Navigation benchmark + leaderboard (doc M5).
+"""Compatibility entry point for the canonical navigation benchmark.
 
-Runs a policy on a suite of procedural anatomies and emits a JSON leaderboard
-(success rate, steps-to-target, peak wall contact). External groups submit by
-running their policy through the same NavEnv and reporting this JSON -- the public
-benchmark/leaderboard the doc calls the standard-setting public good (doc §7).
+The public benchmark schema lives in :mod:`lumen.bench`; this module remains so
+older ``python -m benchmarks.leaderboard`` workflows still work, but it now emits
+the same safe-success / max-penetration metrics as the examples and README.
 
-A trivial proportional controller is included as the reference baseline. Run:
+A simple proportional controller is included as a reference policy. Run:
     python -m benchmarks.leaderboard
 """
 
@@ -15,8 +14,7 @@ import json
 
 import numpy as np
 
-from lumen.assets import procedural
-from lumen.envs import NavEnv
+from lumen.bench import evaluate_policy, validate_scorecard
 
 
 def proportional_policy(obs):
@@ -25,31 +23,29 @@ def proportional_policy(obs):
     return np.array([np.clip(4.0 * remaining, -1.0, 1.0)], dtype=np.float32)
 
 
-def _suite():
-    return {
-        "straight": procedural.straight_tube(length=80.0, radius=2.0),
-        "stenotic": procedural.stenotic_tube(length=80.0, radius=2.0, severity=0.5),
-        "narrow": procedural.straight_tube(length=80.0, radius=1.4),
-    }
-
-
 def run_leaderboard(policy=proportional_policy, policy_name="proportional-baseline"):
-    results = []
-    for name, asset in _suite().items():
-        env = NavEnv(asset=asset, target_frac=0.7, max_steps=40)
-        obs, _ = env.reset(seed=0)
-        peak_contact, done = 0.0, False
-        info = {}
-        while not done:
-            obs, reward, term, trunc, info = env.step(policy(obs))
-            peak_contact = max(peak_contact, info["max_r"])
-            done = term or trunc
-        results.append({"case": name, "success": bool(info["success"]),
-                        "steps": env.steps, "final_dist": round(info["dist"], 3),
-                        "peak_contact_r": round(peak_contact, 3)})
-    n_ok = sum(r["success"] for r in results)
-    return {"policy": policy_name, "n_cases": len(results),
-            "success_rate": n_ok / len(results), "cases": results}
+    """Evaluate a policy on ``lumen.bench.SUITE`` and return JSON-safe metrics.
+
+    ``cases`` is kept as a backwards-compatible alias for the task rows, but the
+    fields are canonical benchmark fields rather than the older peak-contact summary.
+    """
+    card = validate_scorecard(evaluate_policy(policy, policy_name))
+    tasks = [
+        {"case": t["name"], "tier": t["tier"], "episodes": t["episodes"],
+         "success_rate": t["success_rate"], "safe_success_rate": t["safe_success_rate"],
+         "unsafe_success_rate": t.get("unsafe_success_rate", 0.0),
+         "mean_steps": t["mean_steps"], "max_pen": t["max_pen"],
+         "mean_return": t["mean_return"]}
+        for t in card.per_task
+    ]
+    return {"policy": card.name, "suite_version": card.suite_version,
+            "n_cases": len(tasks),
+            "success_rate": card.overall["success_rate"],
+            "safe_success_rate": card.overall["safe_success_rate"],
+            "unsafe_success_rate": card.overall.get("unsafe_success_rate", 0.0),
+            "max_pen": card.overall["max_pen"],
+            "mean_return": card.overall["mean_return"],
+            "cases": tasks}
 
 
 def main():

@@ -19,10 +19,7 @@ reimplement one.
 ## Install
 
 ```bash
-pip install -e ".[dev]"                                    # core + Warp + tests
-# the Newton engine — pinned: it's pre-1.0 and our solver forks an internal, so we
-# track a known-good commit (CI uses the same one; see .github/workflows/ci.yml)
-pip install "git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7"
+pip install -e ".[dev]"    # core + pinned Newton/Warp backend + tests
 ```
 
 The geometry core needs only NumPy. The solver needs Warp + Newton, which run on
@@ -32,6 +29,9 @@ There is no separate CPU fallback to maintain.
 ```bash
 python -m lumen.hardware     # -> {"device": "cuda"|"cpu", ...}
 ```
+
+Lumen keeps Warp/Newton backend chatter quiet by default so examples print parseable
+results. Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` when you want backend diagnostics.
 
 ## Quick start
 
@@ -54,6 +54,98 @@ The dependency-light geometry core works standalone:
 ```python
 from lumen.core.frame import CenterlineFrame
 hit = CenterlineFrame(pts).project(np.array([1.0, 0.0, 50.0]))   # -> (s, θ, r)
+```
+
+## First 10 minutes for RL/CV users
+
+Check the backend, run the fixed benchmark, render a fluoroscopy frame, then write a
+replayable case bundle. These commands use only procedural anatomy.
+
+```bash
+lumen hardware
+lumen benchmark /tmp/lumen-bench
+lumen render-fluoro /tmp/lumen_fluoro.png
+lumen capture /tmp/lumen-episodes
+lumen validate /tmp/lumen-episodes
+lumen replay /tmp/lumen-episodes
+lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
+lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-arrays --require-cv-labels
+lumen calibrate
+```
+
+`capture_episode.py` writes one self-contained case directory per scenario plus
+`preview.png`, `preview_contact_sheet.png`, fluoro device/vessel mask contact
+sheets, and `label_overlay_contact_sheet.png`, so you can inspect observations and
+CV labels without opening NumPy sidecars. `lumen validate` checks every bundle's
+asset, calibration, observations, masks, keypoints, labels, and sidecar refs before
+you train on it; add `--require-cv-labels` when a fluoro CV run must have
+device/vessel masks and tip/base keypoints on every frame. `lumen replay` prints clinical endpoint
+flags and skips invalid bundles with an explicit reason. It also reports
+manifest-only annotation coverage
+(`device_mask=19/19`, `vessel_mask=19/19`,
+`keypoints(base=18/19 tip=19/19 nodes=170/171)`) so a CV pipeline can screen a
+corpus before loading image arrays. `lumen index` writes one JSONL row per timestep
+with observation, mask, node-position, keypoint, action,
+clinical-metric, label, calibration, and provenance fields for dataloaders. Paths
+are relative to the index file by default, so sibling or nested index outputs can
+be loaded with `iter_index_records(path, load_arrays=True)`; pass
+`--absolute-paths` for a machine-local index. Pass `--modality fluoro
+--require-cv-labels` to write a fluoro-only training index that fails on missing
+or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
+modalities, labels, calibration types, episode-level clinical outcome/safety counts,
+keypoint coverage, and missing sidecar references before a training job opens arrays;
+add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
+keypoints, `--check-arrays` to load referenced arrays, report observation/mask/node
+shape and dtype counts, report mask coverage and keypoint-to-device distances,
+reject empty/bad masks, and catch off-frame or off-device keypoints, and `--json`
+for scripts and notebooks. Add `--require-uniform-arrays` before fixed-shape
+batch training to fail if any loaded array field mixes shape/dtype payloads. Use
+`--keypoint-mask-tolerance` to tune how far device
+keypoints may sit from the device mask before the index fails. For training loops,
+`CaseBundle.load(path).replay(include_annotations=True)` yields each observation
+with its lazy-loaded masks/keypoints.
+For a minimal NumPy dataloader-style batch, run
+`python examples/load_fluoro_index.py /tmp/lumen-episodes/index.jsonl --limit 8`.
+The same tolerance option is available on `lumen validate` and `lumen index`
+when `--require-cv-labels` is enabled, so bad device labels can be stopped before
+writing an index.
+
+The standalone scripts (`lumen-hardware`, `lumen-validate`, `lumen-index`, and the other
+`lumen-*` commands) are also installed for shell pipelines.
+
+The benchmark intentionally separates raw target reach from clinically safe reach:
+
+```text
+task               tier        safe   unsafe  success  mean_steps   max_pen
+nav_tube           easy        1.00     0.00     1.00        18.6     0.000
+nav_stenotic       medium      1.00     0.00     1.00        19.8     0.000
+nav_tree_branch    hard        0.00     1.00     1.00        51.0     1.325
+
+overall: safe=0.67  unsafe=0.33  success=1.00  worst max_pen=1.325  mean_return=60.6
+
+leaderboard (/tmp/lumen-bench):
+  1. forward-baseline         safe=0.67  unsafe=0.33  success=1.00  max_pen=1.325  return=60.6
+```
+
+`success_rate` is “tip reached the target.” `safe_success_rate` is “tip reached the
+target without crossing the wall-safety threshold.” `unsafe_success_rate` is target
+reach that required a safety breach. The leaderboard ranks safe success first, then
+raw success, then lower wall penetration, then higher mean return as the efficiency
+tie-break. A policy that solves the task by scraping through the vessel wall should
+not win a healthcare benchmark.
+
+To submit your own policy, copy the runnable template, replace `policy(obs)`, and
+save a validated scorecard. Both benchmark examples print rejected scorecards with
+the schema/comparability reason so a bad JSON file does not disappear silently:
+
+```bash
+python examples/submit_policy.py /tmp/lumen-bench my-lab-policy
+```
+
+For image-observation control rather than privileged state, run:
+
+```bash
+python examples/train_fluoro_nav.py
 ```
 
 ## What's inside (`lumen.newton`)

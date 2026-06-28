@@ -100,7 +100,7 @@ class NavEnv:
         contact_pen = max(0.0, rmax - self.R)
         reward = (self._prev_dist - dist) - 0.5 * contact_pen - 0.01
         self._prev_dist = dist
-        terminated = bool(dist < self.success_tol)
+        terminated = bool(dist <= self.success_tol)
         truncated = self.steps >= self.max_steps
         if terminated:
             reward += 10.0

@@ -9,7 +9,7 @@ pytest.importorskip("newton")
 
 from lumen.assets import procedural
 from lumen.envs import NavEnv
-from lumen.rl.cem import make_policy, train_cem
+from lumen.rl.cem import BatchedNav, make_policy, train_cem
 
 
 def _straight():
@@ -36,3 +36,37 @@ def test_cem_learns_to_navigate():
         obs, _, term, trunc, info = env.step(policy(obs))
         done = term or trunc
     assert info["success"]
+
+
+def test_batched_rollout_success_boundary_is_inclusive():
+    class Sim:
+        def __init__(self):
+            self.steps = 0
+
+        def reset(self):
+            self.steps = 0
+
+        def step(self, **_):
+            self.steps += 1
+
+    env = object.__new__(BatchedNav)
+    env.K = 1
+    env.max_insertion = 1.0
+    env.substeps = 1
+    env.R = 2.0
+    env.sim = Sim()
+    env.target_s = 10.0
+    calls = {"n": 0}
+
+    def tip_obs():
+        calls["n"] += 1
+        s = np.array([0.0 if calls["n"] == 1 else 7.5])
+        return np.zeros((1, 5), np.float32), s, np.zeros(1)
+
+    env._tip_obs = tip_obs
+
+    _, succ, steps = env.rollout(np.zeros((1, 6), np.float32), max_steps=3, success_tol=2.5)
+
+    assert succ.tolist() == [True]
+    assert steps.tolist() == [1.0]
+    assert env.sim.steps == 1

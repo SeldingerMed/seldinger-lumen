@@ -26,3 +26,28 @@ def test_nav_env_reset_step_contract():
     assert isinstance(reward, float)
     assert set(info) >= {"tip_s", "dist", "max_r", "success"}
     assert np.isfinite(env.sim.body_positions()).all()
+
+
+def test_nav_env_success_boundary_is_inclusive():
+    class Sim:
+        def step(self, **_):
+            pass
+
+    env = object.__new__(NavEnv)
+    env.sim = Sim()
+    env.substeps = 1
+    env.max_insertion = 1.0
+    env.steps = 0
+    env.target_s = 10.0
+    env.R = 2.0
+    env._prev_dist = 5.0
+    env.success_tol = 2.5
+    env.max_steps = 5
+    env._tip = lambda: (7.5, 0.0, 0.0, 2.0)
+    env._obs = lambda: np.zeros(5, dtype=np.float32)
+
+    _, _, terminated, _, info = env.step([0.0])
+
+    assert terminated is True
+    assert info["success"] is True
+    assert info["dist"] == pytest.approx(2.5)

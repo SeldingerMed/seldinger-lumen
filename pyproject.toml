@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lumensim"                 # import name stays `lumen`; PyPI name avoids collisions
+name = "seldinger-lumen"          # import name stays `lumen`; distribution matches the repo
 version = "0.0.0"
-description = "Differentiable, GPU-parallel contact & coupling solver for a continuum instrument in a deformable lumen"
+description = "Procedural endovascular simulation, CV labels, and RL benchmarks for Lumen"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -16,19 +16,37 @@ dependencies = ["numpy>=1.24"]
 
 [project.optional-dependencies]
 # The Layer-0 solver runs on the Newton engine (doc §3.2: build on Newton/Warp,
-# do not write an engine). Newton/Warp execute on BOTH CPU and CUDA — one engine,
-# no separate CPU fallback. Newton has no stable PyPI release yet and is pre-1.0;
-# our SolverVBD fork tracks a pinned commit (see README / .github/workflows/ci.yml):
-#   pip install "git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7"
-solver = ["warp-lang>=1.14"]      # + newton (from git, see above)
+# do not write an engine). Newton has no stable PyPI release yet and is pre-1.0,
+# so install the exact commit our SolverVBD fork is validated against.
+solver = [
+  "warp-lang==1.14.0",
+  "newton @ git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7",
+]
 gym = ["gymnasium>=0.29"]         # M5: register the nav envs for gymnasium.make
-dev = ["pytest>=7", "warp-lang>=1.14", "gymnasium>=0.29"]
+dev = [
+  "pytest>=7",
+  "gymnasium>=0.29",
+  "warp-lang==1.14.0",
+  "newton @ git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7",
+]
 
 [project.urls]
 Homepage = "https://github.com/SeldingerMed/seldinger-lumen"
 Repository = "https://github.com/SeldingerMed/seldinger-lumen"
 Documentation = "https://seldingermed.github.io/seldinger-lumen/"
 Issues = "https://github.com/SeldingerMed/seldinger-lumen/issues"
+
+[project.scripts]
+lumen = "lumen.cli:main"
+lumen-hardware = "lumen.cli:hardware_main"
+lumen-benchmark = "lumen.cli:benchmark_main"
+lumen-render-fluoro = "lumen.cli:render_fluoro_main"
+lumen-capture = "lumen.cli:capture_main"
+lumen-replay = "lumen.cli:replay_main"
+lumen-validate = "lumen.cli:validate_main"
+lumen-index = "lumen.cli:index_main"
+lumen-inspect-index = "lumen.cli:inspect_index_main"
+lumen-calibrate = "lumen.cli:calibrate_main"
 
 [tool.setuptools.packages.find]
 include = ["lumen*"]
@@ -44,4 +62,3 @@ target-version = "py310"
 # High-signal checks only: pyflakes (unused imports, undefined names). Style and
 # import-ordering are intentionally not enforced so CI stays about correctness.
 select = ["F"]
-

@@ -65,13 +65,30 @@ def test_both_rods_held_in_lumen():
     assert sim.catheter_node_radii().max() <= R + 0.3 + 0.1    # catheter held
 
 
-def test_coaxial_rejects_batched_and_flow_clot():
+def test_coaxial_rejects_batched():
     with pytest.raises(NotImplementedError, match="single-env"):
         NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), catheter_points=_rod(9, 0.0),
                            n_envs=2, device="cpu")
-    with pytest.raises(NotImplementedError, match="flow/clot"):
-        NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), catheter_points=_rod(9, 0.0),
-                           clot_segment=(10.0, 20.0), device="cpu")
+
+
+def test_coaxial_wires_thrombectomy_flow_clot_and_stentriever():
+    from lumen.newton.devices import Stentriever
+    from lumen.newton.flow import FlowField, FlowFieldParams
+    sim = NewtonGuidewireSim(_vessel(M=60, L=120.0), 2.0, _rod(11, 40.0), radius=0.2,
+                             catheter_points=_rod(13, 34.0), catheter_radius=0.65,
+                             catheter_inner_radius=0.5,
+                             flow=FlowField(FlowFieldParams(P_pulse=0.0)),
+                             clot_segment=(55.0, 70.0), clot_height=1.2,
+                             stentriever=Stentriever(deployed_center=62.0),
+                             device="cpu")
+    sim.step(dt=2.5e-2, substeps=2, aspiration=0.4)
+    assert sim.clot is not None
+    assert sim.clot.o.max() > 0.0
+    sim.step(dt=2.5e-2, substeps=2, insertion=-0.5, aspiration=0.4)
+    assert getattr(sim, "last_retrieval", {}).get("status") in {"retrieve", "fragment", "miss"}
+    assert np.isfinite(sim.body_positions()).all()
+    assert np.isfinite(sim.catheter_positions()).all()
+    assert sim.flow.pressure_field() is not None
 
 
 def test_no_catheter_is_backward_compatible():

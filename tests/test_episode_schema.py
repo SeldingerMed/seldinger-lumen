@@ -7,6 +7,7 @@ import pathlib
 import numpy as np
 import pytest
 
+from lumen.assets import procedural
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, validate
 
 
@@ -21,7 +22,8 @@ def _episode(n=4, provenance="procedural"):
                     obs=np.full((4, 4), float(i)),
                     node_positions=np.full((3, 3), float(i)))
                for i in range(n)],
-        outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"))
+        outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"),
+        asset=procedural.straight_tube(80.0, 2.0))
 
 
 def test_round_trip_manifest_and_sidecars(tmp_path):
@@ -33,6 +35,8 @@ def test_round_trip_manifest_and_sidecars(tmp_path):
     assert np.array_equal(back.steps[2].load_obs(tmp_path), np.full((4, 4), 2.0))
     assert np.array_equal(back.steps[1].load_nodes(tmp_path), np.full((3, 3), 1.0))
     assert (tmp_path / "manifest.json").exists() and (tmp_path / "obs" / "000.npy").exists()
+    assert back.load_asset(tmp_path).edges[0].id == "e0"
+    assert (tmp_path / "straight.json").exists()
 
 
 def test_load_rejects_disagreeing_toplevel_mirror(tmp_path):
@@ -70,6 +74,18 @@ def test_validate_rejects_malformed():
         validate(bad_mod)
     with pytest.raises(ValueError):
         validate(Episode(meta=EpisodeMeta(provenance="leaked"), steps=[Step()], outcome=Outcome()))
+
+
+def test_validate_rejects_non_mapping_metadata_fields():
+    bad = _episode()
+    bad.meta.calibration = []
+    with pytest.raises(ValueError, match="meta.calibration must be a mapping"):
+        validate(bad)
+
+    bad = _episode()
+    bad.outcome.metrics = []
+    with pytest.raises(ValueError, match="outcome.metrics must be a mapping"):
+        validate(bad)
 
 
 def test_patient_provenance_is_valid_but_version_pinned():
@@ -122,6 +138,125 @@ def test_validate_root_mode_checks_files_exist(tmp_path):
     (tmp_path / "obs" / "001.npy").unlink()                              # delete one
     with pytest.raises(ValueError, match="missing on disk"):
         validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_validate_root_mode_checks_annotation_sidecars(tmp_path):
+    ep = _episode(1)
+    ep.steps[0].annotations = {"device_mask_ref": "000_device_mask.npy"}
+    ep.steps[0].annotation_arrays = {"device_mask": np.ones((4, 4), dtype=np.uint8)}
+    ep.save(tmp_path)
+    assert np.array_equal(Episode.load(tmp_path).steps[0].load_annotation(tmp_path, "device_mask"),
+                          np.ones((4, 4), dtype=np.uint8))
+
+    (tmp_path / "obs" / "000_device_mask.npy").unlink()
+    with pytest.raises(ValueError, match="annotation sidecar missing"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_validate_root_mode_checks_device_mask_shape_and_dtype(tmp_path):
+    ep = _episode(1)
+    ep.steps[0].annotations = {
+        "device_mask_ref": "000_device_mask.npy",
+        "vessel_mask_ref": "000_vessel_mask.npy",
+    }
+    ep.steps[0].annotation_arrays = {
+        "device_mask": np.ones((4, 4), dtype=np.uint8),
+        "vessel_mask": np.ones((4, 4), dtype=np.uint8),
+    }
+    ep.save(tmp_path)
+
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((3, 4), dtype=np.uint8))
+    with pytest.raises(ValueError, match="device_mask shape"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((4, 4), dtype=float))
+    with pytest.raises(ValueError, match="bool/unsigned integer"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((4, 4, 1), dtype=np.uint8))
+    with pytest.raises(ValueError, match="must be 2-D"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+    np.save(tmp_path / "obs" / "000_device_mask.npy", np.ones((4, 4), dtype=np.uint8))
+    np.save(tmp_path / "obs" / "000_vessel_mask.npy", np.ones((3, 4), dtype=np.uint8))
+    with pytest.raises(ValueError, match="vessel_mask shape"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_save_rejects_bad_in_memory_masks(tmp_path):
+    ep = _episode(1)
+    ep.steps[0].annotations = {"device_mask_ref": "000_device_mask.npy"}
+    ep.steps[0].annotation_arrays = {"device_mask": np.ones((3, 4), dtype=np.uint8)}
+
+    with pytest.raises(ValueError, match="device_mask shape"):
+        ep.save(tmp_path)
+
+    ep = _episode(1)
+    ep.steps[0].annotations = {"vessel_mask_ref": "000_vessel_mask.npy"}
+    ep.steps[0].annotation_arrays = {"vessel_mask": np.ones((4, 4), dtype=float)}
+
+    with pytest.raises(ValueError, match="vessel_mask annotation must be bool/unsigned integer"):
+        ep.save(tmp_path)
+
+
+def test_validate_checks_keypoint_metadata_and_bounds(tmp_path):
+    good = _episode(1)
+    good.steps[0].annotations = {
+        "keypoints": {
+            "tip": {"uv": [1.0, 2.0], "present": True},
+            "base": {"present": False},
+        }
+    }
+    good.save(tmp_path / "good")
+    validate(Episode.load(tmp_path / "good"), root=tmp_path / "good")
+
+    bad_uv = _episode(1)
+    bad_uv.steps[0].annotations = {"keypoints": {"tip": {"uv": [1.0], "present": True}}}
+    with pytest.raises(ValueError, match="uv must be length-2"):
+        bad_uv.save(tmp_path / "bad_uv")
+
+    missing_uv = _episode(1)
+    missing_uv.steps[0].annotations = {"keypoints": {"tip": {"present": True}}}
+    with pytest.raises(ValueError, match="missing uv"):
+        missing_uv.save(tmp_path / "missing_uv")
+
+    out_of_bounds = _episode(1)
+    out_of_bounds.steps[0].annotations = {
+        "keypoints": {"tip": {"uv": [1.0, 0.0], "present": True}}
+    }
+    out_of_bounds.save(tmp_path / "out_of_bounds")
+    man = json.loads((tmp_path / "out_of_bounds" / "manifest.json").read_text())
+    man["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [4.0, 0.0]
+    (tmp_path / "out_of_bounds" / "manifest.json").write_text(json.dumps(man))
+    with pytest.raises(ValueError, match="outside observation shape"):
+        validate(Episode.load(tmp_path / "out_of_bounds"), root=tmp_path / "out_of_bounds")
+
+
+def test_validate_rejects_cross_type_sidecar_clobbering():
+    ep = _episode(1)
+    ep.steps[0].annotations = {"device_mask_ref": ep.steps[0].obs_ref}
+
+    with pytest.raises(ValueError, match="duplicate sidecar refs"):
+        validate(ep)
+
+
+def test_validate_root_mode_checks_local_asset_exists(tmp_path):
+    ep = _episode(1)
+    ep.save(tmp_path)
+    (tmp_path / ep.meta.asset_ref).unlink()
+    with pytest.raises(ValueError, match="asset_ref sidecar missing"):
+        validate(Episode.load(tmp_path), root=tmp_path)
+
+
+def test_save_rejects_loaded_episode_with_dangling_local_asset_ref(tmp_path):
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    _episode(1).save(src)
+
+    loaded = Episode.load(src)
+
+    with pytest.raises(ValueError, match="local asset_ref requires ep.asset"):
+        loaded.save(dst)
 
 
 def test_save_validates_and_guards_data_loss(tmp_path):

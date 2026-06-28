@@ -17,6 +17,7 @@ from lumen.sensors.device_as_sensor import (device_on_wall, device_wall_and_fric
 from lumen.sensors.fluoro import FluoroSensor
 from lumen.sensors.luminal import LuminalCamera
 from lumen.sensors.perception import detect_device_tip, device_centroid
+from lumen.sensors.preview import write_avi, write_png
 from lumen.sensors.realism import RealismParams, degrade
 from lumen.sensors.registration import apply_se3, register
 
@@ -29,4 +30,5 @@ __all__ = ["FluoroSensor", "CArm",
            "device_wall_and_friction", "estimate_wall_and_friction",
            "joint_identifiability",                      # L1.2 joint wall+friction (M2)
            "detect_device_tip", "device_centroid",       # L1.3 perception front-end
-           "RealismParams", "degrade", "LuminalCamera"]  # L1.4 realism seam + 2nd modality
+           "RealismParams", "degrade", "LuminalCamera",  # L1.4 realism seam + 2nd modality
+           "write_png", "write_avi"]                      # preview exporters

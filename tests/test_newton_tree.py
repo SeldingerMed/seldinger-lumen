@@ -86,6 +86,26 @@ def test_tree_path_builds_and_steps():
     assert np.isfinite(sim.body_positions()).all()
 
 
+def test_coaxial_tree_contact_builds_and_steps():
+    from lumen.envs.tree_nav import _route_polyline
+    asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0, angle_deg=25.0)
+    tree = VascularTree(asset)
+    route_pts = _route_polyline(tree, tree.route("left_out", "trunk_in"), "trunk_in")
+    trunk_pts = np.asarray(asset.edges[0].centerline_mm)
+    dev = np.stack([np.full(10, 0.2), np.zeros(10), np.linspace(4.0, 22.0, 10)], axis=1)
+    cath = np.stack([np.zeros(10), np.zeros(10), np.linspace(2.0, 20.0, 10)], axis=1)
+    sim = NewtonGuidewireSim(trunk_pts, 2.0, dev, catheter_points=cath,
+                             catheter_radius=0.65, catheter_inner_radius=0.5,
+                             tree=tree, route_centerline=route_pts,
+                             vbd_iterations=8, device="cpu")
+    for _ in range(8):
+        sim.step(dt=2.5e-2, substeps=5, insertion=1.0, insertion_cath=0.5)
+    assert np.isfinite(sim.body_positions()).all()
+    assert np.isfinite(sim.catheter_positions()).all()
+    assert sim.node_radii().max() <= 2.0 + 0.3 + 0.2
+    assert sim.catheter_node_radii().max() <= 2.0 + 0.3 + 0.2
+
+
 def test_batched_tree_rejected():
     asset = procedural.bifurcation()
     tree = VascularTree(asset)

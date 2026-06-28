@@ -23,15 +23,23 @@ One directory per episode:
 ```text
 <episode>/
   manifest.json        # scalars: meta, per-step kinematics/actions/outcome, sidecar refs
+  asset.json           # lumen-asset/0 geometry when asset_ref is a local filename
   obs/
     000.npy            # paired observation for step 0 (fluoro grayscale or luminal RGB)
     000_nodes.npy      # device node positions (n,3) for step 0   [optional]
+    000_device_mask.npy # device CV supervision mask for fluoro capture  [optional]
+    000_vessel_mask.npy # vessel-roadmap CV supervision mask             [optional]
     ...
 ```
 
 Observations are stored as `.npy` — lossless and dependency-free for both grayscale
 fluoroscopy and RGB luminal frames. A viewer PNG is an example-side extra, not part
-of the canonical load path. Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
+of the canonical load path; `examples/capture_episode.py` writes `preview.png` from
+the first observation and `preview_contact_sheet.png` from the first/mid/last
+observations, plus `device_mask_contact_sheet.png` and
+`vessel_mask_contact_sheet.png` for fluoro labels, and
+`label_overlay_contact_sheet.png` for visual QA, for quick visual inspection.
+Sidecars are **lazy-loaded** (`Step.load_obs(root)` /
 `Step.load_nodes(root)`) so a large corpus iterates without exhausting memory.
 
 `obs_ref` and `node_positions_ref` must be **bare filenames** (no path components,
@@ -49,8 +57,13 @@ clobber an earlier step's sidecar).
   "meta": {
     "frame": { "name": "voxel_scaled", "spacing_mm": [...], "origin_mm": [...] },
     "asset_ref": "straight.json",      // the lumen-asset/0 geometry this ran on
-    "device": { "radius": 0.2, ... },  // device knobs
+    "device": { "guidewire": { "radius": 0.2, ... }, ... }, // device definitions/knobs
     "sensor": { "modality": "fluoro", "nu": 128, ... },
+    "calibration": {
+      "type": "carm",
+      "views": [{ "source": [...], "detector_center": [...], "width": 60.0, ... }]
+    },
+    "labels": { "procedure": "endovascular_navigation", "anatomy": "straight_tube" },
     "dt": 0.005,
     "notes": { "episode_kind": "navigation", "true_C10": 4000.0 },  // free-form; see below
     "provenance": "procedural",
@@ -62,15 +75,168 @@ clobber an earlier step's sidecar).
       "action": { "insertion": 1.0, "twist": 0.0, "aspiration": 0.0 },
       "kinematics": { "tip_mm": [x,y,z], "tip_s": 0.0, "tip_r": 0.1, "max_r": 0.2,
                       "node_positions_ref": "000_nodes.npy" },
+      "annotations": {
+        "device_mask_ref": "000_device_mask.npy",
+        "vessel_mask_ref": "000_vessel_mask.npy",
+        "keypoints": {
+          "tip": { "uv": [u, v], "present": true },
+          "base": { "uv": [u, v], "present": true }
+        }
+      },
       "obs_modality": "fluoro",        // "fluoro" | "luminal" | "none"
       "obs_ref": "000.npy",
       "force": null                     // measured where instrumented; null for procedural
     }
   ],
-  "outcome": { "success": true, "final_dist": 0.4, "steps": 40,
-               "retrieval": null, "label": "straight" }
+  "outcome": {
+    "success": true,
+    "final_dist": 0.4,
+    "steps": 40,
+    "retrieval": null,
+    "label": "straight",
+    "metrics": {
+      "tip_target": { "success": true, "final_dist": 0.4 },
+      "branch_choice": { "target": "left", "final": "left", "correct": true },
+      "wall_safety": { "max_wall_force": 1.2, "max_penetration": 0.0,
+                       "perforation_risk": false },
+      "clot": { "retrieval": "retrieve", "fragmentation": false,
+                "distal_emboli_proxy": 0.0 },
+      "flow": { "baseline_Q": 4.0, "final_Q": 3.6, "restoration": 0.9,
+                "restored": true },
+      "catheter_support": { "final_gap": 3.0, "supported": true }
+    }
+  }
 }
 ```
+
+## Case bundles
+
+`Episode` is intentionally permissive enough to load older manifests and partial
+records for repair. A **case bundle** is the stricter replayable directory contract:
+
+- local `asset_ref` sidecar with `lumen-asset/0` geometry
+- `meta.calibration` with C-arm views for fluoro or scope intrinsics for luminal
+- `meta.device` device definitions/knobs
+- step actions, observations, node positions, outcome, and labels
+- optional per-step CV annotations such as fluoro device/vessel masks and projected keypoints
+
+Use `CaseBundle.load(root)` when a consumer needs a self-contained case rather than
+a loose episode. It validates the sidecars, loads the asset, attaches the episode
+root, and exposes `bundle.replay()` so observations are lazy-loaded from the same
+directory.
+
+Use `lumen.data.annotation_coverage(ep)` or corpus-level `summarize(...)` before
+loading arrays to check whether a bundle has CV-ready masks/keypoints. Keypoint
+coverage reports present counts per name (`base`, `tip`, `nodes`) rather than only
+metadata presence. Root-mode validation also checks every `*_mask` annotation is a
+2-D bool/unsigned mask whose shape matches the paired observation, and present
+keypoints are finite in-frame `(u, v)` coordinates.
+
+## Dataloader index
+
+For CV/RL training jobs that want a flat manifest, run:
+
+```bash
+lumen index episodes --out episodes/index.jsonl --check-sidecars
+```
+
+This writes one JSON object per timestep. When `--out` writes a file, path fields
+are relative to the index file's directory, so
+`iter_index_records(path, load_arrays=True)` works without extra arguments even
+if the index lives in a sibling or nested directory. For the recommended
+`episodes/index.jsonl` layout, paths are also corpus-relative:
+
+```jsonc
+{
+  "episode": "stenosis_fluoro",
+  "episode_dir": "stenosis_fluoro",
+  "label": "stenosis_fluoro",
+  "step_index": 0,
+  "obs_modality": "fluoro",
+  "obs_path": "stenosis_fluoro/obs/0000.npy",
+  "device_mask_path": "stenosis_fluoro/obs/0000_device_mask.npy",
+  "vessel_mask_path": "stenosis_fluoro/obs/0000_vessel_mask.npy",
+  "node_positions_path": "stenosis_fluoro/obs/0000_nodes.npy",
+  "keypoints": { "tip": { "uv": [31.5, 12.4], "present": true } },
+  "action": { "insertion": 2.0 },
+  "kinematics": { "tip_s": 17.0, "tip_mm": [0.9, 0.0, 17.0] },
+  "clinical_metrics": { "tip_target": { "success": true }, "wall_safety": { "...": "..." } },
+  "labels": { "procedure": "endovascular_navigation", "outcome": "stenosis_fluoro" },
+  "calibration_type": "carm",
+  "provenance": "procedural",
+  "version": "lumen-episode/0"
+}
+```
+
+When streaming to stdout, relative paths are corpus-relative. Use
+`--absolute-paths` when the index is intentionally machine-local. The index does
+not replace `manifest.json`; it is a dataloader convenience generated from
+validated case bundles. Use `--modality fluoro --require-cv-labels` when building
+a fluoro-only mask/keypoint training index.
+
+Audit the JSONL before handing it to a training job:
+
+```bash
+lumen inspect-index episodes/index.jsonl --check-arrays --require-cv-labels
+```
+
+The inspection summary reports row counts by episode, observation modality,
+outcome label, calibration type, plus episode-level outcome success, tip-target
+success, wall-perforation risk, final-distance range, and keypoint present/total
+coverage. With `--check-paths`, it also counts missing observation, mask,
+vessel-mask, and node-position sidecar references without loading the arrays.
+Add `--require-cv-labels` when a fluoro training index must have device/vessel
+mask references and present tip/base keypoints on every row. Add `--check-arrays`
+when a CI job should load referenced arrays, report observation/mask/node shape
+and dtype counts, report mask coverage and keypoint-to-device distances, reject
+empty, malformed, or shape-mismatched masks, and catch present keypoints outside
+the observation frame or away from the device mask. Add `--json` when a CI job or
+notebook needs the raw machine-readable summary. Add `--require-uniform-arrays`
+before fixed-shape batch training to fail if any loaded array field mixes
+shape/dtype payloads. Use
+`--keypoint-mask-tolerance` to tune how far device keypoints may sit from the
+device mask before the index fails; the same option applies to `lumen validate`
+and `lumen index` when `--require-cv-labels` is enabled.
+
+Read it back without depending on a training framework:
+
+```python
+from lumen.data import iter_index_records
+
+for sample in iter_index_records("episodes/index.jsonl", load_arrays=True):
+    obs = sample["obs"]
+    device_mask = sample.get("device_mask")
+    vessel_mask = sample.get("vessel_mask")
+```
+
+For a runnable NumPy batch example that stacks observations, masks, and tip/base
+keypoints, see `examples/load_fluoro_index.py`.
+
+Malformed JSONL rows report the index path and line number. If a referenced
+sidecar cannot be opened, `load_arrays=True` raises an error that names the
+`*_path` field, episode, step, and resolved path so dataloader failures point
+back to the bad index row.
+Notebook/dataloader code can reuse `lumen.data.device_keypoint_mask_errors` and
+`lumen.data.device_keypoint_mask_distances` to apply the same device-keypoint QA
+rule after custom transforms.
+
+## Clinical Metrics
+
+`outcome.metrics` is the canonical endpoint summary produced by
+`lumen.data.compute_clinical_metrics(ep)` and populated by synthetic capture. The
+metrics are named to match review questions rather than generic RL reward terms:
+
+- `tip_target` — target-band success and final tip-target distance
+- `branch_choice` — target branch/edge, final branch/edge, and correctness
+- `wall_safety` — peak wall force, penetration, normalized risk score, and perforation-risk flag
+- `clot` — retrieval/slip/fragment status, fragmentation, damage, residual occlusion, and distal-emboli proxy
+- `flow` — baseline distal flow, final distal flow, restoration fraction, and restored flag
+- `catheter_support` — final/min/max guidewire-catheter support gap and unsupported lead
+
+The recorder fills these from live sim signals when present: solver wall load,
+tree edge projection, clot damage/retrieval status, downstream flow, and coaxial
+catheter tip position. Missing subsystems degrade to `null`/`false` rather than
+inventing a measurement.
 
 ## Episode kinds
 
@@ -81,9 +247,13 @@ clobber an earlier step's sidecar).
   `final_dist` are navigation metrics. `summarize` computes its rates over these.
 - **`"wall_probe"`** — a calibration probe (L2.3): `steps` are *views* of one static
   scene (so `t` indexes the view and `dt=0`), not a time series. The calibration
-  block lives in `notes["calib"]` — `{true_C10, load, R0, bulge_dir, dev_kw, carms}`,
-  where `carms` are the serialized `CArm` views (a calibration-specific extension, not
-  part of `meta.sensor`). `summarize` excludes probes from navigation rates.
+  ground truth and forward-model block lives in `notes["calib"]`; the canonical C-arm
+  geometry lives in `meta.calibration["views"]`. `summarize` excludes probes from
+  navigation rates. Generate one with `lumen.data.probe_episode(...)`; a navigation
+  rollout cannot be inverted by the quasi-static wall-probe model.
+- **`"wall_friction_probe"`** — a joint wall+friction probe created with
+  `lumen.data.joint_probe_episode(...)`; `calibrate_from_episode(...)` recovers
+  both `C10` and `mu` from the same episode seam.
 
 ## What it deliberately does NOT carry
 
@@ -95,13 +265,17 @@ from those is the job of the calibration harness (`lumen.data.calibrate`).
 ## Python API
 
 ```python
-from lumen.data import Episode, EpisodeMeta, Step, Outcome, validate
+from lumen.data import CaseBundle, Episode, EpisodeMeta, Step, Outcome, replay, validate
 
 ep = Episode(meta=EpisodeMeta(asset_ref="straight.json", dt=5e-3), steps=[...], outcome=...)
 validate(ep)            # shape / monotonic-time / finite / provenance / version checks
 ep.save("episodes/ep_0001")
 back = Episode.load("episodes/ep_0001")
 frame = back.steps[10].load_obs("episodes/ep_0001")   # lazy sidecar read
+mask = back.steps[10].load_annotation("episodes/ep_0001", "device_mask")
+bundle = CaseBundle.load("episodes/ep_0001")           # stricter self-contained replay contract
+for t, action, kinematics, obs, annotations in replay(bundle.episode, include_annotations=True):
+    mask = annotations.get("device_mask")               # lazy CV label array, if present
 ```
 
 Versioning: `SCHEMA_VERSION` bumps on any breaking change to the manifest shape;

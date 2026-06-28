@@ -10,9 +10,9 @@ an RGB pinhole at the instrument tip looking down the lumen.
 Render model (lazy but honest): a pinhole at the tip, looking along the tip
 tangent, casts one ray per pixel and marches forward until it crosses the wall
 r = R(s,θ). The hit is shaded by distance (the classic endoscope head-lamp
-falloff — near wall bright, far tunnel dark) times a Lambertian term, tinted
-tissue-red. No textures, no global illumination — enough to stand up a second
-perception modality and demonstrate the swap.
+falloff — near wall bright, far tunnel dark) times a Lambertian term, with optional
+deterministic mucosal texture/fold modulation. No global illumination — enough to
+stand up a useful second perception modality and demonstrate the swap.
 
 ponytail: per-pixel python ray-march (O(nu·nv·steps), one frame.project per step)
 — fine at reference resolution; vectorise the march if it ever gates a training
@@ -44,10 +44,17 @@ class LuminalCamera:
     falloff: float | None = None              # head-lamp e-folding distance; default = max_dist/3
     ambient: float = 0.15                      # floor so grazing walls aren't pure black
     tissue_color: tuple = field(default_factory=lambda: (0.80, 0.30, 0.25))  # reddish
+    texture_strength: float = 0.0              # deterministic mucosal mottling, off by default
+    fold_strength: float = 0.0                 # weak ring/fold shading along s, off by default
+    artifact_strength: float = 0.0             # vignette/glints/noise, off by default
+    artifact_seed: int | None = None            # deterministic preview artifacts
 
     def __post_init__(self):
         if self.n_steps <= 0:                  # else dtau = max_dist / n_steps blows up
             raise ValueError(f"n_steps must be positive, got {self.n_steps}")
+        if self.artifact_strength < 0:
+            raise ValueError(
+                f"artifact_strength must be non-negative, got {self.artifact_strength}")
 
     def render(self, frame: CenterlineFrame, lumen, device_nodes,
                tip_pos=None, tip_dir=None, up=None):
@@ -83,25 +90,60 @@ class LuminalCamera:
         for iv in range(self.nv):
             for iu in range(self.nu):
                 d = _unit(fwd + (us[iu] * half) * right + (vs[iv] * half) * cam_up)
-                hit, e_r = self._march(frame, lumen, tip, d, dtau, max_dist)
+                hit, e_r, s_hit, th_hit = self._march(frame, lumen, tip, d, dtau, max_dist)
                 if hit is None:                                    # exits the lumen end -> deep dark
                     continue
                 shade = np.exp(-hit / falloff)                     # head-lamp falloff
                 lamb = max(0.0, float(np.dot(d, e_r)))             # wall faces the (co-located) lamp
-                img[iv, iu] = shade * (self.ambient + (1 - self.ambient) * lamb) * tissue
-        return np.clip(img, 0.0, 1.0)
+                detail = self._surface_detail(s_hit, th_hit)
+                img[iv, iu] = shade * (self.ambient + (1 - self.ambient) * lamb) * detail * tissue
+        return self._apply_artifacts(np.clip(img, 0.0, 1.0))
+
+    def _surface_detail(self, s, theta):
+        """Deterministic wall detail. Defaults to 1.0 for the original smooth tunnel."""
+        detail = 1.0
+        if self.texture_strength:
+            tex = (0.55 * np.sin(0.73 * s + 5.1 * theta)
+                   + 0.35 * np.sin(1.91 * s - 2.7 * theta)
+                   + 0.10 * np.sin(3.7 * theta))
+            detail += self.texture_strength * tex
+        if self.fold_strength:
+            fold = 0.5 + 0.5 * np.sin(0.42 * s + 0.8 * np.sin(theta))
+            detail *= 1.0 + self.fold_strength * fold
+        return max(0.0, float(detail))
+
+    def _apply_artifacts(self, img):
+        if not self.artifact_strength:
+            return img
+        rng = np.random.default_rng(self.artifact_seed)
+        out = np.asarray(img, float).copy()
+        yy, xx = np.mgrid[0:self.nv, 0:self.nu]
+        x = (xx + 0.5) / self.nu * 2 - 1
+        y = (yy + 0.5) / self.nv * 2 - 1
+        rr = np.sqrt(x * x + y * y)
+        vignette = np.clip(1.0 - self.artifact_strength * 0.55 * rr ** 1.8, 0.0, 1.0)
+        out *= vignette[:, :, None]
+        n_glints = max(1, int(round(4 * self.artifact_strength)))
+        for _ in range(n_glints):
+            cx = rng.uniform(-0.75, 0.75)
+            cy = rng.uniform(-0.75, 0.75)
+            sig = rng.uniform(0.035, 0.09)
+            blob = np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sig ** 2))
+            out += (0.45 * self.artifact_strength * blob)[:, :, None]
+        noise = rng.normal(0.0, 0.035 * self.artifact_strength, out.shape)
+        return np.clip(out + noise, 0.0, 1.0)
 
     @staticmethod
     def _march(frame, lumen, origin, d, dtau, max_dist):
         """March origin+τd outward; return (distance, e_r) at the first wall crossing
-        (gap = R - r <= 0), or (None, None) if it leaves the lumen end first."""
+        (gap = R - r <= 0), or (None, None, None, None) if it leaves the lumen end first."""
         tau = dtau                                                 # start just ahead of the tip
         while tau <= max_dist:
             pr = frame.project(origin + tau * d)
             if lumen.gap(pr.s, pr.theta, pr.r) <= 0.0:            # crossed the wall
-                return tau, pr.e_r
+                return tau, pr.e_r, pr.s, pr.theta
             tau += dtau
-        return None, None
+        return None, None, None, None
 
 
 if __name__ == "__main__":  # self-check: tunnel shape + stenosis brightens the view

@@ -14,6 +14,7 @@ Patient-derived episodes MUST NOT live in this open repo; the firewall enforces
 
 On-disk layout (one directory per episode):
     <root>/manifest.json     scalars: meta, per-step kinematics/actions/outcome, refs
+    <root>/<asset_ref>        optional self-contained lumen-asset/0 geometry
     <root>/obs/<name>.npy     observation + node-position sidecars (lazy-loaded)
 Observations are stored as .npy (lossless, dependency-free for both grayscale fluoro
 and RGB luminal); a viewer PNG is an example-side extra, not part of the load path.
@@ -50,12 +51,97 @@ def _safe_path(root: str, ref: str) -> str:
     return full
 
 
+def _is_bare_file_ref(ref: str) -> bool:
+    return bool(ref) and not (
+        os.path.isabs(ref) or os.sep in ref or "/" in ref or "\\" in ref or ".." in ref
+        or "://" in ref
+    )
+
+
+def _safe_root_file(root: str, ref: str) -> str:
+    """Resolve <root>/<ref>, raising if a supposedly local file ref escapes root."""
+    if not _is_bare_file_ref(ref):
+        raise ValueError(f"local file ref must be a bare filename, got {ref!r}")
+    base = os.path.realpath(root)
+    full = os.path.realpath(os.path.join(base, ref))
+    if os.path.commonpath([base, full]) != base:
+        raise ValueError(f"local file ref escapes the episode directory: {ref!r}")
+    return full
+
+
+def _validate_mask_array(mask, i: int, name: str, obs_shape: tuple | None = None) -> None:
+    mask = np.asarray(mask)
+    if mask.ndim != 2:
+        raise ValueError(f"step {i}: {name} annotation must be 2-D, got shape {mask.shape}")
+    if mask.dtype.kind not in ("b", "u"):
+        raise ValueError(f"step {i}: {name} annotation must be bool/unsigned integer, "
+                         f"got {mask.dtype}")
+    if obs_shape is not None and tuple(obs_shape[:2]) != mask.shape:
+        raise ValueError(f"step {i}: {name} shape {mask.shape} does not match "
+                             f"observation shape {tuple(obs_shape[:2])}")
+
+
+def _validate_keypoint_record(kp, i: int, name: str, obs_shape: tuple | None = None) -> None:
+    if not isinstance(kp, dict):
+        raise ValueError(f"step {i}: keypoint {name!r} must be a mapping")
+    present = kp.get("present", True)
+    if not isinstance(present, bool):
+        raise ValueError(f"step {i}: keypoint {name!r} present must be bool")
+    uv = kp.get("uv")
+    if uv is None:
+        if present:
+            raise ValueError(f"step {i}: present keypoint {name!r} missing uv")
+        return
+    try:
+        arr = np.asarray(uv, dtype=float)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"step {i}: keypoint {name!r} uv not numeric: {uv!r}") from e
+    if arr.shape != (2,):
+        raise ValueError(f"step {i}: keypoint {name!r} uv must be length-2, got {uv!r}")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"step {i}: keypoint {name!r} uv is non-finite")
+    if present and obs_shape is not None:
+        h, w = tuple(obs_shape[:2])
+        u, v = float(arr[0]), float(arr[1])
+        if not (0.0 <= u < w and 0.0 <= v < h):
+            raise ValueError(f"step {i}: keypoint {name!r} uv {uv!r} outside "
+                             f"observation shape {(h, w)}")
+
+
+def _validate_keypoints(annotations: dict, i: int, obs_shape: tuple | None = None) -> None:
+    keypoints = annotations.get("keypoints")
+    if keypoints is None:
+        return
+    if not isinstance(keypoints, dict):
+        raise ValueError(f"step {i}: annotations.keypoints must be a mapping")
+    for name, value in keypoints.items():
+        if isinstance(value, list):
+            for j, kp in enumerate(value):
+                _validate_keypoint_record(kp, i, f"{name}[{j}]", obs_shape)
+        else:
+            _validate_keypoint_record(value, i, str(name), obs_shape)
+
+
+def _validate_mask_sidecar(root: str, step: "Step", i: int, name: str) -> None:
+    ref = step.annotations.get(f"{name}_ref")
+    if not ref:
+        return
+    mask = np.load(_safe_path(root, ref))
+    obs_shape = None
+    if step.obs_ref:
+        obs = np.load(_safe_path(root, step.obs_ref))
+        obs_shape = obs.shape
+    _validate_mask_array(mask, i, name, obs_shape)
+
+
 @dataclass
 class EpisodeMeta:
     frame: Frame = field(default_factory=Frame)   # declared coordinate convention (reused)
     asset_ref: str = ""                           # path/id of the lumen-asset/0 geometry
     device: dict = field(default_factory=dict)    # device knobs (radius, stiffness, ...)
     sensor: dict = field(default_factory=dict)    # modality + render params
+    calibration: dict = field(default_factory=dict)  # C-arm/scope calibration for replay
+    labels: dict = field(default_factory=dict)     # task/anatomy/procedure labels
     dt: float = 0.0                               # sim timestep per recorded step
     notes: dict = field(default_factory=dict)     # free-form (sim2sim ground truth lives here)
     provenance: str = "procedural"                # "procedural" | "patient(private)"
@@ -81,20 +167,24 @@ class Step:
     t: float = 0.0
     action: dict = field(default_factory=dict)      # {insertion, twist, aspiration}
     kinematics: dict = field(default_factory=dict)  # {tip_mm, tip_s, tip_r, max_r, node_positions_ref}
+    annotations: dict = field(default_factory=dict)  # CV labels/keypoints + sidecar refs
     obs_modality: str = "none"                      # "fluoro" | "luminal" | "none"
     obs_ref: str | None = None                      # observation sidecar filename (.npy)
     force: float | None = None                      # measured where instrumented; else None
     obs: object = field(default=None, repr=False, compare=False)             # transient array
     node_positions: object = field(default=None, repr=False, compare=False)  # transient (n,3)
+    annotation_arrays: dict = field(default_factory=dict, repr=False, compare=False)
 
     def to_dict(self) -> dict:                       # manifest entry: scalars + refs only
         return {"t": self.t, "action": self.action, "kinematics": self.kinematics,
+                "annotations": self.annotations,
                 "obs_modality": self.obs_modality, "obs_ref": self.obs_ref, "force": self.force}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Step":
         return cls(t=d.get("t", 0.0), action=d.get("action", {}),
-                   kinematics=d.get("kinematics", {}), obs_modality=d.get("obs_modality", "none"),
+                   kinematics=d.get("kinematics", {}), annotations=d.get("annotations", {}),
+                   obs_modality=d.get("obs_modality", "none"),
                    obs_ref=d.get("obs_ref"), force=d.get("force"))
 
     def load_obs(self, root: str):
@@ -108,6 +198,11 @@ class Step:
         ref = self.kinematics.get("node_positions_ref")
         return np.load(_safe_path(root, ref)) if ref else None
 
+    def load_annotation(self, root: str, name: str):
+        """Lazy-load a named annotation sidecar, e.g. ``device_mask``."""
+        ref = self.annotations.get(f"{name}_ref")
+        return np.load(_safe_path(root, ref)) if ref else None
+
 
 @dataclass
 class Outcome:
@@ -116,6 +211,7 @@ class Outcome:
     steps: int = 0
     retrieval: str | None = None       # clot outcome where relevant (retrieve/slip/fragment)
     label: str = ""                    # free-form
+    metrics: dict = field(default_factory=dict)  # clinically meaningful endpoint summary
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -130,6 +226,7 @@ class Episode:
     meta: EpisodeMeta = field(default_factory=EpisodeMeta)
     steps: list = field(default_factory=list)        # list[Step]
     outcome: Outcome = field(default_factory=Outcome)
+    asset: object = field(default=None, repr=False, compare=False)  # transient Asset sidecar
 
     def manifest(self) -> dict:
         # version/provenance are mirrored at TOP LEVEL (convenient for `jq`/grep and
@@ -143,6 +240,14 @@ class Episode:
         validate(self)                                    # save is the declared enforcement gate
         obs_dir = os.path.join(root, "obs")
         os.makedirs(obs_dir, exist_ok=True)
+        if self.asset is not None:
+            if not self.meta.asset_ref:
+                raise ValueError("episode asset set but meta.asset_ref missing")
+            self.asset.save(_safe_root_file(root, self.meta.asset_ref))
+        elif _is_bare_file_ref(self.meta.asset_ref):
+            asset_path = _safe_root_file(root, self.meta.asset_ref)
+            if not os.path.exists(asset_path):
+                raise ValueError("local asset_ref requires ep.asset or an existing asset sidecar")
         for i, s in enumerate(self.steps):
             if s.obs is not None:
                 if not s.obs_ref:                         # don't silently drop data
@@ -153,6 +258,11 @@ class Episode:
                 if not ref:
                     raise ValueError(f"step {i}: node_positions set but node_positions_ref missing")
                 np.save(_safe_path(root, ref), np.asarray(s.node_positions))
+            for name, arr in s.annotation_arrays.items():
+                ref = s.annotations.get(f"{name}_ref")
+                if not ref:
+                    raise ValueError(f"step {i}: annotation {name!r} set but {name}_ref missing")
+                np.save(_safe_path(root, ref), np.asarray(arr))
         # atomic manifest write: a crash mid-write must not leave an unloadable episode.
         tmp = os.path.join(root, "manifest.json.tmp")
         with open(tmp, "w") as f:
@@ -182,12 +292,29 @@ class Episode:
                                  f"meta.{key}={nested!r} (tampered or merged manifest)")
         return ep
 
+    def load_asset(self, root: str):
+        """Load the episode-local lumen-asset sidecar, if asset_ref is a local file."""
+        if not _is_bare_file_ref(self.meta.asset_ref):
+            return None
+        from lumen.assets.schema import Asset
+        return Asset.load(_safe_root_file(root, self.meta.asset_ref))
+
 
 def validate(ep: Episode, root: str | None = None) -> None:
     """Raise ValueError if the episode is malformed (used by save + capture + tests).
 
     The in-memory checks are cheap. Pass `root` (the episode dir) to also verify that
     every referenced sidecar file actually exists on disk."""
+    for name, value in (
+        ("meta.device", ep.meta.device),
+        ("meta.sensor", ep.meta.sensor),
+        ("meta.calibration", ep.meta.calibration),
+        ("meta.labels", ep.meta.labels),
+        ("meta.notes", ep.meta.notes),
+        ("outcome.metrics", ep.outcome.metrics),
+    ):
+        if not isinstance(value, dict):
+            raise ValueError(f"{name} must be a mapping")
     if ep.meta.provenance not in ("procedural", "patient(private)"):
         raise ValueError(f"provenance must be 'procedural' or 'patient(private)', got {ep.meta.provenance!r}")
     if ep.meta.version != SCHEMA_VERSION:
@@ -199,7 +326,7 @@ def validate(ep: Episode, root: str | None = None) -> None:
     if not np.isfinite(ep.outcome.final_dist):
         raise ValueError("outcome.final_dist is non-finite")
 
-    obs_refs, node_refs = [], []
+    obs_refs, node_refs, ann_refs = [], [], []
     last_t = -np.inf
     for i, s in enumerate(ep.steps):
         if not np.isfinite(s.t):
@@ -220,6 +347,19 @@ def validate(ep: Episode, root: str | None = None) -> None:
         nref = s.kinematics.get("node_positions_ref")
         if nref:
             _check_ref(nref, i, "node_positions_ref"); node_refs.append(nref)
+        if not isinstance(s.annotations, dict):
+            raise ValueError(f"step {i}: annotations must be a mapping")
+        if not isinstance(s.annotation_arrays, dict):
+            raise ValueError(f"step {i}: annotation_arrays must be a mapping")
+        for key, ref in s.annotations.items():
+            if key.endswith("_ref") and ref:
+                _check_ref(ref, i, key)
+                ann_refs.append(ref)
+        obs_shape = np.asarray(s.obs).shape if s.obs is not None else None
+        _validate_keypoints(s.annotations, i, obs_shape)
+        for name, arr in s.annotation_arrays.items():
+            if name.endswith("_mask"):
+                _validate_mask_array(arr, i, name, obs_shape)
         tip = s.kinematics.get("tip_mm")
         if tip is not None:
             try:
@@ -234,17 +374,37 @@ def validate(ep: Episode, root: str | None = None) -> None:
         raise ValueError("duplicate obs_ref across steps (would clobber sidecars)")
     if len(set(node_refs)) != len(node_refs):
         raise ValueError("duplicate node_positions_ref across steps (would clobber sidecars)")
+    if len(set(ann_refs)) != len(ann_refs):
+        raise ValueError("duplicate annotation refs across steps (would clobber sidecars)")
+    all_sidecar_refs = obs_refs + node_refs + ann_refs
+    if len(set(all_sidecar_refs)) != len(all_sidecar_refs):
+        raise ValueError("duplicate sidecar refs across observations, nodes, or annotations")
     if root is not None:                                    # closed-loop: referenced files must exist
+        # Local asset refs make a captured episode self-contained. External/private ids
+        # can still live in asset_ref, but bare filenames must resolve inside the episode.
+        if _is_bare_file_ref(ep.meta.asset_ref):
+            asset_path = _safe_root_file(root, ep.meta.asset_ref)
+            if not os.path.exists(asset_path):
+                raise ValueError(f"asset_ref sidecar missing on disk: {ep.meta.asset_ref}")
         for i, s in enumerate(ep.steps):
             if s.obs_ref and not os.path.exists(_safe_path(root, s.obs_ref)):
                 raise ValueError(f"step {i}: obs_ref sidecar missing on disk: {s.obs_ref}")
             nref = s.kinematics.get("node_positions_ref")
             if nref and not os.path.exists(_safe_path(root, nref)):
                 raise ValueError(f"step {i}: node_positions_ref sidecar missing on disk: {nref}")
+            for key, ref in s.annotations.items():
+                if key.endswith("_ref") and ref and not os.path.exists(_safe_path(root, ref)):
+                    raise ValueError(f"step {i}: annotation sidecar missing on disk: {ref}")
+            if s.obs_ref:
+                _validate_keypoints(s.annotations, i, np.load(_safe_path(root, s.obs_ref)).shape)
+            for key, ref in s.annotations.items():
+                if key.endswith("_mask_ref") and ref:
+                    _validate_mask_sidecar(root, s, i, key[:-4])
 
 
 if __name__ == "__main__":  # self-check: round-trip + validation
     import tempfile
+    from lumen.assets import procedural
 
     def _ep(n=3):
         return Episode(
@@ -253,7 +413,8 @@ if __name__ == "__main__":  # self-check: round-trip + validation
                         kinematics={"tip_mm": [0.0, 0.0, float(i)], "tip_s": float(i)},
                         obs_modality="fluoro", obs_ref=f"{i:03d}.npy", obs=np.full((4, 4), float(i)))
                    for i in range(n)],
-            outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"))
+            outcome=Outcome(success=True, final_dist=0.4, steps=n, label="straight"),
+            asset=procedural.straight_tube(80.0, 2.0))
 
     ep = _ep()
     validate(ep)

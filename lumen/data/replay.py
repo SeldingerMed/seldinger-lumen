@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import pathlib
 import warnings
+from copy import deepcopy
 from collections import Counter
 
 import numpy as np
@@ -67,16 +68,70 @@ class EpisodeDataset:
             yield self[i]
 
 
-def replay(episode: Episode, root: str | None = None):
-    """Yield `(t, action, kinematics, obs)` per step. `obs` is lazily loaded from the
-    sidecar (None for a "none"-modality step, or if no root is known). `root` defaults
-    to the episode's runtime `.root` (set by EpisodeDataset)."""
+def replay(episode: Episode, root: str | None = None, include_annotations: bool = False):
+    """Yield one lazy-loaded sample per step.
+
+    By default this preserves the original `(t, action, kinematics, obs)` contract.
+    Pass `include_annotations=True` to yield
+    `(t, action, kinematics, obs, annotations)`, where annotation metadata is copied
+    from the manifest and any ``*_ref`` sidecars are loaded under their base name
+    (`device_mask_ref` -> `annotations["device_mask"]`).
+
+    `obs` and annotation arrays are lazily loaded from sidecars when `root` is known;
+    `root` defaults to the episode's runtime `.root` (set by EpisodeDataset).
+    """
     root = root or getattr(episode, "root", None)
     for s in episode.steps:
         obs = s.load_obs(root) if (root and s.obs_ref) else None
         # copy the dicts: a consumer mutating them in place must not corrupt the
         # Episode for the next replay (the Step holds them by reference).
-        yield s.t, dict(s.action), dict(s.kinematics), obs
+        if not include_annotations:
+            yield s.t, dict(s.action), dict(s.kinematics), obs
+            continue
+        annotations = deepcopy(s.annotations)
+        if root:
+            for key, ref in s.annotations.items():
+                if key.endswith("_ref") and ref:
+                    annotations[key[:-4]] = s.load_annotation(root, key[:-4])
+        yield s.t, dict(s.action), dict(s.kinematics), obs, annotations
+
+
+def annotation_coverage(episode: Episode) -> dict:
+    """Manifest-only coverage for CV supervision labels in one episode.
+
+    Counts annotation sidecar references and keypoint presence without loading any
+    observation or mask arrays, so a training script can screen a corpus cheaply.
+    """
+    sidecars: Counter = Counter()
+    modalities: Counter = Counter()
+    keypoints_present: Counter = Counter()
+    keypoints_total: Counter = Counter()
+    annotation_steps = keypoint_steps = 0
+    for s in episode.steps:
+        modalities[s.obs_modality] += 1
+        annotations = s.annotations if isinstance(s.annotations, dict) else {}
+        if annotations:
+            annotation_steps += 1
+        keypoints = annotations.get("keypoints")
+        if isinstance(keypoints, dict) and keypoints:
+            keypoint_steps += 1
+            for name, value in keypoints.items():
+                values = value if isinstance(value, list) else [value]
+                for kp in values:
+                    if not isinstance(kp, dict):
+                        continue
+                    keypoints_total[str(name)] += 1
+                    keypoints_present[str(name)] += bool(kp.get("present", True))
+        for key, ref in annotations.items():
+            if key.endswith("_ref") and ref:
+                sidecars[key[:-4]] += 1
+    return {"steps": len(episode.steps),
+            "modalities": dict(modalities),
+            "annotation_steps": annotation_steps,
+            "sidecars": dict(sidecars),
+            "keypoint_steps": keypoint_steps,
+            "keypoints_present": dict(keypoints_present),
+            "keypoints_total": dict(keypoints_total)}
 
 
 def summarize(dataset) -> dict:
@@ -94,20 +149,37 @@ def summarize(dataset) -> dict:
     (default "navigation" for episodes that predate the discriminator)."""
     items = ((Episode.load(d) for d in dataset.dirs)
              if isinstance(dataset, EpisodeDataset) else dataset)
-    n = nav = succ = steps = dist = 0
+    n = nav = succ = steps = dist = total_steps = annotation_steps = keypoint_steps = 0
     labels: Counter = Counter()
     kinds: Counter = Counter()
+    modalities: Counter = Counter()
+    annotations: Counter = Counter()
+    keypoints_present: Counter = Counter()
+    keypoints_total: Counter = Counter()
     for ep in items:                                          # one streaming pass, no list()
         n += 1
         labels[ep.outcome.label] += 1
         kind = ep.meta.notes.get("episode_kind", "navigation") if isinstance(ep.meta.notes, dict) else "navigation"
         kinds[kind] += 1
+        cov = annotation_coverage(ep)
+        total_steps += cov["steps"]
+        modalities.update(cov["modalities"])
+        annotations.update(cov["sidecars"])
+        annotation_steps += cov["annotation_steps"]
+        keypoint_steps += cov["keypoint_steps"]
+        keypoints_present.update(cov["keypoints_present"])
+        keypoints_total.update(cov["keypoints_total"])
         if kind == "navigation":                             # nav metrics over nav episodes only
             nav += 1
             succ += bool(ep.outcome.success)
             steps += ep.outcome.steps
             dist += ep.outcome.final_dist
-    base = {"episodes": n, "navigation": nav, "labels": dict(labels), "kinds": dict(kinds)}
+    base = {"episodes": n, "navigation": nav, "labels": dict(labels), "kinds": dict(kinds),
+            "total_steps": total_steps, "modalities": dict(modalities),
+            "annotations": dict(annotations), "annotation_steps": annotation_steps,
+            "keypoint_steps": keypoint_steps,
+            "keypoints_present": dict(keypoints_present),
+            "keypoints_total": dict(keypoints_total)}
     if nav == 0:
         return {**base, "success_rate": 0.0, "mean_steps": 0.0, "mean_final_dist": 0.0}
     return {**base, "success_rate": succ / nav, "mean_steps": steps / nav,
