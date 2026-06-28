@@ -53,6 +53,7 @@ def iter_step_records(ep: Episode, root: str | Path, base_dir: str | Path | None
         yield {
             "episode": root.name,
             "episode_dir": episode_dir,
+            "label": ep.outcome.label,
             "step_index": i,
             "t": step.t,
             "obs_modality": step.obs_modality,

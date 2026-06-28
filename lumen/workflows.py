@@ -59,6 +59,17 @@ def _label_overlay(frame, device_mask, vessel_mask):
     return rgb
 
 
+def _display_scale(frame, min_height: int = 192):
+    arr = np.asarray(frame)
+    if arr.ndim < 2:
+        return arr
+    h = int(arr.shape[0])
+    if h <= 0 or h >= min_height:
+        return arr
+    scale = int(np.ceil(min_height / h))
+    return np.repeat(np.repeat(arr, scale, axis=0), scale, axis=1)
+
+
 def write_preview_sheet(ep, root: Path) -> tuple[Path, Path, Path | None]:
     """Write visual QA previews for one captured case bundle."""
     from lumen.sensors import write_png
@@ -70,21 +81,22 @@ def write_preview_sheet(ep, root: Path) -> tuple[Path, Path, Path | None]:
     frames = [obs_steps[i].load_obs(root) for i in picks]
     preview = root / "preview.png"
     sheet = root / "preview_contact_sheet.png"
-    write_png(preview, frames[0])
-    write_png(sheet, np.concatenate(frames, axis=1))
+    write_png(preview, _display_scale(frames[0]))
+    write_png(sheet, _display_scale(np.concatenate(frames, axis=1)))
     masks = [obs_steps[i].load_annotation(root, "device_mask") for i in picks]
     mask_sheet = None
     if all(m is not None for m in masks):
         mask_sheet = root / "device_mask_contact_sheet.png"
-        write_png(mask_sheet, np.concatenate([m.astype(float) for m in masks], axis=1))
+        write_png(mask_sheet, _display_scale(np.concatenate([m.astype(float) for m in masks], axis=1)))
     vessel_masks = [obs_steps[i].load_annotation(root, "vessel_mask") for i in picks]
     if all(m is not None for m in vessel_masks):
         write_png(root / "vessel_mask_contact_sheet.png",
-                  np.concatenate([m.astype(float) for m in vessel_masks], axis=1))
+                  _display_scale(np.concatenate([m.astype(float) for m in vessel_masks], axis=1)))
     if all(m is not None for m in masks) or all(m is not None for m in vessel_masks):
         overlays = [_label_overlay(frame, dev, vessel)
                     for frame, dev, vessel in zip(frames, masks, vessel_masks)]
-        write_png(root / "label_overlay_contact_sheet.png", np.concatenate(overlays, axis=1))
+        write_png(root / "label_overlay_contact_sheet.png",
+                  _display_scale(np.concatenate(overlays, axis=1)))
     return preview, sheet, mask_sheet
 
 

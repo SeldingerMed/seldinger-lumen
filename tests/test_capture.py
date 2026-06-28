@@ -14,6 +14,12 @@ from lumen.data.capture import SimDiverged              # noqa: E402
 from lumen.sensors import FluoroSensor, LuminalCamera    # noqa: E402
 
 
+def _png_size(path):
+    data = path.read_bytes()
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
 def test_rollout_fluoro_episode_round_trips(tmp_path):
     asset = procedural.straight_tube(80.0, 2.0)
     ep = rollout_episode(asset, sensor=FluoroSensor(res=20, nu=24, nv=24, n_samples=40),
@@ -54,6 +60,9 @@ def test_rollout_fluoro_episode_round_trips(tmp_path):
     assert mask_sheet is not None and mask_sheet.exists()
     assert (tmp_path / "vessel_mask_contact_sheet.png").exists()
     assert (tmp_path / "label_overlay_contact_sheet.png").exists()
+    assert _png_size(preview) == (192, 192)
+    assert _png_size(sheet) == (576, 192)
+    assert _png_size(tmp_path / "label_overlay_contact_sheet.png") == (576, 192)
 
 
 def test_rollout_luminal_modality(tmp_path):

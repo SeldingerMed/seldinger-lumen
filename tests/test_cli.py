@@ -99,6 +99,7 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     row = rows[0]
     assert row["episode"] == "case"
     assert row["episode_dir"] == "case"
+    assert row["label"] == "straight_success"
     assert row["obs_modality"] == "fluoro"
     assert row["obs_path"] == "case/obs/000.npy"
     assert row["device_mask_path"] == "case/obs/000_device_mask.npy"

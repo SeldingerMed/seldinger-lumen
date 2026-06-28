@@ -147,6 +147,7 @@ the corpus root so the index can move with the bundle:
 {
   "episode": "stenosis_fluoro",
   "episode_dir": "stenosis_fluoro",
+  "label": "stenosis_fluoro",
   "step_index": 0,
   "obs_modality": "fluoro",
   "obs_path": "stenosis_fluoro/obs/0000.npy",
