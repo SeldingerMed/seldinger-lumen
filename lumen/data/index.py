@@ -164,6 +164,8 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     tip_target_success = Counter()
     wall_perforation_risk = Counter()
     final_dists = []
+    clinical_by_episode = {}
+    clinical_inconsistencies = []
     missing_examples = []
     records = 0
     with open(index_path) as f:
@@ -183,6 +185,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             modalities[record.get("obs_modality", "<missing>")] += 1
             labels[record.get("label", "<missing>")] += 1
             calibration_types[record.get("calibration_type", "<missing>")] += 1
+            episode_name = record.get("episode", "<missing>")
             outcome = record.get("outcome") if isinstance(record.get("outcome"), dict) else {}
             clinical = (record.get("clinical_metrics")
                         if isinstance(record.get("clinical_metrics"), dict) else {})
@@ -190,12 +193,30 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                           if isinstance(clinical.get("tip_target"), dict) else {})
             wall_safety = (clinical.get("wall_safety")
                            if isinstance(clinical.get("wall_safety"), dict) else {})
-            outcome_success[_bool_key(outcome.get("success"))] += 1
-            tip_target_success[_bool_key(tip_target.get("success"))] += 1
-            wall_perforation_risk[_bool_key(wall_safety.get("perforation_risk"))] += 1
             final_dist = outcome.get("final_dist")
-            if isinstance(final_dist, (int, float)) and not isinstance(final_dist, bool):
-                final_dists.append(float(final_dist))
+            final_dist_value = (float(final_dist)
+                                if isinstance(final_dist, (int, float))
+                                and not isinstance(final_dist, bool)
+                                else None)
+            endpoint = {
+                "outcome_success": _bool_key(outcome.get("success")),
+                "tip_target_success": _bool_key(tip_target.get("success")),
+                "wall_perforation_risk": _bool_key(wall_safety.get("perforation_risk")),
+                "final_dist": final_dist_value,
+            }
+            if episode_name not in clinical_by_episode:
+                clinical_by_episode[episode_name] = {"line": line_no, "endpoint": endpoint}
+                outcome_success[endpoint["outcome_success"]] += 1
+                tip_target_success[endpoint["tip_target_success"]] += 1
+                wall_perforation_risk[endpoint["wall_perforation_risk"]] += 1
+                if final_dist_value is not None:
+                    final_dists.append(final_dist_value)
+            elif clinical_by_episode[episode_name]["endpoint"] != endpoint and len(clinical_inconsistencies) < 5:
+                clinical_inconsistencies.append({
+                    "episode": episode_name,
+                    "first_line": clinical_by_episode[episode_name]["line"],
+                    "line": line_no,
+                })
             resolved = resolve_record_paths(record, root) if check_paths else record
             for field in PATH_FIELDS:
                 value = record.get(field)
@@ -224,6 +245,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             "tip_target_success": _counter_dict(tip_target_success),
             "wall_perforation_risk": _counter_dict(wall_perforation_risk),
             "final_dist": _numeric_summary(final_dists),
+            "episode_inconsistencies": clinical_inconsistencies,
         },
         "paths_checked": check_paths,
         "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},

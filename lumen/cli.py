@@ -389,7 +389,7 @@ def _print_index_summary(summary: dict) -> None:
     print(f"labels: {_format_counts(summary['labels'])}")
     print(f"calibration_types: {_format_counts(summary['calibration_types'])}")
     clinical = summary.get("clinical", {})
-    print("clinical:")
+    print("clinical (episodes):")
     print(f"  outcome_success: {_format_counts(clinical.get('outcome_success', {}))}")
     print(f"  tip_target_success: {_format_counts(clinical.get('tip_target_success', {}))}")
     print(f"  wall_perforation_risk: {_format_counts(clinical.get('wall_perforation_risk', {}))}")
@@ -400,6 +400,10 @@ def _print_index_summary(summary: dict) -> None:
     else:
         print(f"  final_dist: mean={mean_dist:.3f} min={final_dist['min']:.3f} "
               f"max={final_dist['max']:.3f} n={final_dist['count']}")
+    if clinical.get("episode_inconsistencies"):
+        print("  endpoint inconsistencies:")
+        for item in clinical["episode_inconsistencies"]:
+            print(f"    {item['episode']}: line {item['line']} differs from line {item['first_line']}")
     path_status = "checked" if summary["paths_checked"] else "not checked"
     print(f"paths: {path_status}")
     for field, count in summary["path_fields"].items():

@@ -77,8 +77,12 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
                  kinematics={"tip_mm": [0.0, 0.0, 2.0]},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((8, 8))),
+            Step(t=1.0, action={"insertion": 1.0},
+                 kinematics={"tip_mm": [0.0, 0.0, 3.0]},
+                 obs_modality="fluoro", obs_ref="001.npy",
+                 obs=np.ones((8, 8))),
         ],
-        outcome=Outcome(success=True, final_dist=0.5, steps=1, label="inspect_case",
+        outcome=Outcome(success=True, final_dist=0.5, steps=2, label="inspect_case",
                         metrics={"tip_target": {"success": True, "final_dist": 0.5},
                                  "wall_safety": {"perforation_risk": False}}),
         asset=procedural.straight_tube(80.0, 2.0),
@@ -90,33 +94,48 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
 
     main(["inspect-index", str(index_path), "--check-paths"])
     human = capsys.readouterr().out
-    assert "records: 1" in human
-    assert "modalities: fluoro=1" in human
+    assert "records: 2" in human
+    assert "modalities: fluoro=2" in human
+    assert "clinical (episodes):" in human
     assert "outcome_success: true=1" in human
     assert "tip_target_success: true=1" in human
     assert "wall_perforation_risk: false=1" in human
     assert "final_dist: mean=0.500 min=0.500 max=0.500 n=1" in human
-    assert "obs_path: 1 refs, 0 missing" in human
+    assert "obs_path: 2 refs, 0 missing" in human
 
     main(["inspect-index", str(index_path), "--check-paths", "--json"])
     summary = json.loads(capsys.readouterr().out)
-    assert summary["records"] == 1
-    assert summary["episodes"] == {"case": 1}
-    assert summary["modalities"] == {"fluoro": 1}
-    assert summary["labels"] == {"inspect_case": 1}
+    assert summary["records"] == 2
+    assert summary["episodes"] == {"case": 2}
+    assert summary["modalities"] == {"fluoro": 2}
+    assert summary["labels"] == {"inspect_case": 2}
     assert summary["clinical"]["outcome_success"] == {"true": 1}
     assert summary["clinical"]["tip_target_success"] == {"true": 1}
     assert summary["clinical"]["wall_perforation_risk"] == {"false": 1}
     assert summary["clinical"]["final_dist"]["mean"] == 0.5
-    assert summary["path_fields"]["obs_path"] == 1
+    assert summary["clinical"]["final_dist"]["count"] == 1
+    assert summary["clinical"]["episode_inconsistencies"] == []
+    assert summary["path_fields"]["obs_path"] == 2
     assert summary["missing_paths"]["obs_path"] == 0
+
+    inconsistent_path = tmp_path / "indexes" / "inconsistent.jsonl"
+    rows = [json.loads(line) for line in index_path.read_text().splitlines()]
+    rows[1]["outcome"]["success"] = False
+    inconsistent_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    inspect_index_main([str(inconsistent_path), "--json"])
+    inconsistent = json.loads(capsys.readouterr().out)
+    assert inconsistent["clinical"]["episode_inconsistencies"] == [{
+        "episode": "case",
+        "first_line": 1,
+        "line": 2,
+    }]
 
     (tmp_path / "case" / "obs" / "000.npy").unlink()
     with pytest.raises(SystemExit) as seen:
         inspect_index_main([str(index_path), "--check-paths"])
     assert seen.value.code == 1
     broken_out = capsys.readouterr().out
-    assert "obs_path: 1 refs, 1 missing" in broken_out
+    assert "obs_path: 2 refs, 1 missing" in broken_out
     assert "missing examples:" in broken_out
 
     with pytest.raises(SystemExit) as seen:

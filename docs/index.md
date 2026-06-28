@@ -72,7 +72,7 @@ loaded with `iter_index_records(path, load_arrays=True)`; pass
 `--absolute-paths` for a machine-local index. Pass `--modality fluoro
 --require-cv-labels` to write a fluoro-only training index that fails on missing
 or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
-modalities, labels, calibration types, clinical outcome/safety counts, and missing
+modalities, labels, calibration types, episode-level clinical outcome/safety counts, and missing
 sidecar references before a training job opens arrays; add `--json` for scripts and notebooks. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
