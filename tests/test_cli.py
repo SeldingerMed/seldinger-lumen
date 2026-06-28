@@ -198,6 +198,26 @@ def test_replay_cli_handles_missing_root_without_warning(tmp_path, capsys):
     assert seen == []
 
 
+def test_index_cli_fails_missing_or_empty_strict_corpus_without_artifact(tmp_path, capsys):
+    from lumen.cli import index_main
+
+    missing_out = tmp_path / "missing.jsonl"
+    with pytest.raises(SystemExit) as seen:
+        index_main([str(tmp_path / "missing"), "--out", str(missing_out)])
+    assert seen.value.code == 1
+    assert "no episodes under" in capsys.readouterr().out
+    assert not missing_out.exists()
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    empty_out = tmp_path / "empty.jsonl"
+    with pytest.raises(SystemExit) as seen:
+        index_main([str(empty), "--out", str(empty_out), "--check-sidecars"])
+    assert seen.value.code == 1
+    assert "indexed 0 step records" in capsys.readouterr().out
+    assert not empty_out.exists()
+
+
 def test_render_fluoro_cli_writes_preview_artifacts(tmp_path, capsys):
     from lumen.cli import render_fluoro_main
 

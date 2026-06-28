@@ -279,7 +279,7 @@ def index_main(argv=None, prog=None) -> None:
     root = Path(args.episodes_dir)
     if not root.is_dir():
         print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
-        return
+        raise SystemExit(1)
 
     ds = EpisodeDataset(root, validate_on_load=False)
     if args.out:
@@ -329,8 +329,12 @@ def index_main(argv=None, prog=None) -> None:
         for path, err in skipped:
             print(f"  {path}: {err}", file=(sys.stdout if args.out else sys.stderr))
         if args.check_sidecars or args.require_cv_labels:
+            if args.out and records == 0:
+                Path(args.out).unlink(missing_ok=True)
             raise SystemExit(1)
     if (args.check_sidecars or args.require_cv_labels) and episodes == 0:
+        if args.out and records == 0:
+            Path(args.out).unlink(missing_ok=True)
         raise SystemExit(1)
 
 
