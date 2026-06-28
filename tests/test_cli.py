@@ -282,6 +282,18 @@ def test_index_inspection_reports_invalid_inputs_without_traceback(tmp_path, cap
     assert "line 1: expected JSON object" in out
 
 
+def test_index_record_iterator_reports_invalid_rows_with_context(tmp_path):
+    malformed = tmp_path / "malformed.jsonl"
+    malformed.write_text("\n{bad json}\n")
+    with pytest.raises(ValueError, match=r"malformed\.jsonl: line 2: invalid JSON"):
+        list(iter_index_records(malformed))
+
+    wrong_shape = tmp_path / "array.jsonl"
+    wrong_shape.write_text("[]\n")
+    with pytest.raises(ValueError, match=r"array\.jsonl: line 1: expected JSON object, got list"):
+        list(iter_index_records(wrong_shape))
+
+
 def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
     import lumen.bench as bench
     from lumen.cli import benchmark_main

@@ -134,8 +134,18 @@ def iter_index_records(index_path: str | Path, load_arrays: bool = False,
     index_path = Path(index_path)
     root = Path(base_dir) if base_dir is not None else index_path.parent
     with open(index_path) as f:
-        for line in f:
-            record = json.loads(line)
+        for line_no, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"{index_path}: line {line_no}: invalid JSON: {e.msg}") from e
+            if not isinstance(record, dict):
+                raise ValueError(
+                    f"{index_path}: line {line_no}: expected JSON object, "
+                    f"got {type(record).__name__}")
             yield load_step_record(record, root) if load_arrays else resolve_record_paths(record, root)
 
 
