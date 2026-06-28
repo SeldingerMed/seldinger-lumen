@@ -20,6 +20,8 @@ def _command_table():
         "replay": ("Summarize and replay a case-bundle corpus.", replay_main),
         "validate": ("Validate a case-bundle corpus before training.", validate_main),
         "index": ("Write a JSONL dataloader index for a corpus.", index_main),
+        "inspect-index": ("Summarize and optionally path-check a JSONL dataloader index.",
+                          inspect_index_main),
         "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
     }
 
@@ -338,6 +340,26 @@ def index_main(argv=None, prog=None) -> None:
         if args.check_sidecars or args.require_cv_labels:
             raise SystemExit(1)
     if (args.check_sidecars or args.require_cv_labels) and episodes == 0:
+        raise SystemExit(1)
+
+
+def inspect_index_main(argv=None, prog=None) -> None:
+    from lumen.data import summarize_index
+
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Summarize a Lumen JSONL dataloader index.")
+    parser.add_argument("index_path")
+    parser.add_argument("--base-dir",
+                        help="Resolve relative sidecar paths against this directory instead "
+                             "of the index file's parent.")
+    parser.add_argument("--check-paths", action="store_true",
+                        help="Check that referenced observation/mask/node sidecars exist.")
+    args = parser.parse_args(argv)
+
+    summary = summarize_index(args.index_path, base_dir=args.base_dir,
+                              check_paths=args.check_paths)
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    if summary["records"] == 0 or any(summary["missing_paths"].values()):
         raise SystemExit(1)
 
 

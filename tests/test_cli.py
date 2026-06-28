@@ -33,6 +33,7 @@ def test_pyproject_exposes_first_run_console_scripts():
         "lumen-replay": "lumen.cli:replay_main",
         "lumen-validate": "lumen.cli:validate_main",
         "lumen-index": "lumen.cli:index_main",
+        "lumen-inspect-index": "lumen.cli:inspect_index_main",
         "lumen-calibrate": "lumen.cli:calibrate_main",
     }
 
@@ -57,6 +58,50 @@ def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
     out = capsys.readouterr().out
     assert "usage: lumen index" in out
     assert "--check-sidecars" in out
+
+
+def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
+    from lumen.cli import index_main, inspect_index_main, main
+
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=8, nv=8)
+    ep = Episode(
+        meta=EpisodeMeta(
+            asset_ref="asset.json",
+            device={"guidewire": {"radius": 0.2}},
+            sensor={"modality": "fluoro", "nu": 8, "nv": 8},
+            calibration={"type": "carm", "views": [carm.to_dict()]},
+            labels={"procedure": "navigation"},
+        ),
+        steps=[
+            Step(t=0.0, action={"insertion": 1.0},
+                 kinematics={"tip_mm": [0.0, 0.0, 2.0]},
+                 obs_modality="fluoro", obs_ref="000.npy",
+                 obs=np.ones((8, 8))),
+        ],
+        outcome=Outcome(success=True, final_dist=0.5, steps=1, label="inspect_case"),
+        asset=procedural.straight_tube(80.0, 2.0),
+    )
+    ep.save(tmp_path / "case")
+    index_path = tmp_path / "indexes" / "index.jsonl"
+    index_main([str(tmp_path), "--out", str(index_path)])
+    capsys.readouterr()
+
+    main(["inspect-index", str(index_path), "--check-paths"])
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["records"] == 1
+    assert summary["episodes"] == {"case": 1}
+    assert summary["modalities"] == {"fluoro": 1}
+    assert summary["labels"] == {"inspect_case": 1}
+    assert summary["path_fields"]["obs_path"] == 1
+    assert summary["missing_paths"]["obs_path"] == 0
+
+    (tmp_path / "case" / "obs" / "000.npy").unlink()
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(index_path), "--check-paths"])
+    assert seen.value.code == 1
+    broken = json.loads(capsys.readouterr().out)
+    assert broken["missing_paths"]["obs_path"] == 1
+    assert broken["missing_path_examples"][0]["field"] == "obs_path"
 
 
 def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):

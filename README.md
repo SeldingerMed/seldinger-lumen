@@ -69,6 +69,7 @@ lumen capture /tmp/lumen-episodes
 lumen validate /tmp/lumen-episodes
 lumen replay /tmp/lumen-episodes
 lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
+lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-paths
 lumen calibrate
 ```
 
@@ -90,7 +91,9 @@ are relative to the index file by default, so sibling or nested index outputs ca
 be loaded with `iter_index_records(path, load_arrays=True)`; pass
 `--absolute-paths` for a machine-local index. Pass `--modality fluoro
 --require-cv-labels` to write a fluoro-only training index that fails on missing
-or empty CV labels. For training loops,
+or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
+modalities, labels, calibration types, and missing sidecar references before a
+training job opens arrays. For training loops,
 `CaseBundle.load(path).replay(include_annotations=True)` yields each observation
 with its lazy-loaded masks/keypoints.
 

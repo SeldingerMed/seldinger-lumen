@@ -174,6 +174,17 @@ not replace `manifest.json`; it is a dataloader convenience generated from
 validated case bundles. Use `--modality fluoro --require-cv-labels` when building
 a fluoro-only mask/keypoint training index.
 
+Audit the JSONL before handing it to a training job:
+
+```bash
+lumen inspect-index episodes/index.jsonl --check-paths
+```
+
+The inspection summary reports row counts by episode, observation modality,
+outcome label, and calibration type. With `--check-paths`, it also counts missing
+observation, mask, vessel-mask, and node-position sidecar references without
+loading the arrays.
+
 Read it back without depending on a training framework:
 
 ```python

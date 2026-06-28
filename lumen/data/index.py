@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from lumen.data.schema import Episode, _safe_path
+
+
+PATH_FIELDS = ("obs_path", "device_mask_path", "vessel_mask_path", "node_positions_path")
 
 
 def _record_path(path: str | Path, base_dir: str | Path | None = None) -> str:
@@ -120,3 +124,59 @@ def iter_index_records(index_path: str | Path, load_arrays: bool = False,
         for line in f:
             record = json.loads(line)
             yield load_step_record(record, root) if load_arrays else resolve_record_paths(record, root)
+
+
+def _counter_dict(counter: Counter) -> dict:
+    return {str(k): counter[k] for k in sorted(counter, key=str)}
+
+
+def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
+                    check_paths: bool = False) -> dict:
+    """Return a compact JSON-serializable summary of a Lumen dataloader index."""
+    index_path = Path(index_path)
+    root = Path(base_dir) if base_dir is not None else index_path.parent
+    episodes = Counter()
+    modalities = Counter()
+    labels = Counter()
+    calibration_types = Counter()
+    path_counts = Counter({field: 0 for field in PATH_FIELDS})
+    missing_paths = Counter({field: 0 for field in PATH_FIELDS})
+    missing_examples = []
+    records = 0
+    with open(index_path) as f:
+        for line_no, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            records += 1
+            episodes[record.get("episode", "<missing>")] += 1
+            modalities[record.get("obs_modality", "<missing>")] += 1
+            labels[record.get("label", "<missing>")] += 1
+            calibration_types[record.get("calibration_type", "<missing>")] += 1
+            resolved = resolve_record_paths(record, root) if check_paths else record
+            for field in PATH_FIELDS:
+                value = record.get(field)
+                if not value:
+                    continue
+                path_counts[field] += 1
+                if check_paths and not Path(resolved[field]).exists():
+                    missing_paths[field] += 1
+                    if len(missing_examples) < 5:
+                        missing_examples.append({
+                            "line": line_no,
+                            "episode": record.get("episode"),
+                            "field": field,
+                            "path": resolved[field],
+                        })
+    return {
+        "index_path": str(index_path),
+        "records": records,
+        "episodes": _counter_dict(episodes),
+        "modalities": _counter_dict(modalities),
+        "labels": _counter_dict(labels),
+        "calibration_types": _counter_dict(calibration_types),
+        "path_fields": {field: path_counts[field] for field in PATH_FIELDS},
+        "paths_checked": check_paths,
+        "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},
+        "missing_path_examples": missing_examples,
+    }
