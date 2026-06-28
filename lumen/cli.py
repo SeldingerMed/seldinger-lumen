@@ -381,6 +381,7 @@ def inspect_index_main(argv=None, prog=None) -> None:
             or any(summary["missing_paths"].values())
             or summary.get("clinical", {}).get("episode_inconsistencies")
             or summary.get("annotations", {}).get("cv_label_errors")
+            or summary.get("annotations", {}).get("keypoint_errors")
             or summary.get("array_errors")):
         raise SystemExit(1)
 
@@ -443,6 +444,11 @@ def _print_index_summary(summary: dict) -> None:
         for item in annotations["cv_label_errors"]:
             print(f"    line {item['line']} {item.get('episode')}: "
                   f"missing {', '.join(item['missing'])}")
+    if annotations.get("keypoint_errors"):
+        print("  keypoint errors:")
+        for item in annotations["keypoint_errors"]:
+            print(f"    line {item['line']} {item.get('episode')}: "
+                  f"{'; '.join(item['errors'])}")
     path_status = "checked" if summary["paths_checked"] or summary.get("arrays_checked") else "not checked"
     print(f"paths: {path_status}")
     for field, count in summary["path_fields"].items():

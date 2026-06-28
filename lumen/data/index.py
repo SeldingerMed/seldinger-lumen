@@ -180,7 +180,49 @@ def _cv_label_errors(record: dict) -> list[str]:
     return errors
 
 
-def _array_errors(record: dict, resolved: dict, mask_coverage: dict | None = None) -> list[str]:
+def _keypoint_errors(record: dict, obs_shape: tuple | None = None) -> list[str]:
+    keypoints = record.get("keypoints")
+    if keypoints in (None, {}):
+        return []
+    if not isinstance(keypoints, dict):
+        return ["keypoints must be mapping"]
+    errors = []
+    for name, value in keypoints.items():
+        values = value if isinstance(value, list) else [value]
+        for j, kp in enumerate(values):
+            label = f"keypoints.{name}[{j}]" if isinstance(value, list) else f"keypoints.{name}"
+            if not isinstance(kp, dict):
+                errors.append(f"{label} must be mapping")
+                continue
+            present = kp.get("present", True)
+            if not isinstance(present, bool):
+                errors.append(f"{label} present must be bool")
+            uv = kp.get("uv")
+            if uv is None:
+                if present:
+                    errors.append(f"{label} uv")
+                continue
+            try:
+                arr = np.asarray(uv, dtype=float)
+            except (TypeError, ValueError):
+                errors.append(f"{label} uv numeric")
+                continue
+            if arr.shape != (2,):
+                errors.append(f"{label} uv length")
+                continue
+            if not np.isfinite(arr).all():
+                errors.append(f"{label} uv finite")
+                continue
+            if present and obs_shape is not None:
+                h, w = obs_shape
+                u, v = arr
+                if not (0.0 <= u < w and 0.0 <= v < h):
+                    errors.append(f"{label} in-frame")
+    return errors
+
+
+def _array_errors(record: dict, resolved: dict,
+                  mask_coverage: dict | None = None) -> tuple[list[str], tuple | None]:
     errors = []
     arrays = {}
     for field in PATH_FIELDS:
@@ -210,7 +252,7 @@ def _array_errors(record: dict, resolved: dict, mask_coverage: dict | None = Non
             errors.append(f"{name} nonempty")
         if mask_coverage is not None and mask.ndim == 2 and mask.size:
             mask_coverage.setdefault(name, []).append(float(np.count_nonzero(mask) / mask.size))
-    return errors
+    return errors, obs_shape
 
 
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
@@ -235,6 +277,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     keypoints_present = Counter()
     keypoints_total = Counter()
     cv_label_errors = []
+    keypoint_errors = []
     array_errors = []
     mask_coverage = {}
     missing_examples = []
@@ -313,10 +356,19 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                             "field": field,
                             "path": resolved[field],
                         })
+            obs_shape = None
             if check_arrays:
-                errors = _array_errors(record, resolved, mask_coverage)
+                errors, obs_shape = _array_errors(record, resolved, mask_coverage)
                 if errors and len(array_errors) < 5:
                     array_errors.append({
+                        "line": line_no,
+                        "episode": record.get("episode"),
+                        "errors": errors,
+                    })
+            if require_cv_labels or check_arrays:
+                errors = _keypoint_errors(record, obs_shape)
+                if errors and len(keypoint_errors) < 5:
+                    keypoint_errors.append({
                         "line": line_no,
                         "episode": record.get("episode"),
                         "errors": errors,
@@ -342,6 +394,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             "keypoints_total": _counter_dict(keypoints_total),
             "cv_labels_required": require_cv_labels,
             "cv_label_errors": cv_label_errors,
+            "keypoint_errors": keypoint_errors,
         },
         "paths_checked": check_paths or check_arrays,
         "arrays_checked": check_arrays,

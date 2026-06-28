@@ -157,6 +157,7 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["annotations"]["keypoints_total"] == {"base": 2, "tip": 2}
     assert summary["annotations"]["cv_labels_required"] is True
     assert summary["annotations"]["cv_label_errors"] == []
+    assert summary["annotations"]["keypoint_errors"] == []
     assert summary["paths_checked"] is True
     assert summary["arrays_checked"] is True
     assert summary["array_errors"] == []
@@ -183,6 +184,17 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "array errors:" in array_out
     assert "device_mask nonempty" in array_out
     np.save(tmp_path / "case" / "obs" / "000_device_mask.npy", np.eye(8, dtype=np.uint8))
+
+    bad_keypoint_path = tmp_path / "indexes" / "bad_keypoint.jsonl"
+    rows = [json.loads(line) for line in index_path.read_text().splitlines()]
+    rows[0]["keypoints"]["tip"]["uv"] = [12.0, -1.0]
+    bad_keypoint_path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(bad_keypoint_path), "--check-arrays", "--require-cv-labels"])
+    assert seen.value.code == 1
+    keypoint_out = capsys.readouterr().out
+    assert "keypoint errors:" in keypoint_out
+    assert "keypoints.tip in-frame" in keypoint_out
 
     inconsistent_path = tmp_path / "indexes" / "inconsistent.jsonl"
     rows = [json.loads(line) for line in index_path.read_text().splitlines()]
