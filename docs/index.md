@@ -78,7 +78,9 @@ add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/b
 keypoints, `--check-arrays` to load referenced arrays, report observation/mask/node
 shape and dtype counts, report mask coverage and keypoint-to-device distances,
 reject empty/bad masks, and catch off-frame or off-device keypoints, and add
-`--json` for scripts and notebooks. Use
+`--json` for scripts and notebooks. Add `--require-uniform-arrays` before
+fixed-shape batch training to fail if any loaded array field mixes shape/dtype
+payloads. Use
 `--keypoint-mask-tolerance` to tune how far device
 keypoints may sit from the device mask before the index fails. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields

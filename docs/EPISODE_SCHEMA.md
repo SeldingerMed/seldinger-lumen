@@ -191,7 +191,9 @@ when a CI job should load referenced arrays, report observation/mask/node shape
 and dtype counts, report mask coverage and keypoint-to-device distances, reject
 empty, malformed, or shape-mismatched masks, and catch present keypoints outside
 the observation frame or away from the device mask. Add `--json` when a CI job or
-notebook needs the raw machine-readable summary. Use
+notebook needs the raw machine-readable summary. Add `--require-uniform-arrays`
+before fixed-shape batch training to fail if any loaded array field mixes
+shape/dtype payloads. Use
 `--keypoint-mask-tolerance` to tune how far device keypoints may sit from the
 device mask before the index fails; the same option applies to `lumen validate`
 and `lumen index` when `--require-cv-labels` is enabled.

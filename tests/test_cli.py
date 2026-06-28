@@ -212,6 +212,21 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["path_fields"]["obs_path"] == 2
     assert summary["missing_paths"]["obs_path"] == 0
 
+    np.save(tmp_path / "case" / "obs" / "000.npy", np.ones((4, 4), dtype=np.float32))
+    np.save(tmp_path / "case" / "obs" / "000_device_mask.npy", np.eye(4, dtype=np.uint8))
+    np.save(tmp_path / "case" / "obs" / "000_vessel_mask.npy", np.ones((4, 4), dtype=np.uint8))
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(index_path), "--require-uniform-arrays"])
+    assert seen.value.code == 1
+    mixed_payload_out = capsys.readouterr().out
+    assert "array payload errors:" in mixed_payload_out
+    assert "obs" in mixed_payload_out
+    assert "(4, 4) float32 n=1" in mixed_payload_out
+    assert "(8, 8) float64 n=1" in mixed_payload_out
+    np.save(tmp_path / "case" / "obs" / "000.npy", np.ones((8, 8)))
+    np.save(tmp_path / "case" / "obs" / "000_device_mask.npy", np.eye(8, dtype=np.uint8))
+    np.save(tmp_path / "case" / "obs" / "000_vessel_mask.npy", np.ones((8, 8), dtype=np.uint8))
+
     np.save(tmp_path / "case" / "obs" / "000_device_mask.npy", np.zeros((8, 8), dtype=np.uint8))
     with pytest.raises(SystemExit) as seen:
         inspect_index_main([str(index_path), "--check-arrays", "--require-cv-labels"])

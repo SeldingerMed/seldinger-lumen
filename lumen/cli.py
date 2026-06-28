@@ -399,6 +399,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
                         help="Check that referenced observation/mask/node sidecars exist.")
     parser.add_argument("--check-arrays", action="store_true",
                         help="Load arrays and validate masks plus device-keypoint agreement.")
+    parser.add_argument("--require-uniform-arrays", action="store_true",
+                        help="Load arrays and fail if any array field has mixed shape/dtype payloads.")
     parser.add_argument("--keypoint-mask-tolerance", type=float,
                         default=KEYPOINT_MASK_TOLERANCE_PX,
                         help="Max pixel distance from device keypoints to the device mask "
@@ -416,7 +418,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
                                   check_paths=args.check_paths,
                                   require_cv_labels=args.require_cv_labels,
                                   check_arrays=args.check_arrays,
-                                  keypoint_mask_tolerance_px=args.keypoint_mask_tolerance)
+                                  keypoint_mask_tolerance_px=args.keypoint_mask_tolerance,
+                                  require_uniform_arrays=args.require_uniform_arrays)
     except FileNotFoundError:
         print(f"no index file at {args.index_path!r}")
         raise SystemExit(1) from None
@@ -432,7 +435,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
             or summary.get("clinical", {}).get("episode_inconsistencies")
             or summary.get("annotations", {}).get("cv_label_errors")
             or summary.get("annotations", {}).get("keypoint_errors")
-            or summary.get("array_errors")):
+            or summary.get("array_errors")
+            or summary.get("array_payload_errors")):
         raise SystemExit(1)
 
 
@@ -531,6 +535,12 @@ def _print_index_summary(summary: dict) -> None:
             print("array payloads:")
             for name, values in payloads.items():
                 print(f"  {name}: {_format_array_payloads(values)}")
+        if summary.get("arrays_uniform_required"):
+            print("array_uniform_required: true")
+        if summary.get("array_payload_errors"):
+            print("array payload errors:")
+            for item in summary["array_payload_errors"]:
+                print(f"  {item['name']}: {_format_array_payloads(item['payloads'])}")
         print(f"keypoint_mask_tolerance: "
               f"{annotations.get('keypoint_mask_tolerance_px', 1.5):.3f}px")
         coverage = summary.get("mask_coverage", {})

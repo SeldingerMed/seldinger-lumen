@@ -188,6 +188,14 @@ def _payload_summary(payloads: dict) -> dict:
     return summary
 
 
+def _payload_errors(payload_summary: dict) -> list[dict]:
+    return [
+        {"name": name, "payloads": payloads}
+        for name, payloads in payload_summary.items()
+        if len(payloads) > 1
+    ]
+
+
 def _count_keypoints(keypoints, present: Counter, total: Counter) -> bool:
     if not isinstance(keypoints, dict) or not keypoints:
         return False
@@ -369,10 +377,12 @@ def _array_errors(record: dict, resolved: dict, mask_coverage: dict | None = Non
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                     check_paths: bool = False, require_cv_labels: bool = False,
                     check_arrays: bool = False,
-                    keypoint_mask_tolerance_px: float = KEYPOINT_MASK_TOLERANCE_PX) -> dict:
+                    keypoint_mask_tolerance_px: float = KEYPOINT_MASK_TOLERANCE_PX,
+                    require_uniform_arrays: bool = False) -> dict:
     """Return a compact JSON-serializable summary of a Lumen dataloader index."""
     index_path = Path(index_path)
     root = Path(base_dir) if base_dir is not None else index_path.parent
+    check_arrays = check_arrays or require_uniform_arrays
     episodes = Counter()
     modalities = Counter()
     labels = Counter()
@@ -496,6 +506,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                         record.get("keypoints"), device_mask,
                     ).items():
                         keypoint_device_distances.setdefault(name, []).extend(distances)
+    payload_summary = _payload_summary(array_payloads) if check_arrays else {}
     return {
         "index_path": str(index_path),
         "records": records,
@@ -523,7 +534,9 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
         "paths_checked": check_paths or check_arrays,
         "arrays_checked": check_arrays,
         "array_errors": array_errors,
-        "array_payloads": _payload_summary(array_payloads) if check_arrays else {},
+        "array_payloads": payload_summary,
+        "arrays_uniform_required": require_uniform_arrays,
+        "array_payload_errors": _payload_errors(payload_summary) if require_uniform_arrays else [],
         "mask_coverage": (
             {name: _numeric_summary(values) for name, values in sorted(mask_coverage.items())}
             if check_arrays else {}
