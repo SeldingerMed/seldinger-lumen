@@ -37,21 +37,23 @@ def main(argv=None) -> None:
         parser.print_help()
         return
     if argv[0] in commands:
-        commands[argv[0]][1](argv[1:])
+        commands[argv[0]][1](argv[1:], prog=f"lumen {argv[0]}")
         return
     parser.parse_args(argv)
 
 
-def hardware_main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description="Print Lumen backend hardware/software status.")
+def hardware_main(argv=None, prog=None) -> None:
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Print Lumen backend hardware/software status.")
     parser.parse_args(argv)
     print(json.dumps(describe(), indent=2))
 
 
-def benchmark_main(argv=None) -> None:
+def benchmark_main(argv=None, prog=None) -> None:
     from lumen.bench import evaluate_policy, forward_policy, leaderboard, scorecard_rejections
 
-    parser = argparse.ArgumentParser(description="Run the canonical Lumen navigation benchmark.")
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Run the canonical Lumen navigation benchmark.")
     parser.add_argument("results_dir", nargs="?", default="bench_results")
     args = parser.parse_args(argv)
     os.makedirs(args.results_dir, exist_ok=True)
@@ -85,19 +87,21 @@ def benchmark_main(argv=None) -> None:
             print(f"  {item['path']}: {item['error']}")
 
 
-def render_fluoro_main(argv=None) -> None:
+def render_fluoro_main(argv=None, prog=None) -> None:
     from lumen.workflows import render_fluoro_example
 
-    parser = argparse.ArgumentParser(description="Render the canonical Lumen fluoro demo.")
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Render the canonical Lumen fluoro demo.")
     parser.add_argument("out_png", nargs="?", default="fluoro.png")
     args = parser.parse_args(argv)
     render_fluoro_example(args.out_png)
 
 
-def capture_main(argv=None) -> None:
+def capture_main(argv=None, prog=None) -> None:
     from lumen.workflows import capture_examples
 
-    parser = argparse.ArgumentParser(description="Capture the canonical procedural Lumen case corpus.")
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Capture the canonical procedural Lumen case corpus.")
     parser.add_argument("out_dir", nargs="?", default="episodes")
     args = parser.parse_args(argv)
     capture_examples(args.out_dir)
@@ -133,10 +137,11 @@ def _annotation_flags(ep):
     return "  ".join(parts) if parts else "annotations=none"
 
 
-def replay_main(argv=None) -> None:
+def replay_main(argv=None, prog=None) -> None:
     from lumen.data import CaseBundle, EpisodeDataset, replay, summarize
 
-    parser = argparse.ArgumentParser(description="Summarize and replay a Lumen case-bundle corpus.")
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Summarize and replay a Lumen case-bundle corpus.")
     parser.add_argument("episodes_dir", nargs="?", default="episodes")
     args = parser.parse_args(argv)
     root = Path(args.episodes_dir)
@@ -176,10 +181,11 @@ def replay_main(argv=None) -> None:
             print(f"  {path}: {err}")
 
 
-def index_main(argv=None) -> None:
+def index_main(argv=None, prog=None) -> None:
     from lumen.data import Episode, EpisodeDataset, iter_step_records, validate_case_bundle
 
-    parser = argparse.ArgumentParser(description="Write a JSONL index for a Lumen case-bundle corpus.")
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Write a JSONL index for a Lumen case-bundle corpus.")
     parser.add_argument("episodes_dir", nargs="?", default="episodes")
     parser.add_argument("--out", help="Output JSONL file. Defaults to stdout.")
     parser.add_argument("--absolute-paths", action="store_true",
@@ -223,12 +229,13 @@ def index_main(argv=None) -> None:
             print(f"  {path}: {err}", file=(sys.stdout if args.out else sys.stderr))
 
 
-def calibrate_main(argv=None) -> None:
+def calibrate_main(argv=None, prog=None) -> None:
     from lumen.data import EpisodeDataset, calibrate_from_episode, probe_episode
     from lumen.sensors import FluoroSensor
     from lumen.sensors.device_as_sensor import device_on_wall
 
-    parser = argparse.ArgumentParser(description="Run the wall-probe calibration identifiability demo.")
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Run the wall-probe calibration identifiability demo.")
     parser.parse_args(argv)
     true_C10 = 6.0e3
     sensor = FluoroSensor(mu_device=1.0, res=36, n_samples=90, nu=44, nv=44)

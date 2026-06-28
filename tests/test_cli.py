@@ -5,6 +5,7 @@ from importlib.metadata import metadata
 from importlib.metadata import entry_points
 
 import numpy as np
+import pytest
 
 from lumen.assets import procedural
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, iter_index_records, load_step_record
@@ -42,6 +43,18 @@ def test_umbrella_cli_dispatches_workflows(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert "newton_available" in payload
     assert "backend_validated" in payload
+
+
+def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
+    from lumen.cli import main
+
+    with pytest.raises(SystemExit) as seen:
+        main(["index", "--help"])
+
+    assert seen.value.code == 0
+    out = capsys.readouterr().out
+    assert "usage: lumen index" in out
+    assert "--check-sidecars" in out
 
 
 def test_replay_cli_handles_missing_root_without_warning(tmp_path, capsys):
