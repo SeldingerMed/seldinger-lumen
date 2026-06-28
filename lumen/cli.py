@@ -297,6 +297,10 @@ def index_main(argv=None, prog=None) -> None:
         print("skipped invalid bundles:", file=(sys.stdout if args.out else sys.stderr))
         for path, err in skipped:
             print(f"  {path}: {err}", file=(sys.stdout if args.out else sys.stderr))
+        if args.check_sidecars:
+            raise SystemExit(1)
+    if args.check_sidecars and episodes == 0:
+        raise SystemExit(1)
 
 
 def calibrate_main(argv=None, prog=None) -> None:

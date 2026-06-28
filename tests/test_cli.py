@@ -238,3 +238,9 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
 
     direct = load_step_record(row, base_dir=tmp_path)
     assert np.array_equal(direct["device_mask"], np.eye(16, dtype=np.uint8))
+
+    (tmp_path / "case" / "obs" / "000_device_mask.npy").unlink()
+    with pytest.raises(SystemExit) as seen:
+        index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"), "--check-sidecars"])
+    assert seen.value.code == 1
+    assert "skipped invalid bundles" in capsys.readouterr().out
