@@ -2,7 +2,7 @@
 
     python examples/replay_corpus.py [episodes_dir]
 
-Run examples/capture_episode.py first to produce replayable bundle directories.
+Run `lumen capture <episodes_dir>` first to produce replayable bundle directories.
 Pure numpy — this reads the schema, it does not run the sim, so it needs no
 newton/warp.
 """

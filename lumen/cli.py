@@ -146,6 +146,10 @@ def _annotation_flags(ep):
     return "  ".join(parts) if parts else "annotations=none"
 
 
+def _capture_hint(root: Path) -> str:
+    return f"no episodes under {str(root)!r}; run `lumen capture {root}` first"
+
+
 def replay_main(argv=None, prog=None) -> None:
     from lumen.data import CaseBundle, EpisodeDataset, replay, summarize
 
@@ -155,11 +159,11 @@ def replay_main(argv=None, prog=None) -> None:
     args = parser.parse_args(argv)
     root = Path(args.episodes_dir)
     if not root.is_dir():
-        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        print(_capture_hint(root))
         return
     ds = EpisodeDataset(root, validate_on_load=False)
     if len(ds) == 0:
-        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        print(_capture_hint(root))
         return
     bundles = []
     skipped = []
@@ -209,7 +213,7 @@ def validate_main(argv=None, prog=None) -> None:
 
     root = Path(args.episodes_dir)
     if not root.is_dir():
-        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        print(_capture_hint(root))
         raise SystemExit(1)
 
     ds = EpisodeDataset(root, validate_on_load=False)
@@ -297,7 +301,7 @@ def index_main(argv=None, prog=None) -> None:
 
     root = Path(args.episodes_dir)
     if not root.is_dir():
-        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        print(_capture_hint(root))
         raise SystemExit(1)
 
     ds = EpisodeDataset(root, validate_on_load=False)

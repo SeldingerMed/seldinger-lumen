@@ -194,7 +194,7 @@ def test_replay_corpus_example_handles_missing_root_without_warning(tmp_path, ca
         main(str(missing))
 
     out = capsys.readouterr().out
-    assert "run examples/capture_episode.py first" in out
+    assert "run `lumen capture" in out
     assert seen == []
 
 
