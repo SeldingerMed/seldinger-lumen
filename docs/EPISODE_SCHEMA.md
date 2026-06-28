@@ -177,7 +177,7 @@ a fluoro-only mask/keypoint training index.
 Audit the JSONL before handing it to a training job:
 
 ```bash
-lumen inspect-index episodes/index.jsonl --check-paths --require-cv-labels
+lumen inspect-index episodes/index.jsonl --check-arrays --require-cv-labels
 ```
 
 The inspection summary reports row counts by episode, observation modality,
@@ -186,8 +186,10 @@ success, wall-perforation risk, final-distance range, and keypoint present/total
 coverage. With `--check-paths`, it also counts missing observation, mask,
 vessel-mask, and node-position sidecar references without loading the arrays.
 Add `--require-cv-labels` when a fluoro training index must have device/vessel
-mask references and present tip/base keypoints on every row. Add `--json` when a
-CI job or notebook needs the raw machine-readable summary.
+mask references and present tip/base keypoints on every row. Add `--check-arrays`
+when a CI job should load referenced arrays and reject empty, malformed, or
+shape-mismatched masks. Add `--json` when a CI job or notebook needs the raw
+machine-readable summary.
 
 Read it back without depending on a training framework:
 

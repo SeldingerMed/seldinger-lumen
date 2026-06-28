@@ -354,6 +354,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
                              "of the index file's parent.")
     parser.add_argument("--check-paths", action="store_true",
                         help="Check that referenced observation/mask/node sidecars exist.")
+    parser.add_argument("--check-arrays", action="store_true",
+                        help="Load referenced arrays and validate mask shape, dtype, and non-emptiness.")
     parser.add_argument("--require-cv-labels", action="store_true",
                         help="Fail if fluoro rows lack mask refs or present tip/base keypoints.")
     parser.add_argument("--json", action="store_true",
@@ -363,7 +365,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
     try:
         summary = summarize_index(args.index_path, base_dir=args.base_dir,
                                   check_paths=args.check_paths,
-                                  require_cv_labels=args.require_cv_labels)
+                                  require_cv_labels=args.require_cv_labels,
+                                  check_arrays=args.check_arrays)
     except FileNotFoundError:
         print(f"no index file at {args.index_path!r}")
         raise SystemExit(1) from None
@@ -377,7 +380,8 @@ def inspect_index_main(argv=None, prog=None) -> None:
     if (summary["records"] == 0
             or any(summary["missing_paths"].values())
             or summary.get("clinical", {}).get("episode_inconsistencies")
-            or summary.get("annotations", {}).get("cv_label_errors")):
+            or summary.get("annotations", {}).get("cv_label_errors")
+            or summary.get("array_errors")):
         raise SystemExit(1)
 
 
@@ -431,7 +435,7 @@ def _print_index_summary(summary: dict) -> None:
         for item in annotations["cv_label_errors"]:
             print(f"    line {item['line']} {item.get('episode')}: "
                   f"missing {', '.join(item['missing'])}")
-    path_status = "checked" if summary["paths_checked"] else "not checked"
+    path_status = "checked" if summary["paths_checked"] or summary.get("arrays_checked") else "not checked"
     print(f"paths: {path_status}")
     for field, count in summary["path_fields"].items():
         missing = summary["missing_paths"].get(field, 0)
@@ -441,6 +445,13 @@ def _print_index_summary(summary: dict) -> None:
         for item in summary["missing_path_examples"]:
             print(f"  line {item['line']} {item.get('episode')}: "
                   f"{item['field']} -> {item['path']}")
+    if summary.get("arrays_checked"):
+        print("arrays: checked")
+    if summary.get("array_errors"):
+        print("array errors:")
+        for item in summary["array_errors"]:
+            print(f"  line {item['line']} {item.get('episode')}: "
+                  f"{'; '.join(item['errors'])}")
 
 
 def calibrate_main(argv=None, prog=None) -> None:

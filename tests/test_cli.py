@@ -108,7 +108,7 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     index_main([str(tmp_path), "--out", str(index_path)])
     capsys.readouterr()
 
-    main(["inspect-index", str(index_path), "--check-paths", "--require-cv-labels"])
+    main(["inspect-index", str(index_path), "--check-arrays", "--require-cv-labels"])
     human = capsys.readouterr().out
     assert "records: 2" in human
     assert "modalities: fluoro=2" in human
@@ -120,9 +120,10 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "keypoint_steps: 2/2" in human
     assert "keypoints: base=2/2, tip=2/2" in human
     assert "cv_labels_required: true" in human
+    assert "arrays: checked" in human
     assert "obs_path: 2 refs, 0 missing" in human
 
-    main(["inspect-index", str(index_path), "--check-paths", "--require-cv-labels", "--json"])
+    main(["inspect-index", str(index_path), "--check-arrays", "--require-cv-labels", "--json"])
     summary = json.loads(capsys.readouterr().out)
     assert summary["records"] == 2
     assert summary["episodes"] == {"case": 2}
@@ -139,8 +140,20 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["annotations"]["keypoints_total"] == {"base": 2, "tip": 2}
     assert summary["annotations"]["cv_labels_required"] is True
     assert summary["annotations"]["cv_label_errors"] == []
+    assert summary["paths_checked"] is True
+    assert summary["arrays_checked"] is True
+    assert summary["array_errors"] == []
     assert summary["path_fields"]["obs_path"] == 2
     assert summary["missing_paths"]["obs_path"] == 0
+
+    np.save(tmp_path / "case" / "obs" / "000_device_mask.npy", np.zeros((8, 8), dtype=np.uint8))
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(index_path), "--check-arrays", "--require-cv-labels"])
+    assert seen.value.code == 1
+    array_out = capsys.readouterr().out
+    assert "array errors:" in array_out
+    assert "device_mask nonempty" in array_out
+    np.save(tmp_path / "case" / "obs" / "000_device_mask.npy", np.eye(8, dtype=np.uint8))
 
     inconsistent_path = tmp_path / "indexes" / "inconsistent.jsonl"
     rows = [json.loads(line) for line in index_path.read_text().splitlines()]

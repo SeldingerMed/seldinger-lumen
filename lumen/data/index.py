@@ -180,8 +180,40 @@ def _cv_label_errors(record: dict) -> list[str]:
     return errors
 
 
+def _array_errors(record: dict, resolved: dict) -> list[str]:
+    errors = []
+    arrays = {}
+    for field in PATH_FIELDS:
+        value = record.get(field)
+        if not value:
+            continue
+        if not Path(resolved[field]).exists():
+            continue
+        try:
+            arrays[field] = np.load(resolved[field])
+        except Exception as e:
+            errors.append(f"{field} load: {type(e).__name__}: {e}")
+    obs = arrays.get("obs_path")
+    obs_shape = None if obs is None else tuple(obs.shape[:2])
+    for field in ("device_mask_path", "vessel_mask_path"):
+        if field not in arrays:
+            continue
+        mask = np.asarray(arrays[field])
+        name = field.removesuffix("_path")
+        if mask.ndim != 2:
+            errors.append(f"{name} ndim={mask.ndim}")
+        if mask.dtype.kind not in ("b", "u"):
+            errors.append(f"{name} dtype={mask.dtype}")
+        if obs_shape is not None and tuple(mask.shape) != obs_shape:
+            errors.append(f"{name} shape={mask.shape} obs_shape={obs_shape}")
+        if not mask.any():
+            errors.append(f"{name} nonempty")
+    return errors
+
+
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
-                    check_paths: bool = False, require_cv_labels: bool = False) -> dict:
+                    check_paths: bool = False, require_cv_labels: bool = False,
+                    check_arrays: bool = False) -> dict:
     """Return a compact JSON-serializable summary of a Lumen dataloader index."""
     index_path = Path(index_path)
     root = Path(base_dir) if base_dir is not None else index_path.parent
@@ -201,6 +233,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     keypoints_present = Counter()
     keypoints_total = Counter()
     cv_label_errors = []
+    array_errors = []
     missing_examples = []
     records = 0
     with open(index_path) as f:
@@ -262,13 +295,13 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                         "episode": record.get("episode"),
                         "missing": errors,
                     })
-            resolved = resolve_record_paths(record, root) if check_paths else record
+            resolved = resolve_record_paths(record, root) if (check_paths or check_arrays) else record
             for field in PATH_FIELDS:
                 value = record.get(field)
                 if not value:
                     continue
                 path_counts[field] += 1
-                if check_paths and not Path(resolved[field]).exists():
+                if (check_paths or check_arrays) and not Path(resolved[field]).exists():
                     missing_paths[field] += 1
                     if len(missing_examples) < 5:
                         missing_examples.append({
@@ -277,6 +310,14 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                             "field": field,
                             "path": resolved[field],
                         })
+            if check_arrays:
+                errors = _array_errors(record, resolved)
+                if errors and len(array_errors) < 5:
+                    array_errors.append({
+                        "line": line_no,
+                        "episode": record.get("episode"),
+                        "errors": errors,
+                    })
     return {
         "index_path": str(index_path),
         "records": records,
@@ -299,7 +340,9 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             "cv_labels_required": require_cv_labels,
             "cv_label_errors": cv_label_errors,
         },
-        "paths_checked": check_paths,
+        "paths_checked": check_paths or check_arrays,
+        "arrays_checked": check_arrays,
+        "array_errors": array_errors,
         "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},
         "missing_path_examples": missing_examples,
     }

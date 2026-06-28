@@ -51,7 +51,7 @@ lumen capture /tmp/lumen-episodes
 lumen validate /tmp/lumen-episodes
 lumen replay /tmp/lumen-episodes
 lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
-lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-paths --require-cv-labels
+lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-arrays --require-cv-labels
 lumen calibrate
 ```
 
@@ -75,7 +75,8 @@ or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
 modalities, labels, calibration types, episode-level clinical outcome/safety counts,
 keypoint coverage, and missing sidecar references before a training job opens arrays;
 add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
-keypoints, and add `--json` for scripts and notebooks. For
+keypoints, `--check-arrays` to load referenced arrays and reject empty/bad masks,
+and add `--json` for scripts and notebooks. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
 
