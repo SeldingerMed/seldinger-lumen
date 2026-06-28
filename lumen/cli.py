@@ -322,19 +322,22 @@ def index_main(argv=None, prog=None) -> None:
     msg = (f"indexed {records} step records from {source} -> "
            f"{target}{modality_msg}{cv_msg}")
     print(msg, file=(sys.stdout if args.out else sys.stderr))
-    if args.require_cv_labels and cv_steps == 0:
+    if args.require_cv_labels and cv_steps == 0 and not skipped:
         skipped.append((root, "ValueError: no fluoro observations found for --require-cv-labels"))
     if skipped:
         print("skipped invalid bundles:", file=(sys.stdout if args.out else sys.stderr))
         for path, err in skipped:
             print(f"  {path}: {err}", file=(sys.stdout if args.out else sys.stderr))
+    if records == 0:
+        print("no index records emitted; check the corpus path or modality filter",
+              file=(sys.stdout if args.out else sys.stderr))
+        if args.out:
+            Path(args.out).unlink(missing_ok=True)
+        raise SystemExit(1)
+    if skipped:
         if args.check_sidecars or args.require_cv_labels:
-            if args.out and records == 0:
-                Path(args.out).unlink(missing_ok=True)
             raise SystemExit(1)
     if (args.check_sidecars or args.require_cv_labels) and episodes == 0:
-        if args.out and records == 0:
-            Path(args.out).unlink(missing_ok=True)
         raise SystemExit(1)
 
 
