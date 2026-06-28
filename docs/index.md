@@ -50,7 +50,7 @@ lumen render-fluoro /tmp/lumen_fluoro.png
 lumen capture /tmp/lumen-episodes
 lumen validate /tmp/lumen-episodes
 lumen replay /tmp/lumen-episodes
-lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl
+lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
 lumen calibrate
 ```
 
@@ -66,7 +66,9 @@ annotation coverage such as
 masks/keypoints before loading arrays. `lumen index` writes a
 JSONL dataloader index with observation, mask, node-position, keypoint, action,
 clinical-metric, label, calibration, and provenance fields. Paths are
-corpus-relative by default; pass `--absolute-paths` for a machine-local index. For
+corpus-relative by default; pass `--absolute-paths` for a machine-local index, and
+pass `--require-cv-labels` to make fluoro training indexes fail on missing or empty
+CV labels. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
 

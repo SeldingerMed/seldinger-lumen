@@ -261,6 +261,9 @@ def index_main(argv=None, prog=None) -> None:
                         help="Emit machine-local absolute sidecar paths instead of corpus-relative paths.")
     parser.add_argument("--check-sidecars", action="store_true",
                         help="Validate referenced arrays exist before indexing.")
+    parser.add_argument("--require-cv-labels", action="store_true",
+                        help="Require fluoro observations to have non-empty masks and "
+                             "present tip/base keypoints before indexing.")
     args = parser.parse_args(argv)
 
     root = Path(args.episodes_dir)
@@ -273,12 +276,16 @@ def index_main(argv=None, prog=None) -> None:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     out = open(args.out, "w") if args.out else sys.stdout
     records = episodes = 0
+    cv_steps = 0
     skipped = []
     try:
         for d in ds.dirs:
             try:
                 ep = Episode.load(d)
-                validate_case_bundle(ep, root=d if args.check_sidecars else None)
+                check_root = d if (args.check_sidecars or args.require_cv_labels) else None
+                validate_case_bundle(ep, root=check_root)
+                if args.require_cv_labels:
+                    cv_steps += _require_cv_labels(ep, d)
             except Exception as e:
                 skipped.append((d, f"{type(e).__name__}: {e}"))
                 continue
@@ -292,15 +299,18 @@ def index_main(argv=None, prog=None) -> None:
             out.close()
 
     target = args.out or "stdout"
-    msg = f"indexed {records} step records from {episodes} case bundles -> {target}"
+    cv_msg = f"  cv_label_steps={cv_steps}" if args.require_cv_labels else ""
+    msg = f"indexed {records} step records from {episodes} case bundles -> {target}{cv_msg}"
     print(msg, file=(sys.stdout if args.out else sys.stderr))
+    if args.require_cv_labels and cv_steps == 0:
+        skipped.append((root, "ValueError: no fluoro observations found for --require-cv-labels"))
     if skipped:
         print("skipped invalid bundles:", file=(sys.stdout if args.out else sys.stderr))
         for path, err in skipped:
             print(f"  {path}: {err}", file=(sys.stdout if args.out else sys.stderr))
-        if args.check_sidecars:
+        if args.check_sidecars or args.require_cv_labels:
             raise SystemExit(1)
-    if args.check_sidecars and episodes == 0:
+    if (args.check_sidecars or args.require_cv_labels) and episodes == 0:
         raise SystemExit(1)
 
 

@@ -180,7 +180,10 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
                              "node_positions_ref": "000_nodes.npy"},
                  annotations={"device_mask_ref": "000_device_mask.npy",
                               "vessel_mask_ref": "000_vessel_mask.npy",
-                              "keypoints": {"tip": {"uv": [8.0, 9.0], "present": True}}},
+                              "keypoints": {
+                                  "base": {"uv": [8.0, 1.0], "present": True},
+                                  "tip": {"uv": [8.0, 9.0], "present": True},
+                              }},
                  obs_modality="fluoro", obs_ref="000.npy",
                  obs=np.ones((16, 16)),
                  node_positions=np.zeros((3, 3)),
@@ -221,6 +224,9 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     nested_path = tmp_path / "indexes" / "case" / "index.jsonl"
     index_main([str(tmp_path), "--out", str(nested_path), "--check-sidecars"])
     assert nested_path.exists()
+    strict_path = tmp_path / "strict.jsonl"
+    index_main([str(tmp_path), "--out", str(strict_path), "--require-cv-labels"])
+    assert "cv_label_steps=1" in capsys.readouterr().out
 
     abs_path = tmp_path / "absolute.jsonl"
     index_main([str(tmp_path), "--out", str(abs_path), "--absolute-paths"])
@@ -243,6 +249,6 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
 
     (tmp_path / "case" / "obs" / "000_device_mask.npy").unlink()
     with pytest.raises(SystemExit) as seen:
-        index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"), "--check-sidecars"])
+        index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"), "--require-cv-labels"])
     assert seen.value.code == 1
     assert "skipped invalid bundles" in capsys.readouterr().out

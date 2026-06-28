@@ -137,7 +137,7 @@ keypoints are finite in-frame `(u, v)` coordinates.
 For CV/RL training jobs that want a flat manifest, run:
 
 ```bash
-lumen-index episodes --out episodes/index.jsonl --check-sidecars
+lumen index episodes --out episodes/index.jsonl --check-sidecars
 ```
 
 This writes one JSON object per timestep. By default, path fields are relative to
