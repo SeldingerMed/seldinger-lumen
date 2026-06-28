@@ -59,6 +59,57 @@ def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
     assert "--check-sidecars" in out
 
 
+def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
+    import lumen.bench as bench
+    from lumen.cli import benchmark_main
+
+    seen = {}
+
+    class DummyScorecard:
+        suite_version = "lumen-bench/test"
+        name = "forward-baseline"
+        per_task = [{
+            "name": "nav_tube",
+            "tier": "easy",
+            "safe_success_rate": 1.0,
+            "unsafe_success_rate": 0.0,
+            "success_rate": 1.0,
+            "mean_steps": 3.0,
+            "max_pen": 0.0,
+        }]
+        overall = {
+            "safe_success_rate": 1.0,
+            "unsafe_success_rate": 0.0,
+            "success_rate": 1.0,
+            "max_pen": 0.0,
+            "mean_return": 42.0,
+        }
+
+        def save(self, path):
+            with open(path, "w") as f:
+                json.dump({"notes": seen["notes"]}, f)
+
+    def fake_evaluate_policy(_policy, name, notes=None):
+        seen["name"] = name
+        seen["notes"] = notes
+        return DummyScorecard()
+
+    monkeypatch.setattr(bench, "evaluate_policy", fake_evaluate_policy)
+    monkeypatch.setattr(bench, "leaderboard", lambda _results_dir: [DummyScorecard()])
+    monkeypatch.setattr(bench, "scorecard_rejections", lambda _results_dir: [])
+
+    benchmark_main([str(tmp_path)])
+
+    assert seen["name"] == "forward-baseline"
+    assert seen["notes"] == {
+        "policy": "lumen.bench.forward_policy",
+        "command": "lumen benchmark",
+        "safety_max_pen": bench.SAFETY_MAX_PEN,
+    }
+    saved = json.loads((tmp_path / "forward-baseline.json").read_text())
+    assert saved["notes"] == seen["notes"]
+
+
 def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsys):
     from lumen.cli import validate_main
 

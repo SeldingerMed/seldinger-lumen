@@ -51,7 +51,8 @@ def hardware_main(argv=None, prog=None) -> None:
 
 
 def benchmark_main(argv=None, prog=None) -> None:
-    from lumen.bench import evaluate_policy, forward_policy, leaderboard, scorecard_rejections
+    from lumen.bench import (SAFETY_MAX_PEN, evaluate_policy, forward_policy, leaderboard,
+                             scorecard_rejections)
 
     parser = argparse.ArgumentParser(
         prog=prog, description="Run the canonical Lumen navigation benchmark.")
@@ -59,7 +60,11 @@ def benchmark_main(argv=None, prog=None) -> None:
     args = parser.parse_args(argv)
     os.makedirs(args.results_dir, exist_ok=True)
 
-    sc = evaluate_policy(forward_policy, "forward-baseline")
+    sc = evaluate_policy(forward_policy, "forward-baseline", notes={
+        "policy": "lumen.bench.forward_policy",
+        "command": "lumen benchmark",
+        "safety_max_pen": SAFETY_MAX_PEN,
+    })
     sc.save(os.path.join(args.results_dir, "forward-baseline.json"))
 
     print(f"suite {sc.suite_version}   submission: {sc.name}")
