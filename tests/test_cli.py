@@ -73,8 +73,16 @@ def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsy
         steps=[
             Step(t=0.0, action={"insertion": 1.0},
                  kinematics={"tip_mm": [0.0, 0.0, 2.0]},
+                 annotations={"device_mask_ref": "000_device_mask.npy",
+                              "vessel_mask_ref": "000_vessel_mask.npy",
+                              "keypoints": {
+                                  "base": {"uv": [8.0, 1.0], "present": True},
+                                  "tip": {"uv": [8.0, 9.0], "present": True},
+                              }},
                  obs_modality="fluoro", obs_ref="000.npy",
-                 obs=np.ones((16, 16))),
+                 obs=np.ones((16, 16)),
+                 annotation_arrays={"device_mask": np.eye(16, dtype=np.uint8),
+                                    "vessel_mask": np.ones((16, 16), dtype=np.uint8)}),
         ],
         outcome=Outcome(success=True, final_dist=0.5, steps=1, label="straight_success"),
         asset=procedural.straight_tube(80.0, 2.0),
@@ -82,6 +90,27 @@ def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsy
     ep.save(tmp_path / "ok")
     validate_main([str(tmp_path)])
     assert "validated 1 case bundles" in capsys.readouterr().out
+    validate_main([str(tmp_path), "--require-cv-labels"])
+    assert "validated 1 case bundles" in capsys.readouterr().out
+
+    missing_cv = Episode(
+        meta=ep.meta,
+        steps=[
+            Step(t=0.0, action={"insertion": 1.0},
+                 kinematics={"tip_mm": [0.0, 0.0, 2.0]},
+                 obs_modality="fluoro", obs_ref="000.npy",
+                 obs=np.ones((16, 16))),
+        ],
+        outcome=ep.outcome,
+        asset=procedural.straight_tube(80.0, 2.0),
+    )
+    missing_cv.save(tmp_path / "missing_cv")
+    with pytest.raises(SystemExit) as seen:
+        validate_main([str(tmp_path), "--require-cv-labels"])
+    assert seen.value.code == 1
+    out = capsys.readouterr().out
+    assert "missing CV labels" in out
+    assert "device_mask_ref" in out
 
     (tmp_path / "ok" / "asset.json").unlink()
     with pytest.raises(SystemExit) as seen:

@@ -188,6 +188,9 @@ def validate_main(argv=None, prog=None) -> None:
     parser = argparse.ArgumentParser(
         prog=prog, description="Validate a Lumen case-bundle corpus before training.")
     parser.add_argument("episodes_dir", nargs="?", default="episodes")
+    parser.add_argument("--require-cv-labels", action="store_true",
+                        help="Require every fluoro observation to have device/vessel masks "
+                             "and present tip/base keypoints.")
     args = parser.parse_args(argv)
 
     root = Path(args.episodes_dir)
@@ -197,17 +200,22 @@ def validate_main(argv=None, prog=None) -> None:
 
     ds = EpisodeDataset(root, validate_on_load=False)
     valid = 0
+    cv_steps = 0
     skipped = []
     for d in ds.dirs:
         try:
             ep = Episode.load(d)
             validate_case_bundle(ep, root=d)
+            if args.require_cv_labels:
+                cv_steps += _require_cv_labels(ep)
         except Exception as e:
             skipped.append((d, f"{type(e).__name__}: {e}"))
             continue
         valid += 1
 
     print(f"validated {valid} case bundles under {root}")
+    if args.require_cv_labels and cv_steps == 0:
+        skipped.append((root, "ValueError: no fluoro observations found for --require-cv-labels"))
     if skipped:
         print("invalid bundles:")
         for path, err in skipped:
@@ -215,6 +223,25 @@ def validate_main(argv=None, prog=None) -> None:
         raise SystemExit(1)
     if valid == 0:
         raise SystemExit(1)
+
+
+def _require_cv_labels(ep) -> int:
+    fluoro_steps = 0
+    for i, step in enumerate(ep.steps):
+        if step.obs_modality != "fluoro" or not step.obs_ref:
+            continue
+        fluoro_steps += 1
+        annotations = step.annotations if isinstance(step.annotations, dict) else {}
+        missing = [name for name in ("device_mask_ref", "vessel_mask_ref")
+                   if not annotations.get(name)]
+        keypoints = annotations.get("keypoints") if isinstance(annotations.get("keypoints"), dict) else {}
+        for name in ("tip", "base"):
+            kp = keypoints.get(name)
+            if not isinstance(kp, dict) or not kp.get("present", True):
+                missing.append(f"keypoints.{name}")
+        if missing:
+            raise ValueError(f"step {i}: missing CV labels: {', '.join(missing)}")
+    return fluoro_steps
 
 
 def index_main(argv=None, prog=None) -> None:

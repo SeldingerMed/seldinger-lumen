@@ -77,7 +77,8 @@ lumen calibrate
 sheets, and `label_overlay_contact_sheet.png`, so you can inspect observations and
 CV labels without opening NumPy sidecars. `lumen validate` checks every bundle's
 asset, calibration, observations, masks, keypoints, labels, and sidecar refs before
-you train on it. `lumen replay` prints clinical endpoint
+you train on it; add `--require-cv-labels` when a fluoro CV run must have
+device/vessel masks and tip/base keypoints on every frame. `lumen replay` prints clinical endpoint
 flags and skips invalid bundles with an explicit reason. It also reports
 manifest-only annotation coverage
 (`device_mask=19/19`, `vessel_mask=19/19`,

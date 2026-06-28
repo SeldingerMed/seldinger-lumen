@@ -58,7 +58,8 @@ lumen calibrate
 `preview_contact_sheet.png`, fluoro device/vessel mask contact sheets, and
 `label_overlay_contact_sheet.png`. `lumen validate` checks every bundle's asset,
 calibration, observations, masks, keypoints, labels, and sidecar refs before you
-train on it. The replay summary reports clinical flags plus
+train on it; add `--require-cv-labels` when a fluoro CV run must have
+device/vessel masks and tip/base keypoints on every frame. The replay summary reports clinical flags plus
 annotation coverage such as
 `device_mask=19/19`, `vessel_mask=19/19`, and
 `keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV pipeline can screen
