@@ -210,7 +210,8 @@ def _nearest_mask_distance(mask: np.ndarray, uv: np.ndarray) -> float | None:
 
 
 def _keypoint_errors(record: dict, obs_shape: tuple | None = None,
-                     device_mask: np.ndarray | None = None) -> list[str]:
+                     device_mask: np.ndarray | None = None,
+                     mask_tolerance_px: float = KEYPOINT_MASK_TOLERANCE_PX) -> list[str]:
     keypoints = record.get("keypoints")
     if keypoints in (None, {}):
         return []
@@ -251,7 +252,7 @@ def _keypoint_errors(record: dict, obs_shape: tuple | None = None,
                     continue
             if present and name in DEVICE_KEYPOINTS and device_mask is not None:
                 dist = _nearest_mask_distance(np.asarray(device_mask) > 0, arr)
-                if dist is not None and dist > KEYPOINT_MASK_TOLERANCE_PX:
+                if dist is not None and dist > mask_tolerance_px:
                     errors.append(f"{label} on-device distance={dist:.2f}px")
     return errors
 
@@ -292,7 +293,8 @@ def _array_errors(record: dict, resolved: dict,
 
 def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                     check_paths: bool = False, require_cv_labels: bool = False,
-                    check_arrays: bool = False) -> dict:
+                    check_arrays: bool = False,
+                    keypoint_mask_tolerance_px: float = KEYPOINT_MASK_TOLERANCE_PX) -> dict:
     """Return a compact JSON-serializable summary of a Lumen dataloader index."""
     index_path = Path(index_path)
     root = Path(base_dir) if base_dir is not None else index_path.parent
@@ -402,7 +404,8 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                         "errors": errors,
                     })
             if require_cv_labels or check_arrays:
-                errors = _keypoint_errors(record, obs_shape, device_mask)
+                errors = _keypoint_errors(record, obs_shape, device_mask,
+                                          keypoint_mask_tolerance_px)
                 if errors and len(keypoint_errors) < 5:
                     keypoint_errors.append({
                         "line": line_no,
@@ -431,6 +434,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             "cv_labels_required": require_cv_labels,
             "cv_label_errors": cv_label_errors,
             "keypoint_errors": keypoint_errors,
+            "keypoint_mask_tolerance_px": keypoint_mask_tolerance_px,
         },
         "paths_checked": check_paths or check_arrays,
         "arrays_checked": check_arrays,

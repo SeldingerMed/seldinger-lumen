@@ -97,7 +97,8 @@ keypoint coverage, and missing sidecar references before a training job opens ar
 add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
 keypoints, `--check-arrays` to load referenced arrays, report mask coverage, reject
 empty/bad masks, and catch off-frame or off-device keypoints, and `--json` for
-scripts and notebooks. For training loops,
+scripts and notebooks. Use `--keypoint-mask-tolerance` to tune how far device
+keypoints may sit from the device mask before the index fails. For training loops,
 `CaseBundle.load(path).replay(include_annotations=True)` yields each observation
 with its lazy-loaded masks/keypoints.
 

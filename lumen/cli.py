@@ -356,17 +356,23 @@ def inspect_index_main(argv=None, prog=None) -> None:
                         help="Check that referenced observation/mask/node sidecars exist.")
     parser.add_argument("--check-arrays", action="store_true",
                         help="Load arrays and validate masks plus device-keypoint agreement.")
+    parser.add_argument("--keypoint-mask-tolerance", type=float, default=1.5,
+                        help="Max pixel distance from device keypoints to the device mask "
+                             "when --check-arrays is enabled. Defaults to 1.5.")
     parser.add_argument("--require-cv-labels", action="store_true",
                         help="Fail if fluoro rows lack mask refs or present tip/base keypoints.")
     parser.add_argument("--json", action="store_true",
                         help="Print the raw machine-readable summary JSON.")
     args = parser.parse_args(argv)
+    if args.keypoint_mask_tolerance < 0:
+        parser.error("--keypoint-mask-tolerance must be non-negative")
 
     try:
         summary = summarize_index(args.index_path, base_dir=args.base_dir,
                                   check_paths=args.check_paths,
                                   require_cv_labels=args.require_cv_labels,
-                                  check_arrays=args.check_arrays)
+                                  check_arrays=args.check_arrays,
+                                  keypoint_mask_tolerance_px=args.keypoint_mask_tolerance)
     except FileNotFoundError:
         print(f"no index file at {args.index_path!r}")
         raise SystemExit(1) from None
@@ -461,6 +467,8 @@ def _print_index_summary(summary: dict) -> None:
                   f"{item['field']} -> {item['path']}")
     if summary.get("arrays_checked"):
         print("arrays: checked")
+        print(f"keypoint_mask_tolerance: "
+              f"{annotations.get('keypoint_mask_tolerance_px', 1.5):.3f}px")
         coverage = summary.get("mask_coverage", {})
         if coverage:
             print("mask coverage:")

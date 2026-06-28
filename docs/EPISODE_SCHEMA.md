@@ -190,7 +190,9 @@ mask references and present tip/base keypoints on every row. Add `--check-arrays
 when a CI job should load referenced arrays, report mask coverage, reject empty,
 malformed, or shape-mismatched masks, and catch present keypoints outside the
 observation frame or away from the device mask. Add `--json` when a CI job or
-notebook needs the raw machine-readable summary.
+notebook needs the raw machine-readable summary. Use
+`--keypoint-mask-tolerance` to tune how far device keypoints may sit from the
+device mask before the index fails.
 
 Read it back without depending on a training framework:
 

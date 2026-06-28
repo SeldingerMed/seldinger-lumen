@@ -135,6 +135,7 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "keypoints: base=2/2, tip=2/2" in human
     assert "cv_labels_required: true" in human
     assert "arrays: checked" in human
+    assert "keypoint_mask_tolerance: 1.500px" in human
     assert "mask coverage:" in human
     assert "device_mask: mean=12.500% min=12.500% max=12.500% n=2" in human
     assert "vessel_mask: mean=100.000% min=100.000% max=100.000% n=2" in human
@@ -158,6 +159,7 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["annotations"]["cv_labels_required"] is True
     assert summary["annotations"]["cv_label_errors"] == []
     assert summary["annotations"]["keypoint_errors"] == []
+    assert summary["annotations"]["keypoint_mask_tolerance_px"] == 1.5
     assert summary["paths_checked"] is True
     assert summary["arrays_checked"] is True
     assert summary["array_errors"] == []
@@ -205,6 +207,9 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert seen.value.code == 1
     off_device_out = capsys.readouterr().out
     assert "keypoints.tip on-device" in off_device_out
+    inspect_index_main([str(off_device_path), "--check-arrays", "--require-cv-labels",
+                        "--keypoint-mask-tolerance", "100"])
+    assert "keypoint errors:" not in capsys.readouterr().out
 
     inconsistent_path = tmp_path / "indexes" / "inconsistent.jsonl"
     rows = [json.loads(line) for line in index_path.read_text().splitlines()]
@@ -280,6 +285,11 @@ def test_index_inspection_reports_invalid_inputs_without_traceback(tmp_path, cap
     assert seen.value.code == 1
     out = capsys.readouterr().out
     assert "line 1: expected JSON object" in out
+
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(wrong_shape), "--keypoint-mask-tolerance", "-1"])
+    assert seen.value.code == 2
+    assert "--keypoint-mask-tolerance must be non-negative" in capsys.readouterr().err
 
 
 def test_index_record_iterator_reports_invalid_rows_with_context(tmp_path):
