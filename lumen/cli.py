@@ -356,8 +356,15 @@ def inspect_index_main(argv=None, prog=None) -> None:
                         help="Check that referenced observation/mask/node sidecars exist.")
     args = parser.parse_args(argv)
 
-    summary = summarize_index(args.index_path, base_dir=args.base_dir,
-                              check_paths=args.check_paths)
+    try:
+        summary = summarize_index(args.index_path, base_dir=args.base_dir,
+                                  check_paths=args.check_paths)
+    except FileNotFoundError:
+        print(f"no index file at {args.index_path!r}")
+        raise SystemExit(1) from None
+    except ValueError as e:
+        print(f"invalid index {args.index_path!r}: {e}")
+        raise SystemExit(1) from None
     print(json.dumps(summary, indent=2, sort_keys=True))
     if summary["records"] == 0 or any(summary["missing_paths"].values()):
         raise SystemExit(1)

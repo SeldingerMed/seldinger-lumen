@@ -147,7 +147,14 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
         for line_no, line in enumerate(f, 1):
             if not line.strip():
                 continue
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"line {line_no}: invalid JSON: {e.msg}") from e
+            if not isinstance(record, dict):
+                raise ValueError(
+                    f"line {line_no}: expected JSON object, got {type(record).__name__}")
             records += 1
             episodes[record.get("episode", "<missing>")] += 1
             modalities[record.get("obs_modality", "<missing>")] += 1

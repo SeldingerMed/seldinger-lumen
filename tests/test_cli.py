@@ -104,6 +104,32 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert broken["missing_path_examples"][0]["field"] == "obs_path"
 
 
+def test_index_inspection_reports_invalid_inputs_without_traceback(tmp_path, capsys):
+    from lumen.cli import inspect_index_main
+
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(tmp_path / "missing.jsonl")])
+    assert seen.value.code == 1
+    assert "no index file" in capsys.readouterr().out
+
+    malformed = tmp_path / "malformed.jsonl"
+    malformed.write_text("{bad json}\n")
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(malformed)])
+    assert seen.value.code == 1
+    out = capsys.readouterr().out
+    assert "invalid index" in out
+    assert "line 1: invalid JSON" in out
+
+    wrong_shape = tmp_path / "array.jsonl"
+    wrong_shape.write_text("[]\n")
+    with pytest.raises(SystemExit) as seen:
+        inspect_index_main([str(wrong_shape)])
+    assert seen.value.code == 1
+    out = capsys.readouterr().out
+    assert "line 1: expected JSON object" in out
+
+
 def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
     import lumen.bench as bench
     from lumen.cli import benchmark_main
