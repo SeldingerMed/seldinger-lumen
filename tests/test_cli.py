@@ -30,6 +30,7 @@ def test_pyproject_exposes_first_run_console_scripts():
         "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
         "lumen-capture": "lumen.cli:capture_main",
         "lumen-replay": "lumen.cli:replay_main",
+        "lumen-validate": "lumen.cli:validate_main",
         "lumen-index": "lumen.cli:index_main",
         "lumen-calibrate": "lumen.cli:calibrate_main",
     }
@@ -55,6 +56,40 @@ def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
     out = capsys.readouterr().out
     assert "usage: lumen index" in out
     assert "--check-sidecars" in out
+
+
+def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsys):
+    from lumen.cli import validate_main
+
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=16, nv=16)
+    ep = Episode(
+        meta=EpisodeMeta(
+            asset_ref="asset.json",
+            device={"guidewire": {"radius": 0.2}},
+            sensor={"modality": "fluoro", "nu": 16, "nv": 16},
+            calibration={"type": "carm", "views": [carm.to_dict()]},
+            labels={"procedure": "navigation"},
+        ),
+        steps=[
+            Step(t=0.0, action={"insertion": 1.0},
+                 kinematics={"tip_mm": [0.0, 0.0, 2.0]},
+                 obs_modality="fluoro", obs_ref="000.npy",
+                 obs=np.ones((16, 16))),
+        ],
+        outcome=Outcome(success=True, final_dist=0.5, steps=1, label="straight_success"),
+        asset=procedural.straight_tube(80.0, 2.0),
+    )
+    ep.save(tmp_path / "ok")
+    validate_main([str(tmp_path)])
+    assert "validated 1 case bundles" in capsys.readouterr().out
+
+    (tmp_path / "ok" / "asset.json").unlink()
+    with pytest.raises(SystemExit) as seen:
+        validate_main([str(tmp_path)])
+    assert seen.value.code == 1
+    out = capsys.readouterr().out
+    assert "invalid bundles" in out
+    assert "asset_ref" in out or "asset sidecar" in out
 
 
 def test_replay_cli_handles_missing_root_without_warning(tmp_path, capsys):

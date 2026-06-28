@@ -43,6 +43,7 @@ lumen-benchmark = "lumen.cli:benchmark_main"
 lumen-render-fluoro = "lumen.cli:render_fluoro_main"
 lumen-capture = "lumen.cli:capture_main"
 lumen-replay = "lumen.cli:replay_main"
+lumen-validate = "lumen.cli:validate_main"
 lumen-index = "lumen.cli:index_main"
 lumen-calibrate = "lumen.cli:calibrate_main"
 

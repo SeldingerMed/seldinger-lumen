@@ -18,6 +18,7 @@ def _command_table():
         "render-fluoro": ("Render the canonical synthetic fluoroscopy demo.", render_fluoro_main),
         "capture": ("Capture the canonical procedural case-bundle corpus.", capture_main),
         "replay": ("Summarize and replay a case-bundle corpus.", replay_main),
+        "validate": ("Validate a case-bundle corpus before training.", validate_main),
         "index": ("Write a JSONL dataloader index for a corpus.", index_main),
         "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
     }
@@ -179,6 +180,41 @@ def replay_main(argv=None, prog=None) -> None:
         print("\nskipped invalid bundles:")
         for path, err in skipped:
             print(f"  {path}: {err}")
+
+
+def validate_main(argv=None, prog=None) -> None:
+    from lumen.data import Episode, EpisodeDataset, validate_case_bundle
+
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Validate a Lumen case-bundle corpus before training.")
+    parser.add_argument("episodes_dir", nargs="?", default="episodes")
+    args = parser.parse_args(argv)
+
+    root = Path(args.episodes_dir)
+    if not root.is_dir():
+        print(f"no episodes under {str(root)!r}; run examples/capture_episode.py first")
+        raise SystemExit(1)
+
+    ds = EpisodeDataset(root, validate_on_load=False)
+    valid = 0
+    skipped = []
+    for d in ds.dirs:
+        try:
+            ep = Episode.load(d)
+            validate_case_bundle(ep, root=d)
+        except Exception as e:
+            skipped.append((d, f"{type(e).__name__}: {e}"))
+            continue
+        valid += 1
+
+    print(f"validated {valid} case bundles under {root}")
+    if skipped:
+        print("invalid bundles:")
+        for path, err in skipped:
+            print(f"  {path}: {err}")
+        raise SystemExit(1)
+    if valid == 0:
+        raise SystemExit(1)
 
 
 def index_main(argv=None, prog=None) -> None:

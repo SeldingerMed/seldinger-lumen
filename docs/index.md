@@ -48,6 +48,7 @@ lumen hardware
 lumen benchmark /tmp/lumen-bench
 lumen render-fluoro /tmp/lumen_fluoro.png
 lumen capture /tmp/lumen-episodes
+lumen validate /tmp/lumen-episodes
 lumen replay /tmp/lumen-episodes
 lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl
 lumen calibrate
@@ -55,7 +56,9 @@ lumen calibrate
 
 `capture_episode.py` writes replayable case bundles with `preview.png`,
 `preview_contact_sheet.png`, fluoro device/vessel mask contact sheets, and
-`label_overlay_contact_sheet.png`. The replay summary reports clinical flags plus
+`label_overlay_contact_sheet.png`. `lumen validate` checks every bundle's asset,
+calibration, observations, masks, keypoints, labels, and sidecar refs before you
+train on it. The replay summary reports clinical flags plus
 annotation coverage such as
 `device_mask=19/19`, `vessel_mask=19/19`, and
 `keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV pipeline can screen
@@ -66,7 +69,8 @@ corpus-relative by default; pass `--absolute-paths` for a machine-local index. F
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
 
-The standalone `lumen-*` scripts remain installed for shell pipelines.
+The standalone `lumen-*` scripts, including `lumen-validate`, remain installed for
+shell pipelines.
 
 The benchmark separates raw target reach from clinically safe reach:
 `safe_success_rate` is target reach without wall-safety breach, while
