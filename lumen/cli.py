@@ -285,7 +285,7 @@ def index_main(argv=None, prog=None) -> None:
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     out = open(args.out, "w") if args.out else sys.stdout
-    records = episodes = 0
+    records = episodes = contributing_episodes = 0
     cv_steps = 0
     skipped = []
     try:
@@ -301,11 +301,15 @@ def index_main(argv=None, prog=None) -> None:
                 continue
             episodes += 1
             base_dir = None if args.absolute_paths else root
+            episode_records = 0
             for record in iter_step_records(ep, d, base_dir=base_dir):
                 if args.modality != "all" and record.get("obs_modality") != args.modality:
                     continue
                 out.write(json.dumps(record, sort_keys=True) + "\n")
                 records += 1
+                episode_records += 1
+            if episode_records:
+                contributing_episodes += 1
     finally:
         if args.out:
             out.close()
@@ -313,7 +317,9 @@ def index_main(argv=None, prog=None) -> None:
     target = args.out or "stdout"
     cv_msg = f"  cv_label_steps={cv_steps}" if args.require_cv_labels else ""
     modality_msg = "" if args.modality == "all" else f"  modality={args.modality}"
-    msg = (f"indexed {records} step records from {episodes} case bundles -> "
+    source = (f"{episodes} case bundles" if args.modality == "all"
+              else f"{contributing_episodes}/{episodes} valid case bundles")
+    msg = (f"indexed {records} step records from {source} -> "
            f"{target}{modality_msg}{cv_msg}")
     print(msg, file=(sys.stdout if args.out else sys.stderr))
     if args.require_cv_labels and cv_steps == 0:

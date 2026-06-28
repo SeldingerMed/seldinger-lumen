@@ -359,6 +359,7 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     fluoro_rows = [json.loads(line) for line in fluoro_index.read_text().splitlines()]
     assert [row["obs_modality"] for row in fluoro_rows] == ["fluoro"]
     out = capsys.readouterr().out
+    assert "indexed 1 step records from 1/2 valid case bundles" in out
     assert "modality=fluoro" in out
     assert "cv_label_steps=1" in out
 
@@ -366,7 +367,9 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     index_main([str(tmp_path), "--out", str(luminal_index), "--modality", "luminal"])
     luminal_rows = [json.loads(line) for line in luminal_index.read_text().splitlines()]
     assert [row["obs_modality"] for row in luminal_rows] == ["luminal"]
-    assert "modality=luminal" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "indexed 1 step records from 1/2 valid case bundles" in out
+    assert "modality=luminal" in out
 
     with pytest.raises(SystemExit) as seen:
         index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"),
