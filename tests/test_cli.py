@@ -1,6 +1,7 @@
 """Installed command entry points for first-run workflows."""
 
 import json
+from importlib.metadata import metadata
 from importlib.metadata import entry_points
 
 import numpy as np
@@ -8,6 +9,10 @@ import numpy as np
 from lumen.assets import procedural
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, iter_index_records, load_step_record
 from lumen.sensors.carm import CArm
+
+
+def test_distribution_metadata_matches_public_project_name():
+    assert metadata("seldinger-lumen")["Name"] == "seldinger-lumen"
 
 
 def test_pyproject_exposes_first_run_console_scripts():

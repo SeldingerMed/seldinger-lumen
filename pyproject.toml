@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lumensim"                 # import name stays `lumen`; PyPI name avoids collisions
+name = "seldinger-lumen"          # import name stays `lumen`; distribution matches the repo
 version = "0.0.0"
-description = "Differentiable, GPU-parallel contact & coupling solver for a continuum instrument in a deformable lumen"
+description = "Procedural endovascular simulation, CV labels, and RL benchmarks for Lumen"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
