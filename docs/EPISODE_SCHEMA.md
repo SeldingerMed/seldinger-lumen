@@ -187,9 +187,9 @@ coverage. With `--check-paths`, it also counts missing observation, mask,
 vessel-mask, and node-position sidecar references without loading the arrays.
 Add `--require-cv-labels` when a fluoro training index must have device/vessel
 mask references and present tip/base keypoints on every row. Add `--check-arrays`
-when a CI job should load referenced arrays and reject empty, malformed, or
-shape-mismatched masks. Add `--json` when a CI job or notebook needs the raw
-machine-readable summary.
+when a CI job should load referenced arrays, report mask coverage, and reject
+empty, malformed, or shape-mismatched masks. Add `--json` when a CI job or
+notebook needs the raw machine-readable summary.
 
 Read it back without depending on a training framework:
 

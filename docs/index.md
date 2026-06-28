@@ -75,8 +75,8 @@ or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
 modalities, labels, calibration types, episode-level clinical outcome/safety counts,
 keypoint coverage, and missing sidecar references before a training job opens arrays;
 add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
-keypoints, `--check-arrays` to load referenced arrays and reject empty/bad masks,
-and add `--json` for scripts and notebooks. For
+keypoints, `--check-arrays` to load referenced arrays, report mask coverage, and
+reject empty/bad masks, and add `--json` for scripts and notebooks. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
 

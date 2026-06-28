@@ -2,6 +2,8 @@
 
 import json
 import shutil
+import subprocess
+import sys
 from importlib.metadata import metadata
 from importlib.metadata import entry_points
 
@@ -46,6 +48,18 @@ def test_umbrella_cli_dispatches_workflows(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert "newton_available" in payload
     assert "backend_validated" in payload
+
+
+def test_cli_module_execution_prints_help():
+    result = subprocess.run(
+        [sys.executable, "-m", "lumen.cli", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "usage: lumen" in result.stdout
+    assert "inspect-index" in result.stdout
 
 
 def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
@@ -121,6 +135,9 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "keypoints: base=2/2, tip=2/2" in human
     assert "cv_labels_required: true" in human
     assert "arrays: checked" in human
+    assert "mask coverage:" in human
+    assert "device_mask: mean=12.500% min=12.500% max=12.500% n=2" in human
+    assert "vessel_mask: mean=100.000% min=100.000% max=100.000% n=2" in human
     assert "obs_path: 2 refs, 0 missing" in human
 
     main(["inspect-index", str(index_path), "--check-arrays", "--require-cv-labels", "--json"])
@@ -143,6 +160,18 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["paths_checked"] is True
     assert summary["arrays_checked"] is True
     assert summary["array_errors"] == []
+    assert summary["mask_coverage"]["device_mask"] == {
+        "count": 2,
+        "min": 0.125,
+        "max": 0.125,
+        "mean": 0.125,
+    }
+    assert summary["mask_coverage"]["vessel_mask"] == {
+        "count": 2,
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+    }
     assert summary["path_fields"]["obs_path"] == 2
     assert summary["missing_paths"]["obs_path"] == 0
 

@@ -398,6 +398,14 @@ def _format_present_total(present: dict, total: dict) -> str:
                      for name, count in total.items())
 
 
+def _format_fraction_summary(summary: dict) -> str:
+    mean = summary.get("mean")
+    if mean is None:
+        return "-"
+    return (f"mean={mean:.3%} min={summary['min']:.3%} "
+            f"max={summary['max']:.3%} n={summary['count']}")
+
+
 def _print_index_summary(summary: dict) -> None:
     print(f"index: {summary['index_path']}")
     print(f"records: {summary['records']}")
@@ -447,6 +455,11 @@ def _print_index_summary(summary: dict) -> None:
                   f"{item['field']} -> {item['path']}")
     if summary.get("arrays_checked"):
         print("arrays: checked")
+        coverage = summary.get("mask_coverage", {})
+        if coverage:
+            print("mask coverage:")
+            for name, values in coverage.items():
+                print(f"  {name}: {_format_fraction_summary(values)}")
     if summary.get("array_errors"):
         print("array errors:")
         for item in summary["array_errors"]:
@@ -479,3 +492,7 @@ def calibrate_main(argv=None, prog=None) -> None:
             print(f"{name:9s}  views={res['n_views']}  recovered={res['recovered_C10']:.0f}  "
                   f"noise-free={res['rel_error']:.2%}  under-noise={res['rel_error_noisy']:.2%}  "
                   f"-> {flag}")
+
+
+if __name__ == "__main__":
+    main()

@@ -180,7 +180,7 @@ def _cv_label_errors(record: dict) -> list[str]:
     return errors
 
 
-def _array_errors(record: dict, resolved: dict) -> list[str]:
+def _array_errors(record: dict, resolved: dict, mask_coverage: dict | None = None) -> list[str]:
     errors = []
     arrays = {}
     for field in PATH_FIELDS:
@@ -208,6 +208,8 @@ def _array_errors(record: dict, resolved: dict) -> list[str]:
             errors.append(f"{name} shape={mask.shape} obs_shape={obs_shape}")
         if not mask.any():
             errors.append(f"{name} nonempty")
+        if mask_coverage is not None and mask.ndim == 2 and mask.size:
+            mask_coverage.setdefault(name, []).append(float(np.count_nonzero(mask) / mask.size))
     return errors
 
 
@@ -234,6 +236,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     keypoints_total = Counter()
     cv_label_errors = []
     array_errors = []
+    mask_coverage = {}
     missing_examples = []
     records = 0
     with open(index_path) as f:
@@ -311,7 +314,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
                             "path": resolved[field],
                         })
             if check_arrays:
-                errors = _array_errors(record, resolved)
+                errors = _array_errors(record, resolved, mask_coverage)
                 if errors and len(array_errors) < 5:
                     array_errors.append({
                         "line": line_no,
@@ -343,6 +346,10 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
         "paths_checked": check_paths or check_arrays,
         "arrays_checked": check_arrays,
         "array_errors": array_errors,
+        "mask_coverage": (
+            {name: _numeric_summary(values) for name, values in sorted(mask_coverage.items())}
+            if check_arrays else {}
+        ),
         "missing_paths": {field: missing_paths[field] for field in PATH_FIELDS},
         "missing_path_examples": missing_examples,
     }
