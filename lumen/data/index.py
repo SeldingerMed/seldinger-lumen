@@ -16,6 +16,12 @@ PATH_FIELDS = ("obs_path", "device_mask_path", "vessel_mask_path", "node_positio
 CV_KEYPOINTS = ("base", "tip")
 DEVICE_KEYPOINTS = ("base", "tip", "nodes")
 KEYPOINT_MASK_TOLERANCE_PX = 1.5
+ARRAY_NAMES = {
+    "obs_path": "obs",
+    "device_mask_path": "device_mask",
+    "vessel_mask_path": "vessel_mask",
+    "node_positions_path": "node_positions",
+}
 
 
 def _record_path(path: str | Path, base_dir: str | Path | None = None) -> str:
@@ -172,6 +178,16 @@ def _numeric_summary(values: list[float]) -> dict:
     }
 
 
+def _payload_summary(payloads: dict) -> dict:
+    summary = {}
+    for name, counts in sorted(payloads.items()):
+        summary[name] = [
+            {"shape": list(shape), "dtype": dtype, "count": count}
+            for (shape, dtype), count in sorted(counts.items(), key=lambda item: (item[0][0], item[0][1]))
+        ]
+    return summary
+
+
 def _count_keypoints(keypoints, present: Counter, total: Counter) -> bool:
     if not isinstance(keypoints, dict) or not keypoints:
         return False
@@ -312,8 +328,8 @@ def _keypoint_errors(record: dict, obs_shape: tuple | None = None,
     return errors
 
 
-def _array_errors(record: dict, resolved: dict,
-                  mask_coverage: dict | None = None) -> tuple[list[str], tuple | None, np.ndarray | None]:
+def _array_errors(record: dict, resolved: dict, mask_coverage: dict | None = None,
+                  array_payloads: dict | None = None) -> tuple[list[str], tuple | None, np.ndarray | None]:
     errors = []
     arrays = {}
     for field in PATH_FIELDS:
@@ -324,6 +340,10 @@ def _array_errors(record: dict, resolved: dict,
             continue
         try:
             arrays[field] = np.load(resolved[field])
+            if array_payloads is not None:
+                array_payloads.setdefault(ARRAY_NAMES[field], Counter())[
+                    (tuple(arrays[field].shape), str(arrays[field].dtype))
+                ] += 1
         except Exception as e:
             errors.append(f"{field} load: {type(e).__name__}: {e}")
     obs = arrays.get("obs_path")
@@ -372,6 +392,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
     keypoint_errors = []
     array_errors = []
     mask_coverage = {}
+    array_payloads = {}
     keypoint_device_distances = {}
     missing_examples = []
     records = 0
@@ -452,7 +473,9 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
             obs_shape = None
             device_mask = None
             if check_arrays:
-                errors, obs_shape, device_mask = _array_errors(record, resolved, mask_coverage)
+                errors, obs_shape, device_mask = _array_errors(
+                    record, resolved, mask_coverage, array_payloads,
+                )
                 if errors and len(array_errors) < 5:
                     array_errors.append({
                         "line": line_no,
@@ -500,6 +523,7 @@ def summarize_index(index_path: str | Path, base_dir: str | Path | None = None,
         "paths_checked": check_paths or check_arrays,
         "arrays_checked": check_arrays,
         "array_errors": array_errors,
+        "array_payloads": _payload_summary(array_payloads) if check_arrays else {},
         "mask_coverage": (
             {name: _numeric_summary(values) for name, values in sorted(mask_coverage.items())}
             if check_arrays else {}

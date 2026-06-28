@@ -135,6 +135,10 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert "keypoints: base=2/2, tip=2/2" in human
     assert "cv_labels_required: true" in human
     assert "arrays: checked" in human
+    assert "array payloads:" in human
+    assert "obs: (8, 8) float64 n=2" in human
+    assert "device_mask: (8, 8) uint8 n=2" in human
+    assert "vessel_mask: (8, 8) uint8 n=2" in human
     assert "keypoint_mask_tolerance: 1.500px" in human
     assert "mask coverage:" in human
     assert "device_mask: mean=12.500% min=12.500% max=12.500% n=2" in human
@@ -166,6 +170,21 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     assert summary["paths_checked"] is True
     assert summary["arrays_checked"] is True
     assert summary["array_errors"] == []
+    assert summary["array_payloads"]["obs"] == [{
+        "shape": [8, 8],
+        "dtype": "float64",
+        "count": 2,
+    }]
+    assert summary["array_payloads"]["device_mask"] == [{
+        "shape": [8, 8],
+        "dtype": "uint8",
+        "count": 2,
+    }]
+    assert summary["array_payloads"]["vessel_mask"] == [{
+        "shape": [8, 8],
+        "dtype": "uint8",
+        "count": 2,
+    }]
     assert summary["mask_coverage"]["device_mask"] == {
         "count": 2,
         "min": 0.125,

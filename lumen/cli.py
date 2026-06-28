@@ -465,6 +465,13 @@ def _format_numeric_summary(summary: dict, unit: str = "") -> str:
             f"max={summary['max']:.3f}{unit} n={summary['count']}")
 
 
+def _format_array_payloads(payloads: list[dict]) -> str:
+    return ", ".join(
+        f"{tuple(item['shape'])} {item['dtype']} n={item['count']}"
+        for item in payloads
+    )
+
+
 def _print_index_summary(summary: dict) -> None:
     print(f"index: {summary['index_path']}")
     print(f"records: {summary['records']}")
@@ -519,6 +526,11 @@ def _print_index_summary(summary: dict) -> None:
                   f"{item['field']} -> {item['path']}")
     if summary.get("arrays_checked"):
         print("arrays: checked")
+        payloads = summary.get("array_payloads", {})
+        if payloads:
+            print("array payloads:")
+            for name, values in payloads.items():
+                print(f"  {name}: {_format_array_payloads(values)}")
         print(f"keypoint_mask_tolerance: "
               f"{annotations.get('keypoint_mask_tolerance_px', 1.5):.3f}px")
         coverage = summary.get("mask_coverage", {})
