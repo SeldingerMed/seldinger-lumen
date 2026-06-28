@@ -1,6 +1,7 @@
 """Installed command entry points for first-run workflows."""
 
 import json
+import shutil
 from importlib.metadata import metadata
 from importlib.metadata import entry_points
 
@@ -111,6 +112,14 @@ def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsy
     out = capsys.readouterr().out
     assert "missing CV labels" in out
     assert "device_mask_ref" in out
+
+    shutil.rmtree(tmp_path / "missing_cv")
+    np.save(tmp_path / "ok" / "obs" / "000_device_mask.npy", np.zeros((16, 16), dtype=np.uint8))
+    with pytest.raises(SystemExit) as seen:
+        validate_main([str(tmp_path), "--require-cv-labels"])
+    assert seen.value.code == 1
+    out = capsys.readouterr().out
+    assert "device_mask nonempty" in out
 
     (tmp_path / "ok" / "asset.json").unlink()
     with pytest.raises(SystemExit) as seen:

@@ -207,7 +207,7 @@ def validate_main(argv=None, prog=None) -> None:
             ep = Episode.load(d)
             validate_case_bundle(ep, root=d)
             if args.require_cv_labels:
-                cv_steps += _require_cv_labels(ep)
+                cv_steps += _require_cv_labels(ep, d)
         except Exception as e:
             skipped.append((d, f"{type(e).__name__}: {e}"))
             continue
@@ -225,7 +225,7 @@ def validate_main(argv=None, prog=None) -> None:
         raise SystemExit(1)
 
 
-def _require_cv_labels(ep) -> int:
+def _require_cv_labels(ep, root) -> int:
     fluoro_steps = 0
     for i, step in enumerate(ep.steps):
         if step.obs_modality != "fluoro" or not step.obs_ref:
@@ -234,6 +234,11 @@ def _require_cv_labels(ep) -> int:
         annotations = step.annotations if isinstance(step.annotations, dict) else {}
         missing = [name for name in ("device_mask_ref", "vessel_mask_ref")
                    if not annotations.get(name)]
+        for name in ("device_mask", "vessel_mask"):
+            if annotations.get(f"{name}_ref"):
+                mask = step.load_annotation(root, name)
+                if mask is None or not mask.any():
+                    missing.append(f"{name} nonempty")
         keypoints = annotations.get("keypoints") if isinstance(annotations.get("keypoints"), dict) else {}
         for name in ("tip", "base"):
             kp = keypoints.get(name)
