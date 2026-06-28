@@ -682,6 +682,71 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     assert not (tmp_path / "bad.jsonl").exists()
 
 
+def test_load_fluoro_index_example_stacks_training_batch(tmp_path, capsys):
+    from examples.load_fluoro_index import load_batch, main
+    from lumen.cli import index_main
+
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=8, nv=8)
+    steps = []
+    for i in range(2):
+        steps.append(
+            Step(t=float(i), action={"insertion": 1.0},
+                 kinematics={"tip_mm": [0.0, 0.0, 2.0 + i]},
+                 annotations={"device_mask_ref": f"{i:03d}_device_mask.npy",
+                              "vessel_mask_ref": f"{i:03d}_vessel_mask.npy",
+                              "keypoints": {
+                                  "base": {"uv": [1.0, 1.0 + i], "present": True},
+                                  "tip": {"uv": [4.0, 4.0 + i], "present": True},
+                              }},
+                 obs_modality="fluoro", obs_ref=f"{i:03d}.npy",
+                 obs=np.full((8, 8), float(i)),
+                 annotation_arrays={"device_mask": np.eye(8, dtype=np.uint8),
+                                    "vessel_mask": np.ones((8, 8), dtype=np.uint8)}),
+        )
+    Episode(
+        meta=EpisodeMeta(
+            asset_ref="asset.json",
+            device={"guidewire": {"radius": 0.2}},
+            sensor={"modality": "fluoro", "nu": 8, "nv": 8},
+            calibration={"type": "carm", "views": [carm.to_dict()]},
+            labels={"procedure": "navigation"},
+        ),
+        steps=steps,
+        outcome=Outcome(success=True, final_dist=0.5, steps=2, label="training_case"),
+        asset=procedural.straight_tube(80.0, 2.0),
+    ).save(tmp_path / "case")
+    index_path = tmp_path / "fluoro.jsonl"
+    index_main([str(tmp_path), "--out", str(index_path),
+                "--modality", "fluoro", "--require-cv-labels"])
+    capsys.readouterr()
+
+    batch = load_batch(index_path, limit=2)
+
+    assert batch["obs"].shape == (2, 8, 8)
+    assert batch["device_mask"].dtype == np.uint8
+    assert batch["vessel_mask"].shape == (2, 8, 8)
+    assert batch["tip_uv"].tolist() == [[4.0, 4.0], [4.0, 5.0]]
+    assert batch["base_uv"].tolist() == [[1.0, 1.0], [1.0, 2.0]]
+    assert batch["labels"] == ["training_case", "training_case"]
+
+    main(str(index_path), limit=2)
+    out = capsys.readouterr().out
+    assert "obs: (2, 8, 8) float64" in out
+    assert "tip_uv: (2, 2) float64" in out
+
+    np.save(tmp_path / "case" / "obs" / "000.npy", np.ones((4, 4), dtype=np.float32))
+    np.save(tmp_path / "case" / "obs" / "000_device_mask.npy", np.eye(4, dtype=np.uint8))
+    np.save(tmp_path / "case" / "obs" / "000_vessel_mask.npy", np.ones((4, 4), dtype=np.uint8))
+    result = subprocess.run(
+        [sys.executable, "examples/load_fluoro_index.py", str(index_path), "--limit", "2"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert "require-uniform-arrays" in result.stderr
+
+
 def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     from lumen.cli import index_main
 

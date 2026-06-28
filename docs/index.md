@@ -85,6 +85,8 @@ payloads. Use
 keypoints may sit from the device mask before the index fails. For
 training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
 each observation with lazy-loaded annotation arrays.
+For a minimal NumPy dataloader-style batch, run
+`python examples/load_fluoro_index.py /tmp/lumen-episodes/index.jsonl --limit 8`.
 The same tolerance option is available on `lumen validate` and `lumen index`
 when `--require-cv-labels` is enabled, so bad device labels can be stopped before
 writing an index.

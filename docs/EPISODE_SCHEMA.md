@@ -209,6 +209,9 @@ for sample in iter_index_records("episodes/index.jsonl", load_arrays=True):
     vessel_mask = sample.get("vessel_mask")
 ```
 
+For a runnable NumPy batch example that stacks observations, masks, and tip/base
+keypoints, see `examples/load_fluoro_index.py`.
+
 Malformed JSONL rows report the index path and line number. If a referenced
 sidecar cannot be opened, `load_arrays=True` raises an error that names the
 `*_path` field, episode, step, and resolved path so dataloader failures point
