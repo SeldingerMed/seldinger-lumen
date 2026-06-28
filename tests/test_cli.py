@@ -642,7 +642,9 @@ def test_index_cli_writes_cv_jsonl_for_case_bundle(tmp_path, capsys):
     with pytest.raises(SystemExit) as seen:
         index_main([str(tmp_path), "--out", str(tmp_path / "bad.jsonl"), "--require-cv-labels"])
     assert seen.value.code == 1
-    assert "skipped invalid bundles" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "index failed before writing" in out
+    assert "skipped invalid bundles" in out
     assert not (tmp_path / "bad.jsonl").exists()
 
 
@@ -715,6 +717,21 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     shutil.copytree(tmp_path / "fluoro", tmp_path / "z_bad_fluoro")
     manifest = tmp_path / "z_bad_fluoro" / "manifest.json"
     payload = json.loads(manifest.read_text())
+    payload["steps"][0]["obs_ref"] = "missing.npy"
+    manifest.write_text(json.dumps(payload) + "\n")
+    strict_path = tmp_path / "strict_check_sidecars.jsonl"
+    with pytest.raises(SystemExit) as seen:
+        index_main([str(tmp_path), "--out", str(strict_path),
+                    "--modality", "fluoro", "--check-sidecars"])
+    assert seen.value.code == 1
+    out = capsys.readouterr().out
+    assert "index failed before writing" in out
+    assert "candidate step records" in out
+    assert "indexed 1 step records" not in out
+    assert "skipped invalid bundles" in out
+    assert not strict_path.exists()
+
+    payload["steps"][0]["obs_ref"] = "000.npy"
     payload["steps"][0]["annotations"]["keypoints"]["tip"]["uv"] = [0.0, 15.0]
     manifest.write_text(json.dumps(payload) + "\n")
     with pytest.raises(SystemExit) as seen:

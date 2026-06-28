@@ -304,9 +304,9 @@ def index_main(argv=None, prog=None) -> None:
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     strict_checks = args.check_sidecars or args.require_cv_labels
-    buffered_stdout = args.out is None and strict_checks
-    out = open(args.out, "w") if args.out else sys.stdout
-    output_lines = [] if buffered_stdout else None
+    buffer_output = strict_checks
+    out = None if buffer_output else (open(args.out, "w") if args.out else sys.stdout)
+    output_lines = [] if buffer_output else None
     index_base_dir = None if args.absolute_paths else (Path(args.out).parent if args.out else root)
     records = episodes = contributing_episodes = 0
     cv_steps = 0
@@ -337,7 +337,7 @@ def index_main(argv=None, prog=None) -> None:
             if episode_records:
                 contributing_episodes += 1
     finally:
-        if args.out:
+        if args.out and out is not None:
             out.close()
 
     target = args.out or "stdout"
@@ -345,30 +345,45 @@ def index_main(argv=None, prog=None) -> None:
     modality_msg = "" if args.modality == "all" else f"  modality={args.modality}"
     source = (f"{episodes} case bundles" if args.modality == "all"
               else f"{contributing_episodes}/{episodes} valid case bundles")
-    msg = (f"indexed {records} step records from {source} -> "
-           f"{target}{modality_msg}{cv_msg}")
-    print(msg, file=(sys.stdout if args.out else sys.stderr))
     if args.require_cv_labels and cv_steps == 0 and not skipped:
         skipped.append((root, "ValueError: no fluoro observations found for --require-cv-labels"))
-    if skipped:
+    strict_failed = strict_checks and bool(skipped)
+    msg_prefix = "index failed before writing" if strict_failed else "indexed"
+    record_label = "candidate step records" if strict_failed else "step records"
+    msg = (f"{msg_prefix} {records} {record_label} from {source} -> "
+           f"{target}{modality_msg}{cv_msg}")
+
+    def _print_skipped() -> None:
         print("skipped invalid bundles:", file=(sys.stdout if args.out else sys.stderr))
         for path, err in skipped:
             print(f"  {path}: {err}", file=(sys.stdout if args.out else sys.stderr))
+
     if records == 0:
+        print(msg, file=(sys.stdout if args.out else sys.stderr))
+        if skipped:
+            _print_skipped()
         print("no index records emitted; check the corpus path or modality filter",
               file=(sys.stdout if args.out else sys.stderr))
         if args.out:
             Path(args.out).unlink(missing_ok=True)
         raise SystemExit(1)
-    if skipped:
-        if args.check_sidecars or args.require_cv_labels:
-            if args.out:
-                Path(args.out).unlink(missing_ok=True)
-            raise SystemExit(1)
+    if strict_failed:
+        print(msg, file=(sys.stdout if args.out else sys.stderr))
+        _print_skipped()
+        if args.out:
+            Path(args.out).unlink(missing_ok=True)
+        raise SystemExit(1)
     if (args.check_sidecars or args.require_cv_labels) and episodes == 0:
         raise SystemExit(1)
     if output_lines is not None:
-        out.writelines(output_lines)
+        if args.out:
+            with open(args.out, "w") as out_file:
+                out_file.writelines(output_lines)
+        else:
+            sys.stdout.writelines(output_lines)
+    print(msg, file=(sys.stdout if args.out else sys.stderr))
+    if skipped:
+        _print_skipped()
 
 
 def inspect_index_main(argv=None, prog=None) -> None:
