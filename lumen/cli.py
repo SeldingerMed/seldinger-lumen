@@ -23,6 +23,8 @@ def _command_table():
         "index": ("Write a JSONL dataloader index for a corpus.", index_main),
         "inspect-index": ("Summarize and optionally path-check a JSONL dataloader index.",
                           inspect_index_main),
+        "materialize-batch": ("Export a strict .npz smoke-test batch from a dataloader index.",
+                              materialize_batch_main),
         "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
     }
 
@@ -562,6 +564,41 @@ def _print_index_summary(summary: dict) -> None:
         for item in summary["array_errors"]:
             print(f"  line {item['line']} {item.get('episode')}: "
                   f"{'; '.join(item['errors'])}")
+
+
+def materialize_batch_main(argv=None, prog=None) -> None:
+    from lumen.data import materialize_index_batch
+
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Export a strict .npz training smoke-test batch from a Lumen index.")
+    parser.add_argument("index_path", help="JSONL index produced by `lumen index`.")
+    parser.add_argument("out_npz", help="Output compressed .npz path.")
+    parser.add_argument("--limit", type=int, default=32,
+                        help="Maximum rows to export. Defaults to 32.")
+    parser.add_argument("--fields", default="obs,device_mask,vessel_mask",
+                        help="Comma-separated required array fields. Defaults to obs,device_mask,vessel_mask.")
+    parser.add_argument("--base-dir",
+                        help="Resolve index-relative paths against this directory instead of the index parent.")
+    args = parser.parse_args(argv)
+    fields = [field.strip() for field in args.fields.split(",") if field.strip()]
+    try:
+        manifest = materialize_index_batch(
+            args.index_path,
+            args.out_npz,
+            limit=args.limit,
+            fields=fields,
+            base_dir=args.base_dir,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(f"could not materialize batch: {e}")
+        raise SystemExit(1) from None
+    arrays = ", ".join(
+        f"{name}{tuple(info['shape'])} {info['dtype']}"
+        for name, info in manifest["arrays"].items()
+    )
+    print(f"materialized {manifest['records']} records -> {args.out_npz}")
+    print(f"manifest: {manifest['manifest_path']}")
+    print(f"arrays: {arrays}")
 
 
 def calibrate_main(argv=None, prog=None) -> None:

@@ -70,6 +70,7 @@ lumen validate /tmp/lumen-episodes
 lumen replay /tmp/lumen-episodes
 lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
 lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-arrays --require-cv-labels
+lumen materialize-batch /tmp/lumen-episodes/index.jsonl /tmp/lumen-episodes/smoke_batch.npz --limit 32
 lumen calibrate
 ```
 
@@ -99,7 +100,11 @@ keypoints, `--check-arrays` to load referenced arrays, report observation/mask/n
 shape and dtype counts, report mask coverage and keypoint-to-device distances,
 reject empty/bad masks, and catch off-frame or off-device keypoints, and `--json`
 for scripts and notebooks. Add `--require-uniform-arrays` before fixed-shape
-batch training to fail if any loaded array field mixes shape/dtype payloads. Use
+batch training to fail if any loaded array field mixes shape/dtype payloads.
+`lumen materialize-batch` writes a compressed `.npz` smoke-test batch plus
+`.manifest.json` from the first valid index rows; it fails fast on missing or
+mixed-shape arrays so training jobs can test tensor ingestion before a full
+dataloader run. Use
 `--keypoint-mask-tolerance` to tune how far device
 keypoints may sit from the device mask before the index fails. For training loops,
 `CaseBundle.load(path).replay(include_annotations=True)` yields each observation
