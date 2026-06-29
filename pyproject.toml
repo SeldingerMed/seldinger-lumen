@@ -47,6 +47,7 @@ lumen-replay = "lumen.cli:replay_main"
 lumen-validate = "lumen.cli:validate_main"
 lumen-index = "lumen.cli:index_main"
 lumen-inspect-index = "lumen.cli:inspect_index_main"
+lumen-materialize-batch = "lumen.cli:materialize_batch_main"
 lumen-calibrate = "lumen.cli:calibrate_main"
 
 [tool.setuptools.packages.find]

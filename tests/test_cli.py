@@ -36,6 +36,7 @@ def test_pyproject_exposes_first_run_console_scripts():
         "lumen-validate": "lumen.cli:validate_main",
         "lumen-index": "lumen.cli:index_main",
         "lumen-inspect-index": "lumen.cli:inspect_index_main",
+        "lumen-materialize-batch": "lumen.cli:materialize_batch_main",
         "lumen-calibrate": "lumen.cli:calibrate_main",
     }
 
@@ -72,6 +73,82 @@ def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
     out = capsys.readouterr().out
     assert "usage: lumen index" in out
     assert "--check-sidecars" in out
+
+
+def test_materialize_batch_cli_exports_npz_and_manifest(tmp_path, capsys):
+    from lumen.cli import index_main, materialize_batch_main, main
+    from lumen.data import materialize_index_batch
+
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=8, nv=8)
+    steps = []
+    for i in range(2):
+        steps.append(
+            Step(t=float(i), action={"insertion": 1.0 + i, "rotation": 0.1 * i},
+                 kinematics={"tip_mm": [0.0, 0.0, 2.0 + i]},
+                 annotations={"device_mask_ref": f"{i:03d}_device_mask.npy",
+                              "vessel_mask_ref": f"{i:03d}_vessel_mask.npy",
+                              "keypoints": {
+                                  "base": {"uv": [1.0, 1.0 + i], "present": True},
+                                  "tip": {"uv": [4.0, 4.0 + i], "present": True},
+                              }},
+                 obs_modality="fluoro", obs_ref=f"{i:03d}.npy",
+                 obs=np.full((8, 8), float(i)),
+                 annotation_arrays={"device_mask": np.eye(8, dtype=np.uint8),
+                                    "vessel_mask": np.ones((8, 8), dtype=np.uint8)}),
+        )
+    Episode(
+        meta=EpisodeMeta(
+            asset_ref="asset.json",
+            device={"guidewire": {"radius": 0.2}},
+            sensor={"modality": "fluoro", "nu": 8, "nv": 8},
+            calibration={"type": "carm", "views": [carm.to_dict()]},
+            labels={"procedure": "navigation"},
+        ),
+        steps=steps,
+        outcome=Outcome(success=True, final_dist=0.5, steps=2, label="batch_case"),
+        asset=procedural.straight_tube(80.0, 2.0),
+    ).save(tmp_path / "case")
+    index_path = tmp_path / "index.jsonl"
+    index_main([str(tmp_path), "--out", str(index_path), "--require-cv-labels"])
+    capsys.readouterr()
+
+    out_npz = tmp_path / "batch.npz"
+    main(["materialize-batch", str(index_path), str(out_npz), "--limit", "2"])
+    out = capsys.readouterr().out
+    assert "materialized 2 records" in out
+    assert "manifest:" in out
+
+    with np.load(out_npz) as batch:
+        assert batch["obs"].shape == (2, 8, 8)
+        assert batch["device_mask"].dtype == np.uint8
+        assert batch["vessel_mask"].shape == (2, 8, 8)
+        assert batch["tip_uv"].tolist() == [[4.0, 4.0], [4.0, 5.0]]
+        assert batch["base_uv"].tolist() == [[1.0, 1.0], [1.0, 2.0]]
+        assert batch["actions"].shape == (2, 2)
+        np.testing.assert_allclose(batch["actions"], [[1.0, 0.0], [2.0, 0.1]])
+    manifest = json.loads((tmp_path / "batch.npz.manifest.json").read_text())
+    assert manifest["records"] == 2
+    assert manifest["arrays"]["obs"]["shape"] == [2, 8, 8]
+    assert manifest["action_keys"] == ["insertion", "rotation"]
+    assert manifest["rows"][0]["labels"]["outcome"] == "batch_case"
+
+    direct_npz = tmp_path / "direct.npz"
+    direct = materialize_index_batch(index_path, direct_npz, limit=1, fields=["obs"])
+    assert direct["records"] == 1
+    with np.load(direct_npz) as batch:
+        assert set(batch.files) == {"obs", "actions", "tip_uv", "base_uv"}
+
+    suffixless = tmp_path / "suffixless_batch"
+    suffixless_manifest = materialize_index_batch(index_path, suffixless, limit=1, fields=["obs"])
+    assert suffixless_manifest["out_npz"] == str(tmp_path / "suffixless_batch.npz")
+    assert suffixless_manifest["manifest_path"] == str(tmp_path / "suffixless_batch.npz.manifest.json")
+    assert (tmp_path / "suffixless_batch.npz").exists()
+
+    np.save(tmp_path / "case" / "obs" / "001.npy", np.ones((4, 4), dtype=np.float32))
+    with pytest.raises(SystemExit) as seen:
+        materialize_batch_main([str(index_path), str(tmp_path / "bad.npz")])
+    assert seen.value.code == 1
+    assert "field 'obs' is not uniform" in capsys.readouterr().out
 
 
 def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
