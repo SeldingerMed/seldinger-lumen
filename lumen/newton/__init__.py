@@ -44,4 +44,4 @@ def __getattr__(name: str):
 
 
 def __dir__():
-    return sorted([*globals(), *__all__])
+    return sorted({*globals(), *__all__})

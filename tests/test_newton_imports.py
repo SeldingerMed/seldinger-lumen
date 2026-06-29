@@ -7,6 +7,7 @@ def test_newton_package_import_is_lazy_without_backend():
     import lumen.newton as newton_pkg
 
     assert "HGOParams" in newton_pkg.__all__
+    assert newton_pkg.HGOParams().__class__.__name__ == "HGOParams"
 
 
 def test_newton_numpy_helpers_import_without_backend():
