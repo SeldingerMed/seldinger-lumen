@@ -596,7 +596,7 @@ def materialize_batch_main(argv=None, prog=None) -> None:
         f"{name}{tuple(info['shape'])} {info['dtype']}"
         for name, info in manifest["arrays"].items()
     )
-    print(f"materialized {manifest['records']} records -> {args.out_npz}")
+    print(f"materialized {manifest['records']} records -> {manifest['out_npz']}")
     print(f"manifest: {manifest['manifest_path']}")
     print(f"arrays: {arrays}")
 

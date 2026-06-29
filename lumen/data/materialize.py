@@ -135,6 +135,8 @@ def materialize_index_batch(
             payload[f"{name}_uv"] = np.asarray(rows, dtype=float)
 
     out_npz = Path(out_npz)
+    if out_npz.suffix != ".npz":
+        out_npz = Path(str(out_npz) + ".npz")
     out_npz.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out_npz, **payload)  # type: ignore[arg-type]
 

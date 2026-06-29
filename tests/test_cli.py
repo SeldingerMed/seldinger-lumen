@@ -125,6 +125,7 @@ def test_materialize_batch_cli_exports_npz_and_manifest(tmp_path, capsys):
         assert batch["tip_uv"].tolist() == [[4.0, 4.0], [4.0, 5.0]]
         assert batch["base_uv"].tolist() == [[1.0, 1.0], [1.0, 2.0]]
         assert batch["actions"].shape == (2, 2)
+        np.testing.assert_allclose(batch["actions"], [[1.0, 0.0], [2.0, 0.1]])
     manifest = json.loads((tmp_path / "batch.npz.manifest.json").read_text())
     assert manifest["records"] == 2
     assert manifest["arrays"]["obs"]["shape"] == [2, 8, 8]
@@ -135,7 +136,13 @@ def test_materialize_batch_cli_exports_npz_and_manifest(tmp_path, capsys):
     direct = materialize_index_batch(index_path, direct_npz, limit=1, fields=["obs"])
     assert direct["records"] == 1
     with np.load(direct_npz) as batch:
-        assert list(batch.files) == ["obs", "actions", "tip_uv", "base_uv"]
+        assert set(batch.files) == {"obs", "actions", "tip_uv", "base_uv"}
+
+    suffixless = tmp_path / "suffixless_batch"
+    suffixless_manifest = materialize_index_batch(index_path, suffixless, limit=1, fields=["obs"])
+    assert suffixless_manifest["out_npz"] == str(tmp_path / "suffixless_batch.npz")
+    assert suffixless_manifest["manifest_path"] == str(tmp_path / "suffixless_batch.npz.manifest.json")
+    assert (tmp_path / "suffixless_batch.npz").exists()
 
     np.save(tmp_path / "case" / "obs" / "001.npy", np.ones((4, 4), dtype=np.float32))
     with pytest.raises(SystemExit) as seen:
