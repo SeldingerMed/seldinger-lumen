@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
+
 import numpy as np
+
+if __package__ in {None, ""}:  # allow `python examples/load_fluoro_index.py` from a checkout
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lumen.data import iter_index_records
 

@@ -20,8 +20,9 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-`.[dev]` installs pytest, Gymnasium, Warp, and the pinned Newton engine. Newton is
-pre-1.0 and `TubeVBDSolver` forks one of its internals, so we pin a known-good commit
+`.[dev]` installs the same local check tools CI expects (`pytest` and `ruff`) plus
+Gymnasium, Warp, and the pinned Newton engine. Newton is pre-1.0 and
+`TubeVBDSolver` forks one of its internals, so we pin a known-good commit
 (`NEWTON_REF` in `.github/workflows/ci.yml`). Bumping it is a deliberate PR with the
 test suite re-run, not an automatic upgrade.
 
