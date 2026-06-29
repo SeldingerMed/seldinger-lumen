@@ -6,42 +6,51 @@ barrier (force + Hessian) natively into the per-color AVBD solve, so contact is
 implicit and stable. Requires ``newton`` (installed from github.com/newton-physics
 /newton); runs on the Warp CPU device and on CUDA.
 
-Imports are intentionally lazy so NumPy-only helpers under ``lumen.newton`` remain
-importable in development environments that have not installed Warp/Newton yet.
+Some helper modules in this package are NumPy-only. Keep optional Warp/Newton
+imports lazy so ``import lumen.newton.clot`` and other dependency-light imports
+continue to work in environments that have not installed the solver extras.
 """
 
 from __future__ import annotations
 
 from importlib import import_module
+from typing import Any
 
-_EXPORT_MODULES = {
-    "NewtonGuidewireSim": "lumen.newton.sim",
-    "TubeVBDSolver": "lumen.newton.tube_vbd",
-    "NewtonFlow": "lumen.newton.flow",
-    "FlowParams": "lumen.newton.flow",
-    "FlowField": "lumen.newton.flow",
-    "FlowFieldParams": "lumen.newton.flow",
-    "HGOParams": "lumen.newton.hgo_wall",
-    "ClotField": "lumen.newton.clot",
-    "ClotParams": "lumen.newton.clot",
-    "Stentriever": "lumen.newton.devices",
-    "FlowDiverter": "lumen.newton.devices",
-    "Aneurysm": "lumen.newton.aneurysm",
-    "AneurysmSac": "lumen.newton.aneurysm",
-    "measure_throughput": "lumen.newton.throughput",
+_LAZY_EXPORTS = {
+    "NewtonGuidewireSim": ("lumen.newton.sim", "NewtonGuidewireSim"),
+    "TubeVBDSolver": ("lumen.newton.tube_vbd", "TubeVBDSolver"),
+    "NewtonFlow": ("lumen.newton.flow", "NewtonFlow"),
+    "FlowParams": ("lumen.newton.flow", "FlowParams"),
+    "FlowField": ("lumen.newton.flow", "FlowField"),
+    "FlowFieldParams": ("lumen.newton.flow", "FlowFieldParams"),
+    "HGOParams": ("lumen.newton.hgo_wall", "HGOParams"),
+    "ClotField": ("lumen.newton.clot", "ClotField"),
+    "ClotParams": ("lumen.newton.clot", "ClotParams"),
+    "Stentriever": ("lumen.newton.devices", "Stentriever"),
+    "FlowDiverter": ("lumen.newton.devices", "FlowDiverter"),
+    "Aneurysm": ("lumen.newton.aneurysm", "Aneurysm"),
+    "AneurysmSac": ("lumen.newton.aneurysm", "AneurysmSac"),
+    "measure_throughput": ("lumen.newton.throughput", "measure_throughput"),
 }
 
-__all__ = list(_EXPORT_MODULES)
+__all__ = list(_LAZY_EXPORTS)
 
 
-def __getattr__(name: str):
-    if name not in _EXPORT_MODULES:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    module = import_module(_EXPORT_MODULES[name])
-    value = getattr(module, name)
+def __getattr__(name: str) -> Any:
+    """Lazily resolve package-level exports.
+
+    This preserves the public ``from lumen.newton import ...`` convenience API
+    without importing Warp/Newton-backed modules during package initialization.
+    """
+    try:
+        module_name, attr_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+    value = getattr(import_module(module_name), attr_name)
     globals()[name] = value
     return value
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return sorted({*globals(), *__all__})

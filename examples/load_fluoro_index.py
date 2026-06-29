@@ -15,7 +15,9 @@ from pathlib import Path
 
 import numpy as np
 
-if __package__ in {None, ""}:  # allow `python examples/load_fluoro_index.py` from a checkout
+if __package__ in {None, ""}:
+    # Allow `python examples/load_fluoro_index.py ...` from a source checkout
+    # without requiring an editable install first.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lumen.data import iter_index_records
@@ -52,10 +54,14 @@ def load_batch(index_path, limit: int | None = 8) -> dict:
         "obs": obs,
         "device_mask": device_mask,
         "vessel_mask": vessel_mask,
-        "tip_uv": np.asarray([_keypoint_uv(row.get("keypoints", {}), "tip") for row in rows],
-                             dtype=float),
-        "base_uv": np.asarray([_keypoint_uv(row.get("keypoints", {}), "base") for row in rows],
-                              dtype=float),
+        "tip_uv": np.asarray(
+            [_keypoint_uv(row.get("keypoints", {}), "tip") for row in rows],
+            dtype=float,
+        ),
+        "base_uv": np.asarray(
+            [_keypoint_uv(row.get("keypoints", {}), "base") for row in rows],
+            dtype=float,
+        ),
         "labels": [row.get("label") for row in rows],
         "episodes": [row.get("episode") for row in rows],
         "step_index": np.asarray([row.get("step_index") for row in rows], dtype=int),
