@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 966 250" width="966" height="250" role="img" aria-label="lumen data pipeline">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c1018"/><stop offset="1" stop-color="#10161f"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a4d63"/>
+    </marker>
+    <style>
+      text{font-family:'Inter','Helvetica Neue',Arial,sans-serif}
+      .t{fill:#f2f6fa;font-size:17px;font-weight:600}
+      .s{fill:#7c8da0;font-size:12.5px;font-weight:500}
+      .cmd{fill:#2dd4bf;font-size:12px;font-family:'SF Mono',ui-monospace,Menlo,monospace}
+    </style>
+  </defs>
+
+  <rect width="966" height="250" rx="20" fill="url(#bg)"/>
+  <text x="36" y="46" class="t" font-size="15" fill="#7c8da0" letter-spacing="2">FROM SOLVER STEP TO TRAINING BATCH — ONE TOOLCHAIN</text>
+
+  <!-- stage boxes -->
+  <g>
+    <!-- 1 sim -->
+    <rect x="36"  y="78" width="150" height="96" rx="12" fill="#141c27" stroke="#22303f"/>
+    <text x="52" y="112" class="t">Solver</text>
+    <text x="52" y="134" class="s">Newton VBD rod</text>
+    <text x="52" y="151" class="s">+ tube contact</text>
+    <text x="52" y="168" class="cmd">.step()</text>
+
+    <!-- 2 obs -->
+    <rect x="222" y="78" width="150" height="96" rx="12" fill="#141c27" stroke="#22303f"/>
+    <text x="238" y="112" class="t">Observations</text>
+    <text x="238" y="134" class="s">fluoro DRR, masks,</text>
+    <text x="238" y="151" class="s">keypoints, luminal</text>
+    <text x="238" y="168" class="cmd">capture</text>
+
+    <!-- 3 episode -->
+    <rect x="408" y="78" width="150" height="96" rx="12" fill="#141c27" stroke="#22303f"/>
+    <text x="424" y="112" class="t">Episode</text>
+    <text x="424" y="134" class="s">replayable bundle,</text>
+    <text x="424" y="151" class="s">schema-validated</text>
+    <text x="424" y="168" class="cmd">validate · replay</text>
+
+    <!-- 4 index -->
+    <rect x="594" y="78" width="150" height="96" rx="12" fill="#141c27" stroke="#22303f"/>
+    <text x="610" y="112" class="t">Index</text>
+    <text x="610" y="134" class="s">one JSONL row</text>
+    <text x="610" y="151" class="s">per timestep</text>
+    <text x="610" y="168" class="cmd">index</text>
+
+    <!-- 5 batch/train -->
+    <rect x="780" y="78" width="150" height="96" rx="12" fill="#10221f" stroke="#2dd4bf" stroke-opacity="0.5"/>
+    <text x="796" y="112" class="t">Train</text>
+    <text x="796" y="134" class="s">.npz batch →</text>
+    <text x="796" y="151" class="s">RL / CV dataloader</text>
+    <text x="796" y="168" class="cmd">materialize-batch</text>
+  </g>
+
+  <!-- arrows -->
+  <g stroke="#3a4d63" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="188" y1="126" x2="218" y2="126"/>
+    <line x1="374" y1="126" x2="404" y2="126"/>
+    <line x1="560" y1="126" x2="590" y2="126"/>
+    <line x1="746" y1="126" x2="776" y2="126"/>
+  </g>
+
+  <text x="36" y="222" class="s">Every stage refuses bad data — missing masks, off-frame keypoints, mixed array shapes — so a job fails at the index, not mid-epoch.</text>
+</svg>
