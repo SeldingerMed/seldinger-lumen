@@ -15,7 +15,7 @@ DEFAULT_STRATIFY_FIELDS = ("label", "obs_modality")
 
 def _read_jsonl(index_path: str | Path) -> list[dict]:
     rows = []
-    with open(index_path) as f:
+    with open(index_path, encoding="utf-8") as f:
         for line_no, line in enumerate(f, 1):
             if not line.strip():
                 continue
@@ -129,8 +129,6 @@ def split_index_records(index_path: str | Path, out_dir: str | Path,
     """
     ratios = _normalized_ratios(ratios)
     stratify_fields = tuple(str(field) for field in stratify_fields)
-    if not stratify_fields:
-        stratify_fields = (group_by,)
 
     rows = _read_jsonl(index_path)
     groups = _group_records(rows, group_by)
@@ -143,7 +141,7 @@ def split_index_records(index_path: str | Path, out_dir: str | Path,
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for split in SPLIT_NAMES:
-        with open(out_dir / f"{split}.jsonl", "w") as f:
+        with open(out_dir / f"{split}.jsonl", "w", encoding="utf-8") as f:
             for row in split_rows[split]:
                 f.write(json.dumps(row, sort_keys=True) + "\n")
 
@@ -159,7 +157,7 @@ def split_index_records(index_path: str | Path, out_dir: str | Path,
         "assignments": dict(sorted(assignments.items())),
         "splits": {name: _summarize_split(split_rows[name], group_by) for name in SPLIT_NAMES},
     }
-    with open(out_dir / "manifest.json", "w") as f:
+    with open(out_dir / "manifest.json", "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
         f.write("\n")
     return manifest
