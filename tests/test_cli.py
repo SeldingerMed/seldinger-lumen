@@ -909,7 +909,8 @@ def test_index_split_cli_writes_episode_grouped_manifests(tmp_path, capsys):
 
     for split in ("train", "val", "test"):
         split_path = split_dir / f"{split}.jsonl"
-        loaded = list(iter_index_records(split_path, load_arrays=True))
+        loaded = list(iter_index_records(split_path, load_arrays=True,
+                                          base_dir=tmp_path))
         assert len(loaded) > 0
         for record in loaded:
             assert record["obs"].shape == (8, 8)
