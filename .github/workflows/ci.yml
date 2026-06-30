@@ -49,3 +49,19 @@ jobs:
           cache: pip
       - run: pip install ruff
       - run: ruff check .
+
+  docs:
+    name: docs build + links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate source and generated Pages links
+        run: python tools/check_docs_site.py --repo-root . --site-dir ./_site --base-path /seldinger-lumen
