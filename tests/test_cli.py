@@ -37,6 +37,7 @@ def test_pyproject_exposes_first_run_console_scripts():
         "lumen-index": "lumen.cli:index_main",
         "lumen-inspect-index": "lumen.cli:inspect_index_main",
         "lumen-materialize-batch": "lumen.cli:materialize_batch_main",
+        "lumen-split-index": "lumen.cli:split_index_main",
         "lumen-calibrate": "lumen.cli:calibrate_main",
     }
 
@@ -822,6 +823,98 @@ def test_load_fluoro_index_example_stacks_training_batch(tmp_path, capsys):
     assert result.returncode == 1
     assert "Traceback" not in result.stderr
     assert "require-uniform-arrays" in result.stderr
+
+
+def test_index_split_cli_writes_episode_grouped_manifests(tmp_path, capsys):
+    from lumen.cli import index_main, split_index_main, main
+    from lumen.data import split_index_records
+
+    carm = CArm.looking_at([0.0, 0.0, 40.0], axis=(1.0, 0.0, 0.0), nu=8, nv=8)
+    asset = procedural.straight_tube(80.0, 2.0)
+    for i, (name, label) in enumerate([
+        ("straight_a", "straight_success"),
+        ("straight_b", "straight_success"),
+        ("branch_a", "branch_success"),
+        ("branch_b", "branch_success"),
+    ]):
+        steps = []
+        for j in range(2):
+            steps.append(
+                Step(t=float(j), action={"insertion": 1.0},
+                     kinematics={"tip_mm": [0.0, 0.0, 2.0 + j]},
+                     annotations={"device_mask_ref": f"{j:03d}_device_mask.npy",
+                                  "vessel_mask_ref": f"{j:03d}_vessel_mask.npy",
+                                  "keypoints": {
+                                      "base": {"uv": [1.0, 1.0], "present": True},
+                                      "tip": {"uv": [4.0, 4.0], "present": True},
+                                  }},
+                     obs_modality="fluoro", obs_ref=f"{j:03d}.npy",
+                     obs=np.full((8, 8), i + j),
+                     annotation_arrays={"device_mask": np.eye(8, dtype=np.uint8),
+                                        "vessel_mask": np.ones((8, 8), dtype=np.uint8)}),
+            )
+        Episode(
+            meta=EpisodeMeta(
+                asset_ref="asset.json",
+                device={"guidewire": {"radius": 0.2}},
+                sensor={"modality": "fluoro", "nu": 8, "nv": 8},
+                calibration={"type": "carm", "views": [carm.to_dict()]},
+                labels={"procedure": "navigation", "fold_family": label.split("_")[0]},
+            ),
+            steps=steps,
+            outcome=Outcome(success=True, final_dist=0.5, steps=2, label=label),
+            asset=asset,
+        ).save(tmp_path / name)
+
+    index_path = tmp_path / "index.jsonl"
+    index_main([str(tmp_path), "--out", str(index_path), "--require-cv-labels"])
+    capsys.readouterr()
+
+    split_dir = tmp_path / "splits"
+    split_index_main([str(index_path), "--out-dir", str(split_dir), "--ratios", "0.5", "0.25", "0.25",
+                      "--seed", "7", "--stratify", "label", "obs_modality"])
+    out = capsys.readouterr().out
+    assert "split 8 records from 4 episodes" in out
+    assert "train.jsonl" in out
+
+    manifest = json.loads((split_dir / "manifest.json").read_text())
+    assert manifest["source_index"] == str(index_path)
+    assert manifest["group_by"] == "episode"
+    assert manifest["stratify"] == ["label", "obs_modality"]
+    assert manifest["ratios"] == {"train": 0.5, "val": 0.25, "test": 0.25}
+    assert manifest["splits"]["train"]["episodes"] == 2
+    assert manifest["splits"]["val"]["episodes"] == 1
+    assert manifest["splits"]["test"]["episodes"] == 1
+
+    split_rows = {}
+    episode_to_split = {}
+    for split in ("train", "val", "test"):
+        path = split_dir / f"{split}.jsonl"
+        assert path.exists()
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        split_rows[split] = rows
+        for row in rows:
+            previous = episode_to_split.setdefault(row["episode"], split)
+            assert previous == split
+    assert sum(len(rows) for rows in split_rows.values()) == 8
+    assert set(episode_to_split) == {"straight_a", "straight_b", "branch_a", "branch_b"}
+
+    repeat_dir = tmp_path / "repeat"
+    again = split_index_records(index_path, repeat_dir, ratios=(0.5, 0.25, 0.25), seed=7,
+                                stratify_fields=("label", "obs_modality"))
+    assert again["assignments"] == manifest["assignments"]
+
+    main(["split-index", str(index_path), "--out-dir", str(tmp_path / "umbrella")])
+    assert (tmp_path / "umbrella" / "manifest.json").exists()
+
+    for split in ("train", "val", "test"):
+        split_path = split_dir / f"{split}.jsonl"
+        loaded = list(iter_index_records(split_path, load_arrays=True))
+        assert len(loaded) > 0
+        for record in loaded:
+            assert record["obs"].shape == (8, 8)
+            assert record["device_mask"].shape == (8, 8)
+            assert record["vessel_mask"].shape == (8, 8)
 
 
 def test_index_cli_filters_by_observation_modality(tmp_path, capsys):

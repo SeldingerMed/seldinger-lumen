@@ -25,6 +25,8 @@ def _command_table():
                           inspect_index_main),
         "materialize-batch": ("Export a strict .npz smoke-test batch from a dataloader index.",
                               materialize_batch_main),
+        "split-index": ("Write episode-grouped train/val/test splits for a JSONL index.",
+                        split_index_main),
         "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
     }
 
@@ -390,6 +392,39 @@ def index_main(argv=None, prog=None) -> None:
     print(msg, file=(sys.stdout if args.out else sys.stderr))
     if skipped:
         _print_skipped()
+
+
+def split_index_main(argv=None, prog=None) -> None:
+    from lumen.data import DEFAULT_RATIOS, DEFAULT_STRATIFY_FIELDS, split_index_records
+
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Write train/val/test JSONL splits for a Lumen dataloader index.")
+    parser.add_argument("index_path")
+    parser.add_argument("--out-dir", default="splits",
+                        help="Directory for train.jsonl, val.jsonl, test.jsonl, and manifest.json.")
+    parser.add_argument("--ratios", nargs=3, type=float, metavar=("TRAIN", "VAL", "TEST"),
+                        default=DEFAULT_RATIOS,
+                        help="Split ratios. Defaults to 0.8 0.1 0.1; values are normalized.")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Deterministic shuffle seed for episode ordering.")
+    parser.add_argument("--stratify", nargs="*", default=list(DEFAULT_STRATIFY_FIELDS),
+                        help="Index record fields used for lightweight stratified ordering. "
+                             "Defaults to label obs_modality.")
+    parser.add_argument("--group-by", default="episode",
+                        help="Record field kept together in one split. Defaults to episode.")
+    args = parser.parse_args(argv)
+    try:
+        manifest = split_index_records(args.index_path, args.out_dir, ratios=args.ratios,
+                                       seed=args.seed, stratify_fields=args.stratify,
+                                       group_by=args.group_by)
+    except (FileNotFoundError, ValueError, OSError) as e:
+        print(f"could not split index {args.index_path!r}: {e}")
+        raise SystemExit(1) from None
+
+    print(f"split {manifest['records']} records from {manifest['episodes']} episodes -> {args.out_dir}")
+    for split in ("train", "val", "test"):
+        item = manifest["splits"][split]
+        print(f"  {split}.jsonl: {item['records']} records, {item['episodes']} episodes")
 
 
 def inspect_index_main(argv=None, prog=None) -> None:
