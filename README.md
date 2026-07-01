@@ -173,6 +173,14 @@ python examples/train_fluoro_nav.py
 | **Flow** | 1-D resistive pressure field `P(s)`/`v(s)` along the centerline (clot raises resistance, aspiration is a pressure sink), with a lumped Windkessel fallback |
 | **Cross-validation** | fast-tier kernels vs. analytic ground truth to ~1e-6; STARK / ppf-contact-solver drop-in slot |
 
+There are two solver tiers: a **fast tier** (`lumen.newton`, batched Newton VBD) built
+for RL throughput, and an **accurate tier** (`lumen.accurate`) with a self-contained
+penetration-free IPC reference and Warp-autodiff gradients for offline calibration. The
+fast tier's force→indentation response is cross-validated against the accurate tier on
+the same scene. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design invariants and
+[docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md) for the single-env vs. batched solver
+support matrix.
+
 ## Layout
 
 ```
