@@ -16,6 +16,7 @@ def _command_table():
     return {
         "hardware": ("Print backend hardware/software status.", hardware_main),
         "benchmark": ("Run the canonical navigation benchmark.", benchmark_main),
+        "play": ("Watch a scene: roll out a policy and write an animation.", play_main),
         "render-fluoro": ("Render the canonical synthetic fluoroscopy demo.", render_fluoro_main),
         "capture": ("Capture the canonical procedural case-bundle corpus.", capture_main),
         "replay": ("Summarize and replay a case-bundle corpus.", replay_main),
@@ -98,6 +99,29 @@ def benchmark_main(argv=None, prog=None) -> None:
         print("\nskipped scorecards:")
         for item in skipped:
             print(f"  {item['path']}: {item['error']}")
+
+
+def play_main(argv=None, prog=None) -> None:
+    from lumen.viz import play
+
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Roll out a navigation scene under a policy and write a schematic "
+                    "animation (<out>.avi + <out>.png). The one-command way to watch "
+                    "the guidewire thread the vessel; reports the benchmark's "
+                    "tip-reach and wall-safety numbers.")
+    parser.add_argument("scene", nargs="?", default="tube",
+                        choices=["tube", "stenotic", "tree"], help="which scene to play")
+    parser.add_argument("--policy", default="forward",
+                        help="forward | zero | random (default: forward)")
+    parser.add_argument("--steps", type=int, default=60, help="max steps to roll out")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--size", type=int, default=480, help="frame size in pixels")
+    parser.add_argument("--out", default="lumen_play", help="output path stem")
+    args = parser.parse_args(argv)
+    summary = play(scene=args.scene, policy=args.policy, steps=args.steps,
+                   seed=args.seed, size=args.size, out=args.out)
+    print(json.dumps(summary, indent=2))
 
 
 def render_fluoro_main(argv=None, prog=None) -> None:
