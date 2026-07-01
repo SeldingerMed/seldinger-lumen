@@ -74,6 +74,15 @@ subclass overriding only the per-color rigid-body iteration).
     the same `crossval.accurate_tier_status` seam for those who build them on a GPU
     box — we don't reimplement *production* IPC, only a reference.
 
+## Invariant 4b — support matrix is part of the solver contract
+
+The fast tier is batched for the core guidewire/tube contact path, but several
+combined physics modes remain intentionally single-env. The public contract lives in
+[docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md), which maps each single-env vs.
+`n_envs > 1` path to the exact runtime guard and follow-up issue. Any change that
+removes a `NotImplementedError` from `lumen/newton/sim.py` must update that matrix and
+add a regression test for the newly supported combination.
+
 ## Invariant 5 — the open/closed firewall
 
 Apache-2.0 clean-room. Enforced by `tools/check_firewall.py` in CI:
