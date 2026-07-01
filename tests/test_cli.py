@@ -4,8 +4,7 @@ import json
 import shutil
 import subprocess
 import sys
-from importlib.metadata import metadata
-from importlib.metadata import entry_points
+from importlib.metadata import distribution, metadata
 
 import numpy as np
 import pytest
@@ -15,31 +14,64 @@ from lumen.data import Episode, EpisodeMeta, Outcome, Step, iter_index_records, 
 from lumen.sensors.carm import CArm
 
 
+EXPECTED_CONSOLE_SCRIPTS = {
+    "lumen": "lumen.cli:main",
+    "lumen-hardware": "lumen.cli:hardware_main",
+    "lumen-benchmark": "lumen.cli:benchmark_main",
+    "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
+    "lumen-capture": "lumen.cli:capture_main",
+    "lumen-replay": "lumen.cli:replay_main",
+    "lumen-validate": "lumen.cli:validate_main",
+    "lumen-index": "lumen.cli:index_main",
+    "lumen-inspect-index": "lumen.cli:inspect_index_main",
+    "lumen-materialize-batch": "lumen.cli:materialize_batch_main",
+    "lumen-split-index": "lumen.cli:split_index_main",
+    "lumen-calibrate": "lumen.cli:calibrate_main",
+}
+
+
+def _installed_console_scripts_for_distribution(distribution_name: str) -> dict[str, str]:
+    """Return console scripts declared by one installed distribution.
+
+    Querying the distribution's own metadata keeps the assertion hermetic when a
+    developer environment also has unrelated ``lumen-*`` console scripts.
+    """
+
+    return {
+        ep.name: ep.value
+        for ep in distribution(distribution_name).entry_points
+        if ep.group == "console_scripts"
+    }
+
+
 def test_distribution_metadata_matches_public_project_name():
     assert metadata("seldinger-lumen")["Name"] == "seldinger-lumen"
 
 
 def test_pyproject_exposes_first_run_console_scripts():
-    scripts = {
-        ep.name: ep.value
-        for ep in entry_points(group="console_scripts")
-        if ep.name == "lumen" or ep.name.startswith("lumen-")
-    }
+    scripts = _installed_console_scripts_for_distribution("seldinger-lumen")
 
-    assert scripts == {
-        "lumen": "lumen.cli:main",
-        "lumen-hardware": "lumen.cli:hardware_main",
-        "lumen-benchmark": "lumen.cli:benchmark_main",
-        "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
-        "lumen-capture": "lumen.cli:capture_main",
-        "lumen-replay": "lumen.cli:replay_main",
-        "lumen-validate": "lumen.cli:validate_main",
-        "lumen-index": "lumen.cli:index_main",
-        "lumen-inspect-index": "lumen.cli:inspect_index_main",
-        "lumen-materialize-batch": "lumen.cli:materialize_batch_main",
-        "lumen-split-index": "lumen.cli:split_index_main",
-        "lumen-calibrate": "lumen.cli:calibrate_main",
-    }
+    assert scripts == EXPECTED_CONSOLE_SCRIPTS
+
+
+def test_console_script_metadata_helper_uses_one_distribution(monkeypatch):
+    from importlib.metadata import EntryPoint
+
+    class FakeDistribution:
+        entry_points = tuple(
+            EntryPoint(name=name, value=value, group="console_scripts")
+            for name, value in EXPECTED_CONSOLE_SCRIPTS.items()
+        ) + (
+            EntryPoint(name="lumen-unrelated-group", value="other:main", group="not-console"),
+        )
+
+    def fake_distribution(name: str) -> FakeDistribution:
+        assert name == "seldinger-lumen"
+        return FakeDistribution()
+
+    monkeypatch.setattr(sys.modules[__name__], "distribution", fake_distribution)
+
+    assert _installed_console_scripts_for_distribution("seldinger-lumen") == EXPECTED_CONSOLE_SCRIPTS
 
 
 def test_umbrella_cli_dispatches_workflows(capsys):
