@@ -78,7 +78,11 @@ lumen calibrate
 `capture_episode.py` writes one self-contained case directory per scenario plus
 `preview.png`, `preview_contact_sheet.png`, fluoro device/vessel mask contact
 sheets, and `label_overlay_contact_sheet.png`, so you can inspect observations and
-CV labels without opening NumPy sidecars. `lumen validate` checks every bundle's
+CV labels without opening NumPy sidecars.
+`lumen.data.rollout_episode(..., policy_observation="image")` lets capture/training
+policies receive rendered fluoro or luminal observations instead of the default fast
+privileged 5-D state observation; stored image-policy steps reuse that same pre-action
+frame so behavioral-cloning pairs align `step.obs` with `step.action`. `lumen validate` checks every bundle's
 asset, calibration, observations, masks, keypoints, labels, and sidecar refs before
 you train on it; add `--require-cv-labels` when a fluoro CV run must have
 device/vessel masks and tip/base keypoints on every frame. `lumen replay` prints clinical endpoint
@@ -161,6 +165,8 @@ For image-observation control rather than privileged state, run:
 python examples/train_fluoro_nav.py
 ```
 
+See [docs/EPISODE_SCHEMA.md](docs/EPISODE_SCHEMA.md) for the on-disk format.
+
 ## What's inside (`lumen.newton`)
 
 | Piece | What it does |
@@ -172,6 +178,14 @@ python examples/train_fluoro_nav.py
 | **Clot** | finite-extent Ogden occlusion that collapses the shared `R`; progressive damage → fragmentation; stent-retriever capture/slip/fragment |
 | **Flow** | 1-D resistive pressure field `P(s)`/`v(s)` along the centerline (clot raises resistance, aspiration is a pressure sink), with a lumped Windkessel fallback |
 | **Cross-validation** | fast-tier kernels vs. analytic ground truth to ~1e-6; STARK / ppf-contact-solver drop-in slot |
+
+There are two solver tiers: a **fast tier** (`lumen.newton`, batched Newton VBD) built
+for RL throughput, and an **accurate tier** (`lumen.accurate`) with a self-contained
+penetration-free IPC reference and Warp-autodiff gradients for offline calibration. The
+fast tier's force→indentation response is cross-validated against the accurate tier on
+the same scene. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design invariants and
+[docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md) for the single-env vs. batched solver
+support matrix.
 
 ## Layout
 
