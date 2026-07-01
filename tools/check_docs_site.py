@@ -100,7 +100,7 @@ def existing_path_for_source_link(source: Path, repo_root: Path, target: str) ->
 
 
 def extract_markdown_links(path: Path) -> list[str]:
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8", errors="ignore")
     links = [match.group(1) for match in MARKDOWN_LINK_RE.finditer(text)]
     links.extend(match.group(1) for match in HTML_ATTR_RE.finditer(text))
     return links
@@ -153,10 +153,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--markdown",
         action="append",
-        default=["*.md", "docs/**/*.md"],
         help="Markdown glob relative to repo root; repeatable",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.markdown is None:
+        args.markdown = ["*.md", "docs/**/*.md"]
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

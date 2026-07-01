@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from tools.check_docs_site import main
+from tools.check_docs_site import main, parse_args
 
 
 def test_markdown_and_generated_site_links_pass(tmp_path: Path) -> None:
@@ -62,3 +62,17 @@ def test_generated_site_links_allow_project_pages_base_path(tmp_path: Path) -> N
         )
         == 0
     )
+
+
+def test_custom_markdown_patterns_replace_defaults() -> None:
+    assert parse_args([]).markdown == ["*.md", "docs/**/*.md"]
+    assert parse_args(["--markdown", "custom/**/*.md"]).markdown == ["custom/**/*.md"]
+
+
+def test_markdown_links_ignore_decode_errors(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "target.md").write_text("# target\n", encoding="utf-8")
+    (docs / "index.md").write_bytes(b"\xff[Target](target.md)\n")
+
+    assert main(["--repo-root", str(tmp_path)]) == 0

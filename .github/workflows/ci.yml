@@ -55,7 +55,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/configure-pages@v5
+        id: pages
       - uses: actions/jekyll-build-pages@v1
         with:
           source: ./docs
@@ -64,4 +67,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Validate source and generated Pages links
-        run: python tools/check_docs_site.py --repo-root . --site-dir ./_site --base-path /seldinger-lumen
+        run: python tools/check_docs_site.py --repo-root . --site-dir ./_site --base-path "${{ steps.pages.outputs.base_path }}"
