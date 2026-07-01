@@ -14,10 +14,10 @@ problem and stays modality-agnostic. It is **Layer 0** of the
 the [NVIDIA Newton](https://github.com/newton-physics/newton) engine.
 
 <p align="center">
-  <img src="assets/demo/fluoro_tree.gif" alt="Synthetic fluoroscopy of a guidewire navigating a branching vessel" width="330">
-  <img src="assets/demo/nav_tree.gif" alt="Schematic of the same guidewire navigating a branching vessel" width="330">
+  <img src="assets/demo/fluoro_curve.gif" alt="Synthetic fluoroscopy of a guidewire threading a curved vessel" width="330">
+  <img src="assets/demo/nav_curve.gif" alt="Schematic of the same guidewire threading a curved vessel" width="330">
   <br>
-  <em>A guidewire navigating a branching vessel toward a target, solved on Newton.
+  <em>A guidewire threading a curved vessel to a target, solved on Newton.
   Left: synthetic <strong>fluoroscopy</strong> — what an ML model sees, the wire a sharp dark line
   on the contrast-filled vessel. Right: the same run as a <strong>schematic</strong> (wire cyan,
   target gold), rendered with <code>lumen play</code>.</em>
