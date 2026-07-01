@@ -13,6 +13,15 @@ problem and stays modality-agnostic. It is **Layer 0** of the
 [Seldinger](https://github.com/SeldingerMed) embodied-medical-AI stack, built *on*
 the [NVIDIA Newton](https://github.com/newton-physics/newton) engine.
 
+<p align="center">
+  <img src="assets/demo/hero_fluoro.gif" alt="Synthetic fluoroscopy of a guidewire threading a curved vessel" width="360">
+  <img src="assets/demo/labeled_sidebyside.gif" alt="Synthetic fluoroscopy beside auto-generated vessel and device masks" width="360">
+  <br>
+  <em>Left: a guidewire threading a curved vessel under synthetic fluoroscopy, solved on Newton.
+  Right: the same procedure with per-frame vessel (red) and device (cyan) masks the simulator
+  generates for free — pixel-accurate CV labels no real fluoro dataset ships with.</em>
+</p>
+
 [View on GitHub](https://github.com/SeldingerMed/seldinger-lumen){: .btn }
 
 ## Install
