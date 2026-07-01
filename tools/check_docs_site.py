@@ -99,10 +99,21 @@ def existing_path_for_source_link(source: Path, repo_root: Path, target: str) ->
     return None
 
 
+FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+INLINE_CODE_RE = re.compile(r"`[^`]+`")
+
+
+def _strip_code_spans(text: str) -> str:
+    text = FENCED_CODE_RE.sub("", text)
+    text = INLINE_CODE_RE.sub("", text)
+    return text
+
+
 def extract_markdown_links(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8", errors="ignore")
     links = [match.group(1) for match in MARKDOWN_LINK_RE.finditer(text)]
-    links.extend(match.group(1) for match in HTML_ATTR_RE.finditer(text))
+    clean = _strip_code_spans(text)
+    links.extend(match.group(1) for match in HTML_ATTR_RE.finditer(clean))
     return links
 
 
