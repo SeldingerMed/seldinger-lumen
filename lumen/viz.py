@@ -15,13 +15,15 @@ from __future__ import annotations
 import numpy as np
 
 # colors (RGB uint8)
-_BG = (10, 12, 18)
-_WALL = (196, 72, 66)          # vessel wall
-_LUMEN = (26, 30, 44)          # inside-the-lumen fill
-_DEVICE = (86, 230, 236)       # guidewire (cyan)
-_TIP_SAFE = (120, 240, 140)    # tip, not touching wall
-_TIP_HIT = (255, 90, 90)       # tip at/over the wall-safety threshold
-_TARGET = (245, 210, 90)       # target band
+_BG = (9, 11, 16)              # near-black background
+_WALL = (214, 96, 88)          # vessel wall (crimson edge)
+_LUMEN = (46, 18, 20)          # inside-the-lumen fill (dark blood)
+_HALO = (8, 34, 44)            # dark outline under the guidewire, for contrast on the wall
+_DEVICE = (90, 236, 240)       # guidewire (cyan)
+_CORE = (224, 255, 255)        # bright guidewire core
+_TIP_SAFE = (128, 244, 150)    # tip, not touching wall
+_TIP_HIT = (255, 92, 92)       # tip at/over the wall-safety threshold
+_TARGET = (247, 206, 84)       # target ring
 
 
 def _principal_axes(pts: np.ndarray) -> tuple[int, int]:
@@ -78,62 +80,82 @@ def _projector(all_pts2d: np.ndarray, size: int, pad: float):
     return to_px
 
 
-def _centerline_and_R(env):
-    """Centerline points (n,3) and per-station wall radius R(s) (n,) for the active scene."""
+def _edge_tubes(env):
+    """(pts(n,3), R(n,)) for every vessel edge — draws the whole anatomy, so a
+    bifurcation renders as a full Y, not just the one branch the device takes."""
+    asset = getattr(env, "asset", None)
+    tubes = []
+    if asset is not None and getattr(asset, "edges", None):
+        for e in asset.edges:
+            pts, lf = asset.edge_arrays(e)
+            pts = np.asarray(pts)
+            R = np.asarray(lf.R, float)
+            R = R.reshape(len(R), -1).mean(1)
+            if len(R) != len(pts):
+                R = np.interp(np.linspace(0, 1, len(pts)), np.linspace(0, 1, len(R)), R)
+            tubes.append((pts, R))
+    if not tubes:                                   # fallback: a single centerline
+        frame = getattr(env, "frame", None) or getattr(env, "route_frame", None)
+        pts = np.asarray(frame.points)
+        tubes.append((pts, np.full(len(pts), float(env.R))))
+    return tubes
+
+
+def _target_xy(env, a0, a1):
     frame = getattr(env, "frame", None) or getattr(env, "route_frame", None)
     pts = np.asarray(frame.points)
-    lumen = getattr(env, "lumen", None)
-    if lumen is not None:
-        R = np.asarray(lumen.R, float).reshape(len(np.asarray(lumen.R)), -1).mean(1)
-        if len(R) != len(pts):                 # resample to centerline stations
-            R = np.interp(np.linspace(0, 1, len(pts)), np.linspace(0, 1, len(R)), R)
-    else:
-        R = np.full(len(pts), float(env.R))
-    return pts, R, frame
-
-
-def render_frame(env, size: int = 480, pad: float = 0.12) -> np.ndarray:
-    """Rasterize the current scene + guidewire state to an HxWx3 uint8 frame."""
-    pts, R, frame = _centerline_and_R(env)
-    a0, a1 = _principal_axes(pts)
-    c2d = pts[:, [a0, a1]]
-
-    # in-plane normals for the wall offset
-    tang = np.gradient(c2d, axis=0)
-    tang /= np.maximum(np.linalg.norm(tang, axis=1, keepdims=True), 1e-9)
-    normal = np.stack([-tang[:, 1], tang[:, 0]], axis=1)
-    wall_p = c2d + R[:, None] * normal
-    wall_m = c2d - R[:, None] * normal
-
-    dev = np.asarray(env.sim.body_positions())[:, [a0, a1]]
-
-    # target point at arc-length target_s
     s = _arclength(pts)
     ts = float(getattr(env, "target_s", s[-1]))
-    tgt2d = np.array([np.interp(ts, s, c2d[:, 0]), np.interp(ts, s, c2d[:, 1])])
+    p2d = pts[:, [a0, a1]]
+    return np.array([np.interp(ts, s, p2d[:, 0]), np.interp(ts, s, p2d[:, 1])])
 
-    to_px = _projector(np.concatenate([wall_p, wall_m, dev, tgt2d[None]]), size, pad)
-    cv, cvR = _Canvas(size, size), float(env.R)
-    wp, wm, cc = to_px(wall_p), to_px(wall_m), to_px(c2d)
 
-    # lumen fill (between the two walls, faint) then wall lines
-    for i in range(len(cc) - 1):
-        for a, b in ((wp, wm), (wm, wp)):
-            cv.polyline([a[i, 0], b[i, 0]], [a[i, 1], b[i, 1]], _LUMEN, 1.0)
-    cv.polyline(wp[:, 0], wp[:, 1], _WALL, 2.0)
-    cv.polyline(wm[:, 0], wm[:, 1], _WALL, 2.0)
+def render_frame(env, size: int = 480, pad: float = 0.14) -> np.ndarray:
+    """Rasterize the whole vessel + guidewire state to an HxWx3 uint8 frame."""
+    tubes = _edge_tubes(env)
+    a0, a1 = _principal_axes(np.concatenate([p for p, _ in tubes]))
 
-    # target band
-    tp = to_px(tgt2d)
-    cv.disk(tp[0], tp[1], 8, _TARGET)
-    cv.disk(tp[0], tp[1], 4, _BG)
+    geoms, wallpts = [], []
+    for pts, R in tubes:
+        c2d = pts[:, [a0, a1]]
+        tang = np.gradient(c2d, axis=0)
+        tang /= np.maximum(np.linalg.norm(tang, axis=1, keepdims=True), 1e-9)
+        normal = np.stack([-tang[:, 1], tang[:, 0]], axis=1)
+        wp, wm = c2d + R[:, None] * normal, c2d - R[:, None] * normal
+        geoms.append((c2d, wp, wm))
+        wallpts += [wp, wm]
 
-    # guidewire + tip (red if the tip radius has reached the wall-safety threshold)
+    dev = np.asarray(env.sim.body_positions())[:, [a0, a1]]
+    tgt = _target_xy(env, a0, a1)
+    to_px = _projector(np.concatenate(wallpts + [dev, tgt[None]]), size, pad)
+    cv = _Canvas(size, size)
+
+    # 1) solid lumen: overlapping disks of the LOCAL radius fill a smooth tube that
+    #    narrows at a stenosis and forks at a bifurcation.
+    for c2d, wp, _ in geoms:
+        cc, WP = to_px(c2d), to_px(wp)
+        Rpx = np.linalg.norm(WP - cc, axis=1)
+        for i in range(len(cc)):
+            cv.disk(cc[i, 0], cc[i, 1], max(1.5, float(Rpx[i])), _LUMEN)
+    # 2) wall outline
+    for _, wp, wm in geoms:
+        WP, WM = to_px(wp), to_px(wm)
+        cv.polyline(WP[:, 0], WP[:, 1], _WALL, 1.6)
+        cv.polyline(WM[:, 0], WM[:, 1], _WALL, 1.6)
+
+    # 3) target ring (hollow donut on the goal branch)
+    tp = to_px(tgt)
+    cv.disk(tp[0], tp[1], 9, _TARGET)
+    cv.disk(tp[0], tp[1], 5, _LUMEN)
+
+    # 4) guidewire: dark halo -> cyan body -> bright core, so it reads clearly against
+    #    the red wall; tip turns red if it reaches the wall-safety threshold.
     dp = to_px(dev)
-    cv.polyline(dp[:, 0], dp[:, 1], _DEVICE, 2.5)
-    rmax = float(env.sim.node_radii().max())
-    tip_color = _TIP_HIT if rmax >= cvR else _TIP_SAFE
-    cv.disk(dp[-1, 0], dp[-1, 1], 5, tip_color)
+    cv.polyline(dp[:, 0], dp[:, 1], _HALO, 4.2)
+    cv.polyline(dp[:, 0], dp[:, 1], _DEVICE, 2.4)
+    cv.polyline(dp[:, 0], dp[:, 1], _CORE, 0.9)
+    tip = _TIP_HIT if float(env.sim.node_radii().max()) >= float(env.R) else _TIP_SAFE
+    cv.disk(dp[-1, 0], dp[-1, 1], 5.5, tip)
     return cv.img
 
 
