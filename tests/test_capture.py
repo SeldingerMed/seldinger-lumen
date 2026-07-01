@@ -78,6 +78,51 @@ def test_rollout_luminal_modality(tmp_path):
     assert rgb.shape == (16, 16, 3) and rgb.min() >= 0.0 and rgb.max() <= 1.0
 
 
+def test_rollout_image_observation_policy_receives_fluoro_frames():
+    asset = procedural.straight_tube(80.0, 2.0)
+    seen = []
+
+    def image_policy(obs):
+        arr = np.asarray(obs)
+        seen.append(arr.copy())
+        assert arr.shape == (20, 20)
+        assert np.isfinite(arr).all()
+        return 0.75
+
+    ep = rollout_episode(asset, policy=image_policy,
+                         sensor=FluoroSensor(res=16, nu=20, nv=20, n_samples=30),
+                         modality="fluoro", max_steps=4, policy_observation="image")
+
+    validate(ep)
+    assert len(seen) == len(ep.steps)
+    assert np.array_equal(seen[0], ep.steps[0].obs)
+    assert ep.meta.notes["policy_observation"] == "image"
+    assert all(s.obs_modality == "fluoro" and s.obs_ref for s in ep.steps)
+    assert ep.steps[-1].kinematics["tip_s"] >= ep.steps[0].kinematics["tip_s"]
+
+
+def test_rollout_image_observation_policy_receives_luminal_frames():
+    asset = procedural.straight_tube(80.0, 4.0)
+    seen = []
+
+    def image_policy(obs):
+        arr = np.asarray(obs)
+        seen.append(arr.copy())
+        assert arr.shape == (12, 12, 3)
+        assert arr.min() >= 0.0 and arr.max() <= 1.0
+        return 0.5
+
+    ep = rollout_episode(asset, policy=image_policy,
+                         sensor=LuminalCamera(nu=12, nv=12, n_steps=24),
+                         modality="luminal", max_steps=3, policy_observation="image")
+
+    validate(ep)
+    assert len(seen) == len(ep.steps)
+    assert np.array_equal(seen[0], ep.steps[0].obs)
+    assert ep.meta.notes["policy_observation"] == "image"
+    assert all(s.obs_modality == "luminal" and s.obs_ref for s in ep.steps)
+
+
 def test_every_skips_render_but_keeps_kinematics():
     asset = procedural.straight_tube(80.0, 2.0)
     ep = rollout_episode(asset, sensor=FluoroSensor(res=16, nu=20, nv=20, n_samples=30),
