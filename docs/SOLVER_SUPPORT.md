@@ -9,7 +9,7 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | Guidewire + tube wall contact | ✅ | ✅ | none | — |
 | Deformable HGO wall | ✅ | ✅ | none | — |
 | Anisotropic friction | ✅ | ✅ | none | — |
-| 1-D `FlowField` coupling | ✅ | ✅ | `NewtonFlow` fallback is single-env only | — |
+| 1-D `FlowField` coupling | ✅ | ✅ | none | — |
 | Lumped `NewtonFlow` analytic fallback | ✅ | 🚧 | `batched flow requires the 1-D FlowField` | — |
 | Finite clot deformation/damage | ✅ | ✅ with `FlowField`/device coupling | none for batched clot alone | — |
 | Coaxial guidewire + catheter assembly | ✅ | 🚧 | `coaxial assemblies are single-env` | #53 |
