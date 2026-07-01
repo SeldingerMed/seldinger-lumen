@@ -115,6 +115,10 @@ lumen materialize-batch /tmp/lumen-episodes/index.jsonl /tmp/lumen-episodes/batc
 - **`capture`** writes one self-contained directory per scenario, each with a
   `preview.png`, fluoro device/vessel mask contact sheets, and a label overlay — so you
   can inspect observations and CV labels without opening a single NumPy sidecar.
+  `lumen.data.rollout_episode(..., policy_observation="image")` lets capture/training
+  policies receive rendered fluoro or luminal observations instead of the default fast
+  privileged 5-D state observation; stored image-policy steps reuse that same pre-action
+  frame so behavioral-cloning pairs align `step.obs` with `step.action`.
 - **`validate`** checks every bundle's asset, calibration, observations, masks,
   keypoints, and labels before you train on it. `--require-cv-labels` makes masks and
   tip/base keypoints mandatory on every fluoro frame.
