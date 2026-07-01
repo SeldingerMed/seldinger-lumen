@@ -33,6 +33,25 @@ python -m lumen.hardware     # -> {"device": "cuda"|"cpu", ...}
 Lumen keeps Warp/Newton backend chatter quiet by default so examples print parseable
 results. Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` when you want backend diagnostics.
 
+### GPU hardware benchmark
+
+CPU CI checks the portable regression suite. CUDA throughput claims are guarded by
+`.github/workflows/gpu-benchmark.yml`, a manual/weekly GitHub Actions workflow for a
+self-hosted Linux runner labeled `self-hosted`, `linux`, `x64`, and `cuda`. It runs:
+
+```bash
+python -m lumen.hardware
+pytest -q tests/test_newton_anatomy.py tests/test_throughput.py
+python examples/benchmark_throughput.py \
+  --device cuda --require-cuda --envs 256,1024,4096 \
+  --min-env-steps-per-s 10000 --json
+```
+
+Scheduled runs are opt-in until a CUDA runner is attached: set the repository
+variable `LUMEN_ENABLE_SCHEDULED_GPU_BENCHMARK=true`. Manual `workflow_dispatch`
+runs are always available and upload `hardware.json` plus `gpu-throughput.json` as
+artifacts.
+
 ## Quick start
 
 ```python

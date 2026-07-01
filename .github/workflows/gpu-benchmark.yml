@@ -1,0 +1,84 @@
+name: GPU Hardware Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      envs:
+        description: Comma-separated CUDA environment counts to benchmark
+        required: false
+        default: "256,1024,4096"
+      min_env_steps_per_s:
+        description: Minimum peak aggregate CUDA env-steps/s required to pass
+        required: false
+        default: "10000"
+  schedule:
+    # Weekly GPU validation. Enable scheduled runs by setting the repo variable
+    # LUMEN_ENABLE_SCHEDULED_GPU_BENCHMARK=true after a self-hosted CUDA runner is attached.
+    - cron: "17 8 * * 1"
+
+concurrency:
+  group: gpu-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cuda-benchmark:
+    name: CUDA solver benchmark
+    if: github.event_name == 'workflow_dispatch' || vars.LUMEN_ENABLE_SCHEDULED_GPU_BENCHMARK == 'true'
+    runs-on: [self-hosted, linux, x64, cuda]
+    timeout-minutes: 90
+    env:
+      BENCHMARK_ENVS: ${{ inputs.envs || '256,1024,4096' }}
+      MIN_ENV_STEPS_PER_S: ${{ inputs.min_env_steps_per_s || '10000' }}
+      NEWTON_REF: 6dfe7303d9ca50f7505cac31bee9885c813d89d7
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package + solver deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install "git+https://github.com/newton-physics/newton@${NEWTON_REF}"
+
+      - name: Print backend hardware report
+        run: python -m lumen.hardware | tee hardware.json
+
+      - name: Verify CUDA is visible to Warp/Newton
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("hardware.json").read_text())
+          if report.get("device") != "cuda" or int(report.get("cuda_devices") or 0) < 1:
+              raise SystemExit(f"CUDA runner required; hardware report was: {report}")
+          if not report.get("newton_available"):
+              raise SystemExit(f"Newton unavailable; hardware report was: {report}")
+          PY
+
+      - name: Newton/Warp kernel smoke tests on CUDA runner
+        run: pytest -q tests/test_newton_anatomy.py tests/test_throughput.py
+
+      - name: CUDA throughput benchmark
+        run: |
+          python examples/benchmark_throughput.py \
+            --device cuda \
+            --require-cuda \
+            --envs "${BENCHMARK_ENVS}" \
+            --steps 20 \
+            --substeps 3 \
+            --min-env-steps-per-s "${MIN_ENV_STEPS_PER_S}" \
+            --json | tee gpu-throughput.json
+
+      - name: Upload GPU benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-gpu-benchmark-${{ github.run_id }}
+          path: |
+            hardware.json
+            gpu-throughput.json
+          if-no-files-found: error
