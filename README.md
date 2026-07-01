@@ -78,7 +78,11 @@ lumen calibrate
 `capture_episode.py` writes one self-contained case directory per scenario plus
 `preview.png`, `preview_contact_sheet.png`, fluoro device/vessel mask contact
 sheets, and `label_overlay_contact_sheet.png`, so you can inspect observations and
-CV labels without opening NumPy sidecars. `lumen validate` checks every bundle's
+CV labels without opening NumPy sidecars.
+`lumen.data.rollout_episode(..., policy_observation="image")` lets capture/training
+policies receive rendered fluoro or luminal observations instead of the default fast
+privileged 5-D state observation; stored image-policy steps reuse that same pre-action
+frame so behavioral-cloning pairs align `step.obs` with `step.action`. `lumen validate` checks every bundle's
 asset, calibration, observations, masks, keypoints, labels, and sidecar refs before
 you train on it; add `--require-cv-labels` when a fluoro CV run must have
 device/vessel masks and tip/base keypoints on every frame. `lumen replay` prints clinical endpoint
@@ -160,6 +164,8 @@ For image-observation control rather than privileged state, run:
 ```bash
 python examples/train_fluoro_nav.py
 ```
+
+See [docs/EPISODE_SCHEMA.md](docs/EPISODE_SCHEMA.md) for the on-disk format.
 
 ## What's inside (`lumen.newton`)
 
