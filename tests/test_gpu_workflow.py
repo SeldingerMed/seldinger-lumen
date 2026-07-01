@@ -17,7 +17,7 @@ def test_gpu_benchmark_workflow_targets_cuda_runner_and_commands():
     assert "--device cuda" in text
     assert "--require-cuda" in text
     assert "--min-env-steps-per-s" in text
-    assert "actions/upload-artifact@v4" in text
+    assert "actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb3cf108" in text
 
 
 def test_gpu_benchmark_workflow_schedule_is_opt_in_until_runner_exists():
