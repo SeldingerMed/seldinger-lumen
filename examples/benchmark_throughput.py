@@ -63,7 +63,7 @@ def main(argv=None) -> int:
     vessel, dev = _scene()
     if args.require_cuda and device != "cuda":
         if args.json:
-            print(json.dumps({"device": device, "error": "CUDA device required"}, sort_keys=True))
+            print(json.dumps({"device": device, "error": "CUDA device required", "passed": False}, sort_keys=True))
         else:
             print(f"CUDA device required, but selected device is {device!r}", file=sys.stderr)
         return 2

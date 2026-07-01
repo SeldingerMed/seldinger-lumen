@@ -31,9 +31,9 @@ jobs:
       MIN_ENV_STEPS_PER_S: ${{ inputs.min_env_steps_per_s || '10000' }}
       NEWTON_REF: 6dfe7303d9ca50f7505cac31bee9885c813d89d7
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.3.0
         with:
           python-version: "3.12"
           cache: pip
@@ -75,7 +75,8 @@ jobs:
             --json | tee gpu-throughput.json
 
       - name: Upload GPU benchmark artifacts
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb3cf108 # v4.6.0
         with:
           name: lumen-gpu-benchmark-${{ github.run_id }}
           path: |
