@@ -138,7 +138,14 @@ def render_frame(env, size: int = 480, pad: float = 0.12) -> np.ndarray:
 
 
 def _policy(name):
-    name = (name or "forward").lower()
+    name = name or "forward"
+    # a trained policy saved by `lumen train` (theta under key 'theta', or the first array)
+    if isinstance(name, str) and name.endswith(".npz"):
+        from lumen.rl.cem import make_policy
+        data = np.load(name)
+        theta = data["theta"] if "theta" in data else data[data.files[0]]
+        return make_policy(theta)
+    name = name.lower()
     if name in ("forward", "advance"):
         return lambda obs: np.array([1.0], np.float32)
     if name == "zero":
@@ -146,7 +153,7 @@ def _policy(name):
     if name == "random":
         rng = np.random.default_rng(0)
         return lambda obs: rng.uniform(-1, 1, size=1).astype(np.float32)
-    raise ValueError(f"unknown policy {name!r} (forward|zero|random)")
+    raise ValueError(f"unknown policy {name!r} (forward|zero|random|*.npz)")
 
 
 def play(scene: str = "tube", policy="forward", steps: int = 60, seed: int = 0,

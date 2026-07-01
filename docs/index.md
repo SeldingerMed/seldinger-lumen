@@ -45,6 +45,9 @@ sim.step(insertion=1.0)
 
 ```bash
 lumen hardware
+lumen play stenotic --out /tmp/lumen-run
+lumen train tube --out /tmp/policy.npz
+lumen play tube --policy /tmp/policy.npz
 lumen benchmark /tmp/lumen-bench
 lumen render-fluoro /tmp/lumen_fluoro.png
 lumen capture /tmp/lumen-episodes

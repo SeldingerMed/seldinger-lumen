@@ -51,3 +51,23 @@ def test_cli_play_smoke(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["scene"] == "tube"
     assert payload["frames"] == payload["steps"] + 1
+
+
+def test_train_saves_policy_and_play_loads_it(tmp_path, capsys):
+    # train (tiny CEM) -> .npz, then play that saved policy end-to-end: visualize a
+    # trained agent. Guards the train->play seam.
+    from lumen.cli import train_main
+    out = tmp_path / "policy.npz"
+    train_main(["tube", "--pop", "8", "--iters", "3", "--out", str(out)])
+    payload = json.loads(capsys.readouterr().out)
+    assert out.exists()
+    assert payload["policy"].endswith("policy.npz")
+
+    s = viz.play("tube", policy=str(out), steps=20, size=80)
+    assert s["frames"] == s["steps"] + 1
+    assert isinstance(s["success"], bool)
+
+
+def test_play_rejects_unknown_policy():
+    with pytest.raises(ValueError):
+        viz.play("tube", policy="nonsense", steps=2, size=64)

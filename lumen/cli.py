@@ -17,6 +17,7 @@ def _command_table():
         "hardware": ("Print backend hardware/software status.", hardware_main),
         "benchmark": ("Run the canonical navigation benchmark.", benchmark_main),
         "play": ("Watch a scene: roll out a policy and write an animation.", play_main),
+        "train": ("Train a navigation policy (CEM) and save it for play/eval.", train_main),
         "render-fluoro": ("Render the canonical synthetic fluoroscopy demo.", render_fluoro_main),
         "capture": ("Capture the canonical procedural case-bundle corpus.", capture_main),
         "replay": ("Summarize and replay a case-bundle corpus.", replay_main),
@@ -122,6 +123,48 @@ def play_main(argv=None, prog=None) -> None:
     summary = play(scene=args.scene, policy=args.policy, steps=args.steps,
                    seed=args.seed, size=args.size, out=args.out)
     print(json.dumps(summary, indent=2))
+
+
+def train_main(argv=None, prog=None) -> None:
+    import numpy as np
+
+    from lumen.assets import procedural
+    from lumen.rl.cem import train_cem
+
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Train a linear navigation policy with the gradient-free CEM over "
+                    "the batched sim (no torch), and save it as an .npz you can hand to "
+                    "`lumen play --policy`. CPU-friendly at the default sizes.")
+    parser.add_argument("scene", nargs="?", default="tube",
+                        choices=["tube", "stenotic"],
+                        help="scene to train on (branch navigation is not a CEM target)")
+    parser.add_argument("--pop", type=int, default=48, help="CEM population size")
+    parser.add_argument("--iters", type=int, default=20, help="CEM iterations")
+    parser.add_argument("--severity", type=float, default=0.5, help="stenosis severity")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--out", default="lumen_policy.npz", help="output .npz path")
+    args = parser.parse_args(argv)
+
+    asset = (procedural.straight_tube(80.0, 2.0) if args.scene == "tube"
+             else procedural.stenotic_tube(80.0, 2.0, severity=args.severity))
+    pts, lumen = asset.edge_arrays(asset.edges[0])
+    history = []
+    theta, hist = train_cem(
+        np.asarray(pts), float(np.asarray(lumen.R).mean()), lumen_field=lumen,
+        pop=args.pop, iters=args.iters, seed=args.seed, device="cpu",
+        log=lambda r: (history.append(r),
+                       print(f"  iter {r['iter']:2d}  return={r['mean_return']:+.3f}  "
+                             f"success={r['success_rate']:.2f}", file=sys.stderr, flush=True)))
+    out = Path(args.out)
+    if out.suffix != ".npz":
+        out = out.with_suffix(".npz")
+    np.savez(out, theta=np.asarray(theta, np.float32))
+    final = history[-1] if history else {"success_rate": None}
+    print(json.dumps({"scene": args.scene, "policy": str(out),
+                      "iters": args.iters, "pop": args.pop,
+                      "final_success_rate": final["success_rate"],
+                      "play": f"lumen play {args.scene} --policy {out}"}, indent=2))
 
 
 def render_fluoro_main(argv=None, prog=None) -> None:

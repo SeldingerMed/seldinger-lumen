@@ -63,6 +63,9 @@ replayable case bundle. These commands use only procedural anatomy.
 
 ```bash
 lumen hardware
+lumen play stenotic --out /tmp/lumen-run      # watch a guidewire thread the vessel
+lumen train tube --out /tmp/policy.npz        # train a policy (CEM, no torch)
+lumen play tube --policy /tmp/policy.npz       # ...then watch it drive
 lumen benchmark /tmp/lumen-bench
 lumen render-fluoro /tmp/lumen_fluoro.png
 lumen capture /tmp/lumen-episodes
@@ -74,6 +77,13 @@ lumen materialize-batch /tmp/lumen-episodes/index.jsonl /tmp/lumen-episodes/smok
 lumen split-index /tmp/lumen-episodes/index.jsonl --out-dir /tmp/lumen-episodes/splits
 lumen calibrate
 ```
+
+`lumen play` is the one-command way to *watch* a rollout: it drives a scene
+(`tube`/`stenotic`/`tree`) with a policy and writes a schematic animation
+(`<out>.avi` + `<out>.png`) — no GPU, no display, no 3-D engine — reporting the same
+tip-reach and wall-safety numbers the benchmark scores. `lumen train` fits a policy
+with the gradient-free CEM (no torch) and saves an `.npz` you hand back to
+`lumen play --policy` to visualize the trained agent.
 
 `capture_episode.py` writes one self-contained case directory per scenario plus
 `preview.png`, `preview_contact_sheet.png`, fluoro device/vessel mask contact
