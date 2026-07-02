@@ -14,13 +14,13 @@ problem and stays modality-agnostic. It is **Layer 0** of the
 the [NVIDIA Newton](https://github.com/newton-physics/newton) engine.
 
 <p align="center">
-  <img src="assets/demo/fluoro_curve.gif" alt="Synthetic fluoroscopy of a guidewire threading a curved vessel" width="330">
-  <img src="assets/demo/nav_curve.gif" alt="Schematic of the same guidewire threading a curved vessel" width="330">
+  <img src="assets/demo/nav_bifurcation.gif" alt="Guidewire navigating a branching vessel into the target branch" width="330">
+  <img src="assets/demo/fluoro_bifurcation.gif" alt="Synthetic fluoroscopy of the same branching-vessel navigation" width="330">
   <br>
-  <em>A guidewire threading a curved vessel to a target, solved on Newton.
-  Left: synthetic <strong>fluoroscopy</strong> — what an ML model sees, the wire a sharp dark line
-  on the contrast-filled vessel. Right: the same run as a <strong>schematic</strong> (wire cyan,
-  target gold), rendered with <code>lumen play</code>.</em>
+  <em>A guidewire navigating a branching vessel — entering the target branch at the fork
+  and reaching the target, solved on Newton. Left: <strong>schematic</strong> (wire cyan,
+  target gold). Right: synthetic <strong>fluoroscopy</strong>, what an ML model sees.
+  Rendered with <code>lumen play</code>.</em>
 </p>
 
 [View on GitHub](https://github.com/SeldingerMed/seldinger-lumen){: .btn }
