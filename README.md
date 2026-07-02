@@ -99,6 +99,23 @@ lumen split-index /tmp/lumen-episodes/index.jsonl --out-dir /tmp/lumen-episodes/
 lumen calibrate
 ```
 
+### Import cross-sectional anatomy
+
+Lumen can import an already-segmented 3-D anatomy mask from `.npz` and convert it
+to the same `Asset` graph used by the simulator. The `.npz` should contain `mask`
+or `volume`; include `spacing_mm` and `origin_mm` arrays when the voxel frame is
+known. Raw demo volumes can be thresholded during import:
+
+```bash
+lumen import-mask anatomy.npz anatomy.asset.json --threshold 100
+```
+
+The importer is intentionally a lightweight seam: it follows axial connected
+components, estimates local radii, and writes a centerline/radius tree. Optional
+DICOM series loading is available from Python with `pip install -e ".[imaging]"`;
+model-backed segmenters can feed the same mask-to-asset path without becoming core
+Lumen dependencies.
+
 `lumen play` is the one-command way to *watch* a rollout: it drives a scene
 (`tube`/`stenotic`/`tree`) with a policy and writes a schematic animation
 (`<out>.avi` + `<out>.png`) — no GPU, no display, no 3-D engine — reporting the same

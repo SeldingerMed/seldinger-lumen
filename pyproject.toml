@@ -23,6 +23,7 @@ solver = [
   "newton @ git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7",
 ]
 gym = ["gymnasium>=0.29"]         # M5: register the nav envs for gymnasium.make
+imaging = ["SimpleITK>=2.3"]      # optional DICOM series loading; core import path is NumPy/.npz
 dev = [
   "pytest>=7",
   "ruff>=0.5",

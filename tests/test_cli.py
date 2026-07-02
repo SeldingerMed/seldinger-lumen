@@ -110,6 +110,25 @@ def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
     assert "--check-sidecars" in out
 
 
+def test_import_mask_cli_exports_lumen_asset(tmp_path, capsys):
+    from lumen.assets import Asset
+    from lumen.cli import main
+
+    mask = np.zeros((16, 16, 6), dtype=np.float32)
+    mask[6:10, 6:10, 1:5] = 200.0
+    src = tmp_path / "mask.npz"
+    out_asset = tmp_path / "asset.json"
+    np.savez(src, volume=mask, spacing_mm=np.array([0.4, 0.4, 1.2]))
+
+    main(["import-mask", str(src), str(out_asset), "--threshold", "100"])
+
+    printed = capsys.readouterr().out
+    assert "wrote" in printed
+    asset = Asset.load(out_asset)
+    assert asset.provenance == "segmented(imported)"
+    assert len(asset.edges) >= 1
+
+
 def test_materialize_batch_cli_exports_npz_and_manifest(tmp_path, capsys):
     from lumen.cli import index_main, materialize_batch_main, main
     from lumen.data import materialize_index_batch
