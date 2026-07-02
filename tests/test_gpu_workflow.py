@@ -17,6 +17,9 @@ def test_gpu_benchmark_workflow_targets_cuda_runner_and_commands():
     assert "--device cuda" in text
     assert "--require-cuda" in text
     assert "--min-env-steps-per-s" in text
+    assert "python tools/summarize_gpu_benchmark.py" in text
+    assert "gpu-benchmark-summary.md" in text
+    assert "GITHUB_STEP_SUMMARY" in text
     assert "actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb3cf108" in text
 
 

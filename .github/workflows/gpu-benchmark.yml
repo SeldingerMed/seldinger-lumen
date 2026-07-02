@@ -74,6 +74,14 @@ jobs:
             --min-env-steps-per-s "${MIN_ENV_STEPS_PER_S}" \
             --json | tee gpu-throughput.json
 
+      - name: Validate benchmark artifacts and write job summary
+        run: |
+          python tools/summarize_gpu_benchmark.py \
+            --hardware hardware.json \
+            --throughput gpu-throughput.json \
+            --out gpu-benchmark-summary.md
+          cat gpu-benchmark-summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload GPU benchmark artifacts
         if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb3cf108 # v4.6.0
@@ -82,4 +90,5 @@ jobs:
           path: |
             hardware.json
             gpu-throughput.json
+            gpu-benchmark-summary.md
           if-no-files-found: error
