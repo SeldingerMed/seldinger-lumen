@@ -77,3 +77,67 @@ def voxelize_device(nodes, radius, grid: Grid, mu_device=1.0, eps=0.6):
     d = np.sqrt(d2)
     mu = mu_device * 0.5 * (1.0 + np.tanh((radius - d) / eps))
     return mu.reshape(grid.res)
+
+
+def _segment_dist_and_t(P, a, b):
+    ab = b - a
+    t = np.clip(((P - a) @ ab) / (ab @ ab + 1e-12), 0.0, 1.0)
+    foot = a + t[..., None] * ab
+    d = P - foot
+    return np.einsum("...j,...j->...", d, d), t
+
+
+def voxelize_polyline(nodes, radii, grid: Grid, mu_device=1.0, eps=0.6):
+    """Soft variable-radius capsule-chain μ volume."""
+    nodes = np.asarray(nodes, float)
+    radii = np.asarray(radii, float)
+    if len(nodes) == 0:
+        raise ValueError("polyline must have at least one node")
+    if len(radii) != len(nodes):
+        raise ValueError("radii must have one value per polyline node")
+    C = grid.centers()
+    flat = C.reshape(-1, 3)
+    fill = np.zeros(len(flat), float)
+    if len(nodes) == 1:
+        diff = flat - nodes[0]
+        d = np.sqrt(np.einsum("ij,ij->i", diff, diff))
+        fill = np.maximum(fill, 0.5 * (1.0 + np.tanh((radii[0] - d) / eps)))
+    else:
+        for i, (a, b) in enumerate(zip(nodes[:-1], nodes[1:])):
+            d2, t = _segment_dist_and_t(flat, a, b)
+            r = radii[i] * (1.0 - t) + radii[i + 1] * t
+            fill = np.maximum(fill, 0.5 * (1.0 + np.tanh((r - np.sqrt(d2)) / eps)))
+    return (mu_device * fill).reshape(grid.res)
+
+
+def edge_radii(edge, pts):
+    """Radius at each stored centerline point, interpolated from an asset edge."""
+    pts = np.asarray(pts, float)
+    if len(pts) <= 1:
+        return np.full(len(pts), float(np.asarray(edge.R, float).mean()))
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    s_pts = np.concatenate([[0.0], np.cumsum(seg)])
+    s_grid = np.asarray(edge.s_grid, float)
+    r_grid = np.asarray(edge.R, float).mean(axis=1)
+    return np.interp(s_pts, s_grid, r_grid)
+
+
+def asset_points(asset):
+    """All centerline points in an asset, for C-arm/grid fitting."""
+    pts = []
+    for edge in asset.edges:
+        pts.extend(np.asarray(edge.centerline_mm, float))
+    if not pts:
+        raise ValueError("asset has no edge centerline points")
+    return np.asarray(pts, float)
+
+
+def voxelize_asset(asset, grid: Grid, mu_device=1.0, eps=0.6):
+    """Rasterize every edge in a Lumen asset into a μ volume."""
+    mu = np.zeros(grid.res, float)
+    for edge in asset.edges:
+        pts = np.asarray(edge.centerline_mm, float)
+        radii = edge_radii(edge, pts)
+        mu = np.maximum(mu, voxelize_polyline(pts, radii, grid,
+                                              mu_device=mu_device, eps=eps))
+    return mu
