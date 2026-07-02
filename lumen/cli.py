@@ -30,6 +30,7 @@ def _command_table():
         "split-index": ("Write episode-grouped train/val/test splits for a JSONL index.",
                         split_index_main),
         "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
+        "import-mask": ("Import a segmented .npz volume as a Lumen asset.", import_mask_main),
     }
 
 
@@ -173,6 +174,32 @@ def render_fluoro_main(argv=None, prog=None) -> None:
     parser.add_argument("out_png", nargs="?", default="fluoro.png")
     args = parser.parse_args(argv)
     render_fluoro_example(args.out_png)
+
+
+def import_mask_main(argv=None, prog=None) -> None:
+    from lumen.assets import asset_from_mask, load_npz_volume, segment_threshold
+
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Convert a segmented .npz mask, or a thresholded .npz volume, "
+                    "into a Lumen asset JSON. The .npz must contain 'mask' or "
+                    "'volume', plus optional spacing_mm and origin_mm arrays.")
+    parser.add_argument("input_npz")
+    parser.add_argument("out_asset")
+    parser.add_argument("--threshold", type=float,
+                        help="Threshold a raw 'volume' array before import.")
+    parser.add_argument("--foreground", choices=["above", "below"], default="above")
+    parser.add_argument("--min-component-voxels", type=int, default=4)
+    args = parser.parse_args(argv)
+
+    vol = load_npz_volume(args.input_npz)
+    mask_vol = (segment_threshold(vol, args.threshold, foreground=args.foreground)
+                if args.threshold is not None else vol)
+    asset = asset_from_mask(mask_vol.mask, spacing_mm=mask_vol.spacing_mm,
+                            origin_mm=mask_vol.origin_mm,
+                            min_component_voxels=args.min_component_voxels)
+    asset.save(args.out_asset)
+    print(f"wrote {args.out_asset}  nodes={len(asset.nodes)}  edges={len(asset.edges)}")
 
 
 def capture_main(argv=None, prog=None) -> None:

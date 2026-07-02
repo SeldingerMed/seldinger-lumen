@@ -13,7 +13,7 @@ import numpy as np
 from lumen.sensors.carm import CArm
 from lumen.sensors.drr import radiograph, raycast
 from lumen.sensors.realism import degrade
-from lumen.sensors.volume import grid_for, voxelize_device
+from lumen.sensors.volume import asset_points, edge_radii, grid_for, voxelize_asset, voxelize_device
 
 
 def _projected_radius_px(carm: CArm, point, radius):
@@ -65,6 +65,16 @@ def _project_polyline_mask(carm: CArm, nodes, shape, radius_px=2.0):
     return d2 <= 1.0
 
 
+def _project_asset_mask(carm: CArm, asset, shape):
+    mask = np.zeros(shape, dtype=bool)
+    for edge in asset.edges:
+        pts = np.asarray(edge.centerline_mm, float)
+        radii = edge_radii(edge, pts)
+        px = [max(1.0, _projected_radius_px(carm, p, r)) for p, r in zip(pts, radii)]
+        mask |= _project_polyline_mask(carm, pts, shape, px)
+    return mask
+
+
 def _keypoint(carm: CArm, point, shape):
     u, v = carm.project(point)
     present = bool(np.isfinite([u, v]).all() and 0.0 <= u < shape[1] and 0.0 <= v < shape[0])
@@ -95,7 +105,7 @@ class FluoroSensor:
 
     def render(self, nodes, radius=0.2, carm: CArm | None = None, beer_lambert=False,
                realism=None, contrast_nodes=None, contrast_radius=1.5, mu_contrast=0.25,
-               contrast_eps=1.0):
+               contrast_eps=1.0, contrast_asset=None):
         """Render the device polyline to a DRR line-integral image (or a Beer–Lambert
         radiograph if beer_lambert=True). Returns (image, carm).
 
@@ -104,15 +114,24 @@ class FluoroSensor:
         optional Beer–Lambert step; default None leaves the clean DRR unchanged.
 
         Pass `contrast_nodes` to add a low-attenuation contrast-filled lumen roadmap
-        behind the radio-opaque device. This makes synthetic fluoro usable for CV
-        tasks that need vessel context instead of an isolated wire on a blank field."""
+        behind the radio-opaque device, or pass `contrast_asset` to rasterize every
+        edge of a Lumen asset with its stored radius profile."""
         nodes = np.asarray(nodes, float)
+        has_asset = contrast_asset is not None and bool(mu_contrast)
         has_contrast = contrast_nodes is not None and bool(mu_contrast)
-        scene_nodes = nodes if not has_contrast else np.concatenate(
-            [nodes, np.asarray(contrast_nodes, float)], axis=0)
+        if has_asset:
+            contrast_pts = asset_points(contrast_asset)
+        elif has_contrast:
+            contrast_pts = np.asarray(contrast_nodes, float)
+        else:
+            contrast_pts = None
+        scene_nodes = nodes if contrast_pts is None else np.concatenate([nodes, contrast_pts], axis=0)
         carm = carm or self.default_carm(scene_nodes)
         grid = grid_for(scene_nodes, margin=self.margin, res=self.res)
         mu = voxelize_device(nodes, radius, grid, mu_device=self.mu_device, eps=self.eps)
+        if has_asset:
+            mu = mu + voxelize_asset(contrast_asset, grid, mu_device=mu_contrast,
+                                     eps=contrast_eps)
         if has_contrast:
             mu = mu + voxelize_device(contrast_nodes, contrast_radius, grid,
                                       mu_device=mu_contrast, eps=contrast_eps)
@@ -123,16 +142,19 @@ class FluoroSensor:
 
     def render_scene(self, nodes, radius=0.2, carm: CArm | None = None,
                      beer_lambert=False, realism=None, contrast_nodes=None,
-                     contrast_radius=1.5, mu_contrast=0.25, contrast_eps=1.0):
+                     contrast_radius=1.5, mu_contrast=0.25, contrast_eps=1.0,
+                     contrast_asset=None):
         """Render image plus CV supervision products: masks and keypoints."""
         img, carm = self.render(nodes, radius=radius, carm=carm, beer_lambert=beer_lambert,
                                 realism=realism, contrast_nodes=contrast_nodes,
                                 contrast_radius=contrast_radius, mu_contrast=mu_contrast,
-                                contrast_eps=contrast_eps)
+                                contrast_eps=contrast_eps, contrast_asset=contrast_asset)
         nodes = np.asarray(nodes, float)
         device_px = [max(1.0, _projected_radius_px(carm, p, radius)) for p in nodes]
         masks = {"device": _project_polyline_mask(carm, nodes, img.shape, device_px)}
-        if contrast_nodes is not None:
+        if contrast_asset is not None:
+            masks["vessel"] = _project_asset_mask(carm, contrast_asset, img.shape)
+        elif contrast_nodes is not None:
             contrast_nodes = np.asarray(contrast_nodes, float)
             vessel_px = [max(1.0, _projected_radius_px(carm, p, contrast_radius))
                          for p in contrast_nodes]
@@ -149,9 +171,15 @@ class FluoroSensor:
         """Render two calibrated fluoro views of the same scene."""
         nodes = np.asarray(nodes, float)
         contrast_nodes = kw.get("contrast_nodes")
-        has_contrast = contrast_nodes is not None and bool(kw.get("mu_contrast", 0.25))
-        scene_nodes = nodes if not has_contrast else np.concatenate(
-            [nodes, np.asarray(contrast_nodes, float)], axis=0)
+        contrast_asset = kw.get("contrast_asset")
+        has_contrast = bool(kw.get("mu_contrast", 0.25))
+        if contrast_asset is not None and has_contrast:
+            contrast_pts = asset_points(contrast_asset)
+        elif contrast_nodes is not None and has_contrast:
+            contrast_pts = np.asarray(contrast_nodes, float)
+        else:
+            contrast_pts = None
+        scene_nodes = nodes if contrast_pts is None else np.concatenate([nodes, contrast_pts], axis=0)
         if carms is None:
             carms = [self.default_carm(scene_nodes, axis=axis) for axis in axes]
         return [self.render_scene(nodes, carm=c, **kw) for c in carms]
