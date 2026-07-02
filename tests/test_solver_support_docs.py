@@ -57,8 +57,18 @@ def test_solver_support_matrix_tracks_batched_guardrails():
         assert doc_guard in support
 
     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
-    for issue_ref in ("#53", "#54", "#55", "#56"):
-        assert issue_ref in support
+    for issue_ref in ("53", "54", "55", "56"):
+        assert f"| #{issue_ref} |" not in support
+        assert f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})" in support
+
+    assert "## Follow-up implementation tracker" in support
+    for closure_evidence in (
+        "two-env coaxial construction/step test",
+        "two-env retrieval test",
+        "two-env tree contact test",
+        "two-env aneurysm test",
+    ):
+        assert closure_evidence in support
 
 
 def test_readme_and_architecture_link_solver_support_matrix():
