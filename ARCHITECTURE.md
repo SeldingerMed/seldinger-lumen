@@ -52,9 +52,14 @@ subclass overriding only the per-color rigid-body iteration).
     workstation GPU for single-device navigation. The batched step is round-trip-free
     (~97% Newton-VBD-kernel time; per-substep co-sim runs through on-device kernels,
     no host sync), so per-env cost falls sharply with batch size — verify with
-    `python examples/benchmark_throughput.py --device cuda`. `test_throughput` pins
-    that amortization on CPU as a regression guard: a stray `.numpy()` in the hot
-    loop (a device→host sync) would serialize the envs and is what this catches.
+    `python examples/benchmark_throughput.py --device cuda --require-cuda`. The
+    `.github/workflows/gpu-benchmark.yml` workflow is the scheduled/manual hardware
+    gate for that claim on a self-hosted CUDA runner; it records `python -m
+    lumen.hardware`, runs the Newton/Warp kernel tests, runs the CUDA throughput
+    benchmark with `--min-env-steps-per-s 10000`, and uploads JSON artifacts.
+    `test_throughput` pins that amortization on CPU as a regression guard: a stray
+    `.numpy()` in the hot loop (a device→host sync) would serialize the envs and is
+    what this catches.
 - **Accurate tier** (`lumen/accurate`): cross-validation, penetration-free IPC, and
   gradients for offline calibration.
   - `accurate/ipc.py` — a *built-in, self-contained* penetration-free IPC reference
@@ -73,6 +78,15 @@ subclass overriding only the per-color rigid-body iteration).
   - The heavy external oracles (STARK/SymX, ppf-contact-solver) remain a drop-in via
     the same `crossval.accurate_tier_status` seam for those who build them on a GPU
     box — we don't reimplement *production* IPC, only a reference.
+
+## Invariant 4b — support matrix is part of the solver contract
+
+The fast tier is batched for the core guidewire/tube contact path, but several
+combined physics modes remain intentionally single-env. The public contract lives in
+[docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md), which maps each single-env vs.
+`n_envs > 1` path to the exact runtime guard and follow-up issue. Any change that
+removes a `NotImplementedError` from `lumen/newton/sim.py` must update that matrix and
+add a regression test for the newly supported combination.
 
 ## Invariant 5 — the open/closed firewall
 

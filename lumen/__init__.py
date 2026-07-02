@@ -6,7 +6,7 @@ observed through some sensor." Endovascular intervention is one *profile*; a
 lumen is equally an airway, a bowel, or a ureter. New modalities are added under
 ``lumen.profiles`` without touching the core.
 
-Distributed on PyPI as ``lumensim`` (the import name stays ``lumen``).
+Distributed as ``seldinger-lumen`` (the import name stays ``lumen``).
 """
 
 __version__ = "0.0.0"
