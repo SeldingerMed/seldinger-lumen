@@ -152,6 +152,32 @@ def validate_site(site_root: Path, base_path: str = "") -> list[BrokenLink]:
     return broken
 
 
+def validate_required_site_paths(site_root: Path, required_paths: list[str]) -> list[BrokenLink]:
+    """Ensure the generated Pages artifact contains expected public files.
+
+    Link checking proves existing pages do not point at missing local targets, but it
+    does not prove the Pages build published the pages/assets we advertise. These
+    explicit checks catch broken Jekyll configuration, renamed docs, or missing demo
+    media even when no remaining page links to the omitted file.
+    """
+
+    broken: list[BrokenLink] = []
+    for raw_path in required_paths:
+        normalized = raw_path.strip().lstrip("/")
+        if not normalized:
+            continue
+        candidate = site_root / normalized
+        if not candidate.exists():
+            broken.append(
+                BrokenLink(
+                    site_root,
+                    raw_path,
+                    "missing required generated Pages content",
+                )
+            )
+    return broken
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default=".", type=Path, help="Repository root to scan")
@@ -165,6 +191,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--markdown",
         action="append",
         help="Markdown glob relative to repo root; repeatable",
+    )
+    parser.add_argument(
+        "--require-site-path",
+        action="append",
+        default=[],
+        help="Generated Pages path that must exist under --site-dir; repeatable",
     )
     args = parser.parse_args(argv)
     if args.markdown is None:
@@ -183,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
             broken.append(BrokenLink(site_root, str(site_root), "site directory does not exist"))
         else:
             broken.extend(validate_site(site_root, base_path=args.base_path))
+            broken.extend(validate_required_site_paths(site_root, args.require_site_path))
 
     if broken:
         print("Documentation link validation failed:", file=sys.stderr)

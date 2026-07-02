@@ -40,6 +40,51 @@ def test_missing_generated_site_link_fails(tmp_path: Path) -> None:
     assert main(["--repo-root", str(tmp_path), "--site-dir", str(site)]) == 1
 
 
+def test_required_generated_site_path_passes(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# ok\n", encoding="utf-8")
+    site = tmp_path / "_site"
+    (site / "assets" / "demo").mkdir(parents=True)
+    (site / "index.html").write_text("<html></html>", encoding="utf-8")
+    (site / "assets" / "demo" / "fluoro_bifurcation.gif").write_bytes(b"GIF89a")
+
+    assert (
+        main(
+            [
+                "--repo-root",
+                str(tmp_path),
+                "--site-dir",
+                str(site),
+                "--require-site-path",
+                "index.html",
+                "--require-site-path",
+                "assets/demo/fluoro_bifurcation.gif",
+            ]
+        )
+        == 0
+    )
+
+
+def test_missing_required_generated_site_path_fails(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# ok\n", encoding="utf-8")
+    site = tmp_path / "_site"
+    site.mkdir()
+    (site / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--repo-root",
+                str(tmp_path),
+                "--site-dir",
+                str(site),
+                "--require-site-path",
+                "assets/demo/fluoro_bifurcation.gif",
+            ]
+        )
+        == 1
+    )
+
+
 def test_generated_site_links_allow_project_pages_base_path(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# ok\n", encoding="utf-8")
     site = tmp_path / "_site"
