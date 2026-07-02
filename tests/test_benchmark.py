@@ -5,8 +5,9 @@ plumbing is pure)."""
 import numpy as np
 import pytest
 
-from lumen.bench import (SUITE, SUITE_VERSION, Scorecard, evaluate_policy, forward_policy,
-                         leaderboard, run_episode, scorecard_rejections, validate_scorecard)
+from lumen.bench import (SAFETY_MAX_PEN, SUITE, SUITE_VERSION, Scorecard, evaluate_policy,
+                         forward_policy, leaderboard, run_episode, scorecard_rejections,
+                         validate_scorecard)
 
 
 def test_suite_is_fixed_and_tiered():
@@ -21,12 +22,18 @@ def test_forward_baseline_scores_the_whole_suite():
     sc = evaluate_policy(forward_policy, "forward-baseline")
     assert sc.suite_version == SUITE_VERSION and len(sc.per_task) == 3
     assert sc.overall["success_rate"] == 1.0          # the baseline solves the suite...
-    assert 0.0 <= sc.overall["safe_success_rate"] < sc.overall["success_rate"]
+    # ...and now does so SAFELY on every tier, including the bifurcation: junction
+    # navigation is physical — the shaped tip enters the target branch instead of the
+    # wire tunnelling across the septum (previously the hard tier scored unsafe).
+    assert sc.overall["safe_success_rate"] == 1.0
     assert sc.overall["unsafe_success_rate"] == pytest.approx(
         sc.overall["success_rate"] - sc.overall["safe_success_rate"]
     )
-    assert sc.per_task[2]["unsafe_success_rate"] == pytest.approx(1.0)
-    assert sc.per_task[2]["mean_steps"] > sc.per_task[0]["mean_steps"]   # ...the tree costs more steps
+    tree = sc.per_task[2]
+    assert tree["name"] == "nav_tree_branch"
+    assert tree["safe_success_rate"] == pytest.approx(1.0)
+    assert tree["max_pen"] < SAFETY_MAX_PEN           # under the wall-safety threshold
+    assert tree["mean_steps"] > sc.per_task[0]["mean_steps"]   # ...the tree still costs more steps
     assert all(np.isfinite([t["safe_success_rate"], t["max_pen"], t["mean_return"]]).all()
                for t in sc.per_task)
 
