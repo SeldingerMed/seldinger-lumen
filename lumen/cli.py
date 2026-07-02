@@ -114,7 +114,7 @@ def play_main(argv=None, prog=None) -> None:
     parser.add_argument("scene", nargs="?", default="tube",
                         choices=["tube", "stenotic", "tree"], help="which scene to play")
     parser.add_argument("--policy", default="forward",
-                        help="forward | zero | random (default: forward)")
+                        help="forward | zero | random | <path>.npz (default: forward)")
     parser.add_argument("--steps", type=int, default=60, help="max steps to roll out")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--size", type=int, default=480, help="frame size in pixels")
@@ -149,18 +149,16 @@ def train_main(argv=None, prog=None) -> None:
     asset = (procedural.straight_tube(80.0, 2.0) if args.scene == "tube"
              else procedural.stenotic_tube(80.0, 2.0, severity=args.severity))
     pts, lumen = asset.edge_arrays(asset.edges[0])
-    history = []
     theta, hist = train_cem(
         np.asarray(pts), float(np.asarray(lumen.R).mean()), lumen_field=lumen,
         pop=args.pop, iters=args.iters, seed=args.seed, device="cpu",
-        log=lambda r: (history.append(r),
-                       print(f"  iter {r['iter']:2d}  return={r['mean_return']:+.3f}  "
-                             f"success={r['success_rate']:.2f}", file=sys.stderr, flush=True)))
+        log=lambda r: print(f"  iter {r['iter']:2d}  return={r['mean_return']:+.3f}  "
+                            f"success={r['success_rate']:.2f}", file=sys.stderr, flush=True))
     out = Path(args.out)
     if out.suffix != ".npz":
         out = out.with_suffix(".npz")
     np.savez(out, theta=np.asarray(theta, np.float32))
-    final = history[-1] if history else {"success_rate": None}
+    final = hist[-1] if hist else {"success_rate": None}
     print(json.dumps({"scene": args.scene, "policy": str(out),
                       "iters": args.iters, "pop": args.pop,
                       "final_success_rate": final["success_rate"],

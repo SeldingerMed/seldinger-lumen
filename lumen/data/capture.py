@@ -135,7 +135,7 @@ class EpisodeRecorder:
         self.steps: list = []
         self._t = 0.0
 
-    def record_step(self, action) -> Step:
+    def record_step(self, action, observation=None) -> Step:
         if np.isscalar(action):
             action = {"insertion": float(action)}
         self.sim.step(dt=self.dt, substeps=self.substeps,
@@ -158,25 +158,10 @@ class EpisodeRecorder:
         annotations, annotation_arrays = {}, {}
         if render:
             modality, obs_ref = self.modality, f"{i:04d}.npy"
-            if self.modality == "fluoro":
-                contrast_radius = (float(np.asarray(self.lumen.R).mean())
-                                   if self.lumen is not None else 1.5)
-                scene = self.sensor.render_scene(
-                    nodes,
-                    carm=self.carm,
-                    contrast_nodes=np.asarray(self.frame.points),
-                    contrast_radius=contrast_radius,
-                )
-                obs_arr = scene["image"]
-                annotations = {"device_mask_ref": f"{i:04d}_device_mask.npy",
-                               "vessel_mask_ref": f"{i:04d}_vessel_mask.npy",
-                               "keypoints": scene["keypoints"]}
-                annotation_arrays = {
-                    "device_mask": scene["masks"]["device"].astype(np.uint8),
-                    "vessel_mask": scene["masks"]["vessel"].astype(np.uint8),
-                }
-            else:                                   # luminal: camera at the tip
-                obs_arr = self.sensor.render(self.frame, self.lumen, nodes)
+            if observation is None:
+                obs_arr, annotations, annotation_arrays = _render_observation(self, nodes, i)
+            else:
+                obs_arr, annotations, annotation_arrays = observation
 
         step = Step(t=self._t, action=dict(action), kinematics=kin,
                     annotations=annotations,
@@ -199,21 +184,69 @@ def _state_obs(frame, sim, R, L, target_s):
                      (target_s - pr.s) / L], dtype=np.float32)
 
 
+def _render_observation(rec: EpisodeRecorder, nodes, step_index: int):
+    """Render a Layer-1 observation and matching annotations for `nodes`.
+
+    The helper is shared by normal recording and image-observation rollout, so a
+    pre-action policy frame can be reused as the stored frame for the same action.
+    """
+    if rec.sensor is None:
+        raise ValueError("image observation rendering requires a sensor")
+    if rec.modality == "fluoro":
+        contrast_radius = (float(np.asarray(rec.lumen.R).mean()) if rec.lumen is not None else 1.5)
+        scene = rec.sensor.render_scene(
+            nodes,
+            carm=rec.carm,
+            contrast_nodes=np.asarray(rec.frame.points),
+            contrast_radius=contrast_radius,
+        )
+        annotations = {"device_mask_ref": f"{step_index:04d}_device_mask.npy",
+                       "vessel_mask_ref": f"{step_index:04d}_vessel_mask.npy",
+                       "keypoints": scene["keypoints"]}
+        annotation_arrays = {
+            "device_mask": scene["masks"]["device"].astype(np.uint8),
+            "vessel_mask": scene["masks"]["vessel"].astype(np.uint8),
+        }
+        return scene["image"], annotations, annotation_arrays
+    if rec.modality == "luminal":
+        return rec.sensor.render(rec.frame, rec.lumen, nodes), {}, {}
+    raise ValueError("image observation rendering requires modality='fluoro' or 'luminal'")
+
+
+def _image_obs(rec: EpisodeRecorder):
+    """Render the current simulator state for an image-observation policy.
+
+    Rollout control needs the same Layer-1 observation family before the action is
+    chosen, so image policies can drive capture/training without privileged state. The
+    returned observation bundle is passed through to `record_step`, making
+    `step.obs` the exact image that produced `step.action` for stored image-policy
+    steps (the state policy path still renders after stepping, as before).
+    """
+    nodes = np.asarray(rec.sim.body_positions())
+    return _render_observation(rec, nodes, len(rec.steps))
+
+
 def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                     target_frac=0.7, max_insertion=2.0, max_steps=40, success_tol=2.5,
                     every=1, substeps=4, dt=5e-3, device=None, asset_ref="asset.json", label=None,
                     notes=None, sim_kwargs=None, record_nodes=True, view_axis=(1.0, 0.0, 0.0),
-                    procedure="endovascular_navigation"):
+                    procedure="endovascular_navigation", policy_observation="state"):
     """Build a sim from `asset`, drive it to the target with `policy` (None = constant
     forward insertion), record every step, and return a validated `Episode`.
 
-    `policy(obs)->action` consumes the 5-D STATE obs and returns insertion in [-1, 1]
-    (compatible with a state-obs `lumen.rl.cem.make_policy`). An image-obs policy (L1.3)
-    needs an image-obs rollout — future work; the episode here still STORES the image obs.
+    `policy(obs)->action` returns insertion in [-1, 1]. By default obs is the fast
+    privileged 5-D state observation (compatible with `lumen.rl.cem.make_policy`). Set
+    `policy_observation="image"` to pass the rendered Layer-1 observation for the
+    selected `modality` to the policy before each action; stored image-policy steps reuse
+    that pre-action frame so `step.obs` is the image that produced `step.action`.
     Raises if the rollout can't produce a valid episode (e.g. the sim diverges on step 0)."""
     from lumen.core.frame import CenterlineFrame
     from lumen.newton.sim import NewtonGuidewireSim
 
+    if policy_observation not in ("state", "image"):
+        raise ValueError("policy_observation must be 'state' or 'image'")
+    if policy_observation == "image" and modality == "none":
+        raise ValueError("policy_observation='image' requires an image modality")
     if not asset.edges:
         raise ValueError("asset has no edges to roll out")
     pts, lumen = asset.edge_arrays(asset.edges[0])
@@ -242,6 +275,7 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
                        notes={**(notes or {}),
                               "episode_kind": "navigation",     # vs "wall_probe" (calibration)
                               "procedure": procedure,
+                              "policy_observation": policy_observation,
                               "target_s": target_s, "target_frac": target_frac,
                               "success_tol": success_tol,
                               "perforation_penetration_threshold": d_hat})
@@ -252,10 +286,16 @@ def rollout_episode(asset, policy=None, sensor=None, modality="fluoro",
     success = False
     dist = abs(float(frame.project(np.asarray(sim.body_positions())[-1]).s) - target_s)
     for _ in range(max_steps):
-        obs = _state_obs(frame, sim, R, L, target_s)
+        observation = None
+        if policy_observation == "image":
+            observation = _image_obs(rec)
+            obs = observation[0]
+        else:
+            obs = _state_obs(frame, sim, R, L, target_s)
         a = 1.0 if policy is None else float(np.asarray(policy(obs)).reshape(-1)[0])
         try:
-            step = rec.record_step({"insertion": float(np.clip(a, -1.0, 1.0)) * max_insertion})
+            step = rec.record_step({"insertion": float(np.clip(a, -1.0, 1.0)) * max_insertion},
+                                   observation=observation)
         except SimDiverged:                            # recorder guards divergence; dist stays last-good
             break
         dist = abs(step.kinematics["tip_s"] - target_s)

@@ -39,9 +39,31 @@ def test_play_writes_animation(tmp_path):
 def test_play_matches_bench_safety_on_tree():
     # the hard tier reaches the target but breaches the wall — the viewer must report
     # the same unsafe outcome the benchmark scores (guards the shared safety seam).
+    from lumen.envs.registration import make_tree_nav
+
+    env = make_tree_nav(max_steps=60)
+    obs, _ = env.reset(seed=200)
+    expected_max_pen = 0.0
+    for _ in range(60):
+        obs, _, terminated, truncated, info = env.step(np.array([1.0], np.float32))
+        if "max_pen" in info:
+            step_pen = float(info["max_pen"])
+        else:
+            step_pen = max(
+                0.0,
+                max(
+                    float(pr.r - pr.R)
+                    for pr in (env.tree.project(p) for p in env.sim.body_positions())
+                ),
+            )
+        expected_max_pen = max(expected_max_pen, step_pen)
+        if terminated or truncated:
+            break
+
     s = viz.play("tree", steps=60, seed=200, size=96)
     assert s["success"] is True
     assert s["safe"] is False
+    assert s["max_pen"] == round(expected_max_pen, 4)
     assert s["max_pen"] > 0.3
 
 

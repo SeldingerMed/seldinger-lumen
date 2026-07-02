@@ -110,6 +110,15 @@ def _target_xy(env, a0, a1):
     return np.array([np.interp(ts, s, p2d[:, 0]), np.interp(ts, s, p2d[:, 1])])
 
 
+def _wall_penetration(env) -> float:
+    """Deepest wall penetration, using local branch radius when the scene is a tree."""
+    tree = getattr(env, "tree", None)
+    pos = np.asarray(env.sim.body_positions())
+    if tree is not None:
+        return max(0.0, max(float(pr.r - pr.R) for pr in (tree.project(p) for p in pos)))
+    return max(0.0, float(env.sim.node_radii().max()) - float(env.R))
+
+
 def render_frame(env, size: int = 480, pad: float = 0.14) -> np.ndarray:
     """Rasterize the whole vessel + guidewire state to an HxWx3 uint8 frame."""
     tubes = _edge_tubes(env)
@@ -154,7 +163,7 @@ def render_frame(env, size: int = 480, pad: float = 0.14) -> np.ndarray:
     cv.polyline(dp[:, 0], dp[:, 1], _HALO, 4.2)
     cv.polyline(dp[:, 0], dp[:, 1], _DEVICE, 2.4)
     cv.polyline(dp[:, 0], dp[:, 1], _CORE, 0.9)
-    tip = _TIP_HIT if float(env.sim.node_radii().max()) >= float(env.R) else _TIP_SAFE
+    tip = _TIP_HIT if _wall_penetration(env) > 0.0 else _TIP_SAFE
     cv.disk(dp[-1, 0], dp[-1, 1], 5.5, tip)
     return cv.img
 
@@ -203,7 +212,8 @@ def play(scene: str = "tube", policy="forward", steps: int = 60, seed: int = 0,
     used = 0
     for used in range(1, steps + 1):
         obs, _, terminated, truncated, info = env.step(pol(obs))
-        max_pen = max(max_pen, max(0.0, float(env.sim.node_radii().max()) - float(env.R)))
+        step_pen = float(info["max_pen"]) if "max_pen" in info else _wall_penetration(env)
+        max_pen = max(max_pen, step_pen)
         frames.append(render_frame(env, size=size))
         if info.get("success"):
             success = True

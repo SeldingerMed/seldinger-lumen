@@ -4,14 +4,25 @@ title: lumen
 
 # lumen
 
-**A differentiable, GPU-parallel solver for a continuum instrument inside a
-deformable lumen.**
+**A differentiable, GPU-parallel physics simulator for AI in a deformable tube.**
 
 A guidewire in a vessel, a scope in an airway, an endoscope in a bowel — the same
 physics: a slender device threading a soft, moving tube. `lumen` solves that one
-problem and stays modality-agnostic. It is **Layer 0** of the
-[Seldinger](https://github.com/SeldingerMed) embodied-medical-AI stack, built *on*
+problem and stays modality-agnostic. It's built to be a better base for learning
+endovascular/intraluminal control than existing options like
+[CathSim](https://github.com/robotvisionlabs/cathsim) — a genuinely deformable wall
+instead of a rigid pipe, a safety-scored benchmark, and CV-ready data — and runs *on*
 the [NVIDIA Newton](https://github.com/newton-physics/newton) engine.
+
+<p align="center">
+  <img src="assets/demo/nav_bifurcation.gif" alt="Guidewire navigating a branching vessel into the target branch" width="330">
+  <img src="assets/demo/fluoro_bifurcation.gif" alt="Synthetic fluoroscopy of the same branching-vessel navigation" width="330">
+  <br>
+  <em>A guidewire navigating a branching vessel — entering the target branch at the fork
+  and reaching the target, solved on Newton. Left: <strong>schematic</strong> (wire cyan,
+  target gold). Right: synthetic <strong>fluoroscopy</strong>, what an ML model sees.
+  Rendered with <code>lumen play</code>.</em>
+</p>
 
 [View on GitHub](https://github.com/SeldingerMed/seldinger-lumen){: .btn }
 
@@ -136,4 +147,4 @@ seam (`C10` and `mu`) instead of stiffness alone.
 
 ---
 
-Apache-2.0 · clean-room · no CathSim, no patient data (enforced in CI).
+Apache-2.0 · every asset is procedurally generated, so use it freely.

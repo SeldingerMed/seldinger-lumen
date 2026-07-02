@@ -1,20 +1,22 @@
 # lumen
 
-**A differentiable, GPU-parallel solver for a continuum instrument inside a deformable lumen.**
+**A differentiable, GPU-parallel physics simulator for AI in a deformable tube.**
 
 A guidewire in a blood vessel, a scope in an airway, an endoscope in a bowel — all
 the same physics problem: *a slender device threading a soft, moving tube.* `lumen`
-solves that one problem well, and stays modality-agnostic so the same core serves
-any of them. Endovascular intervention is the lead use case, not the architecture.
+solves that one problem well and stays modality-agnostic, so the same core serves any
+of them.
 
-This is **Layer 0** of the [Seldinger](https://github.com/SeldingerMed) embodied-medical-AI
-stack — the contact-and-coupling substrate everything else builds on. It runs *on*
+It's built to be a better base for learning endovascular/intraluminal control than
+existing options like [CathSim](https://github.com/robotvisionlabs/cathsim): a
+genuinely **deformable** wall instead of a rigid pipe, a **safety-scored** benchmark,
+and **CV-ready** data — all differentiable and GPU-parallel end to end. It runs *on*
 the [NVIDIA Newton](https://github.com/newton-physics/newton) engine; it does not
 reimplement one.
 
-> **Status:** Layer 0 complete and GPU-validated — tube-intrinsic contact, HGO
-> deformable wall, anisotropic friction, torsion, a real clot + 1-D flow field, and
-> accurate-tier cross-validation. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+> **Status:** GPU-validated — tube-intrinsic contact, HGO deformable wall, anisotropic
+> friction, torsion, a real clot + 1-D flow field, and accurate-tier cross-validation.
+> See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 ## Install
 
@@ -32,6 +34,25 @@ python -m lumen.hardware     # -> {"device": "cuda"|"cpu", ...}
 
 Lumen keeps Warp/Newton backend chatter quiet by default so examples print parseable
 results. Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` when you want backend diagnostics.
+
+### GPU hardware benchmark
+
+CPU CI checks the portable regression suite. CUDA throughput claims are guarded by
+`.github/workflows/gpu-benchmark.yml`, a manual/weekly GitHub Actions workflow for a
+self-hosted Linux runner labeled `self-hosted`, `linux`, `x64`, and `cuda`. It runs:
+
+```bash
+python -m lumen.hardware
+pytest -q tests/test_newton_anatomy.py tests/test_throughput.py
+python examples/benchmark_throughput.py \
+  --device cuda --require-cuda --envs 256,1024,4096 \
+  --min-env-steps-per-s 10000 --json
+```
+
+Scheduled runs are opt-in until a CUDA runner is attached: set the repository
+variable `LUMEN_ENABLE_SCHEDULED_GPU_BENCHMARK=true`. Manual `workflow_dispatch`
+runs are always available and upload `hardware.json` plus `gpu-throughput.json` as
+artifacts.
 
 ## Quick start
 
@@ -88,7 +109,11 @@ with the gradient-free CEM (no torch) and saves an `.npz` you hand back to
 `capture_episode.py` writes one self-contained case directory per scenario plus
 `preview.png`, `preview_contact_sheet.png`, fluoro device/vessel mask contact
 sheets, and `label_overlay_contact_sheet.png`, so you can inspect observations and
-CV labels without opening NumPy sidecars. `lumen validate` checks every bundle's
+CV labels without opening NumPy sidecars.
+`lumen.data.rollout_episode(..., policy_observation="image")` lets capture/training
+policies receive rendered fluoro or luminal observations instead of the default fast
+privileged 5-D state observation; stored image-policy steps reuse that same pre-action
+frame so behavioral-cloning pairs align `step.obs` with `step.action`. `lumen validate` checks every bundle's
 asset, calibration, observations, masks, keypoints, labels, and sidecar refs before
 you train on it; add `--require-cv-labels` when a fluoro CV run must have
 device/vessel masks and tip/base keypoints on every frame. `lumen replay` prints clinical endpoint
@@ -171,6 +196,8 @@ For image-observation control rather than privileged state, run:
 python examples/train_fluoro_nav.py
 ```
 
+See [docs/EPISODE_SCHEMA.md](docs/EPISODE_SCHEMA.md) for the on-disk format.
+
 ## What's inside (`lumen.newton`)
 
 | Piece | What it does |
@@ -183,33 +210,33 @@ python examples/train_fluoro_nav.py
 | **Flow** | 1-D resistive pressure field `P(s)`/`v(s)` along the centerline (clot raises resistance, aspiration is a pressure sink), with a lumped Windkessel fallback |
 | **Cross-validation** | fast-tier kernels vs. analytic ground truth to ~1e-6; STARK / ppf-contact-solver drop-in slot |
 
+There are two solver tiers: a **fast tier** (`lumen.newton`, batched Newton VBD) built
+for RL throughput, and an **accurate tier** (`lumen.accurate`) with a self-contained
+penetration-free IPC reference and Warp-autodiff gradients for offline calibration. The
+fast tier's force→indentation response is cross-validated against the accurate tier on
+the same scene. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design invariants and
+[docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md) for the single-env vs. batched solver
+support matrix.
+
 ## Layout
 
 ```
 lumen/core/       frame · lumen_field        tube-intrinsic geometry (NumPy only)
 lumen/newton/     sim · tube_vbd · tube_barrier_kernel · hgo_wall · clot · flow · devices · crossval
-lumen/assets/     schema (the private-data seam) · procedural generator
-lumen/profiles/   endovascular | …           the repurposing surface
+lumen/assets/     schema · procedural generator
+lumen/profiles/   endovascular | …           add a modality here
 lumen/envs/       NavEnv (Gym, Newton-backed)
 lumen/hardware.py device detection (cuda/cpu)
-tools/            firewall check (no CathSim, no patient data)
 ```
 
-## License & boundaries
+## License
 
-[Apache-2.0](LICENSE), deliberately **clean-room**:
-
-- **No [CathSim](https://github.com/robotvisionlabs/cathsim)** (CC-BY-NC-SA-4.0 would
-  contaminate the license).
-- **No patient data** — every committed asset is procedurally generated.
-
-Both are enforced in CI by `tools/check_firewall.py`. Patient pipelines and
-real-data calibration live in the private Seldinger repos behind the
-`lumen.assets.schema` seam, layered *on top of* this open core.
+[Apache-2.0](LICENSE). Every asset in the repo is procedurally generated, so you can
+use, modify, and redistribute it freely.
 
 ## Contributing
 
 We welcome contributions — see [CONTRIBUTING.md](CONTRIBUTING.md). In short: sign
 your commits off (`git commit -s`, [DCO](https://developercertificate.org/)), keep
-`pytest` and the firewall green, and open a PR. New modalities are new directories
-under `lumen/profiles/` — the core never changes.
+`pytest` green, and open a PR. New modalities are new directories under
+`lumen/profiles/` — the core never changes.
