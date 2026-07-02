@@ -69,4 +69,16 @@ jobs:
         with:
           python-version: "3.12"
       - name: Validate source and generated Pages links
-        run: python tools/check_docs_site.py --repo-root . --site-dir ./_site --base-path "${{ steps.pages.outputs.base_path }}"
+        run: >-
+          python tools/check_docs_site.py
+          --repo-root .
+          --site-dir ./_site
+          --base-path "${{ steps.pages.outputs.base_path }}"
+          --require-site-path index.html
+          --require-site-path comparison.html
+          --require-site-path EPISODE_SCHEMA.html
+          --require-site-path SOLVER_SUPPORT.html
+          --require-site-path assets/logo.svg
+          --require-site-path assets/pipeline.svg
+          --require-site-path assets/demo/nav_bifurcation.gif
+          --require-site-path assets/demo/fluoro_bifurcation.gif
