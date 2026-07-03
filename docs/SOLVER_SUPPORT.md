@@ -2,7 +2,7 @@
 
 This matrix is the contract for `lumen.newton.sim.NewtonGuidewireSim`: what works in a single simulation environment, what is vectorized across `n_envs > 1`, and which combinations intentionally fail fast. It tracks the explicit `NotImplementedError` paths in `lumen/newton/sim.py` so users do not discover solver limits only at runtime.
 
-Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally blocked / follow-up filed.
+Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally blocked / follow-up filed. Follow-up links point at the implementation issues that own each remaining batched feature gap.
 
 | Solver path | Single env (`n_envs=1`) | Batched envs (`n_envs>1`) | Runtime guard | Follow-up |
 |---|---:|---:|---|---|
@@ -12,13 +12,22 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | 1-D `FlowField` coupling | ✅ | ✅ | none | — |
 | Lumped `NewtonFlow` analytic fallback | ✅ | 🚧 | `batched flow requires the 1-D FlowField` | — |
 | Finite clot deformation/damage | ✅ | ✅ with `FlowField`/device coupling | none for batched clot alone | — |
-| Coaxial guidewire + catheter assembly | ✅ | 🚧 | `coaxial assemblies are single-env` | #53 |
-| Stent-retriever capture/slip/fragmentation | ✅ | 🚧 | `batched stent-retriever retrieval is not ported` | #54 |
-| Vascular-tree contact | ✅ | 🚧 | `tree contact is single-env` | #55 |
-| Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | #55 |
-| Tree + flow/clot coupling | 🚧 | 🚧 | `tree + flow/clot is not wired` | #55 |
-| Aneurysm + flow diverter | ✅ with `FlowField` | 🚧 | `aneurysm flow diversion is single-env` | #56 |
-| Aneurysm without `FlowField` | 🚧 | 🚧 | `an aneurysm needs the 1-D FlowField` | #56 |
+| Coaxial guidewire + catheter assembly | ✅ | 🚧 | `coaxial assemblies are single-env` | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) |
+| Stent-retriever capture/slip/fragmentation | ✅ | 🚧 | `batched stent-retriever retrieval is not ported` | [#54](https://github.com/SeldingerMed/seldinger-lumen/issues/54) |
+| Vascular-tree contact | ✅ | 🚧 | `tree contact is single-env` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+| Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+| Tree + flow/clot coupling | 🚧 | 🚧 | `tree + flow/clot is not wired` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+| Aneurysm + flow diverter | ✅ with `FlowField` | 🚧 | `aneurysm flow diversion is single-env` | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) |
+| Aneurysm without `FlowField` | 🚧 | 🚧 | `an aneurysm needs the 1-D FlowField` | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) |
+
+## Follow-up implementation tracker
+
+| Gap | Implementation issue | Required closure evidence |
+|---|---|---|
+| Batched coaxial guidewire + catheter assemblies | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) | A two-env coaxial construction/step test with independent guidewire and catheter bases, plus unchanged single-env coaxial coverage. |
+| Batched stent-retriever clot retrieval | [#54](https://github.com/SeldingerMed/seldinger-lumen/issues/54) | A two-env retrieval test where capture/slip/fragmentation state diverges per env without host-state bleed-through. |
+| Batched vascular-tree contact and tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | A two-env tree contact test and either edge-aware flow/clot coverage or an updated guard/doc row for any intentionally remaining sub-gap. |
+| Batched aneurysm flow-diverter simulations | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) | A two-env aneurysm test with per-env sac state and neck-pressure reads from the matching batched `FlowField`. |
 
 ## Why the remaining gaps exist
 
