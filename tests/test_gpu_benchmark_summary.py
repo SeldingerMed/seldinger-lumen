@@ -61,11 +61,56 @@ def test_validate_and_render_summary_requires_cuda_and_threshold():
         (_hardware(), _throughput(passed=False), "passed=false"),
         (_hardware(), _throughput(peak_env_steps_per_s=9999.0), "below threshold"),
         (_hardware(), _throughput(rows=[]), "rows are empty"),
+        (_hardware(), _throughput(rows="not-a-list"), "rows must be a list"),
     ],
 )
 def test_validate_and_render_summary_fails_closed(hardware, throughput, message):
     with pytest.raises(BenchmarkSummaryError, match=message):
         validate_and_render_summary(hardware, throughput)
+
+
+@pytest.mark.parametrize(
+    ("hardware", "throughput", "message"),
+    [
+        (_hardware(cuda_devices="many"), _throughput(), "hardware cuda_devices"),
+        (_hardware(), _throughput(peak_env_steps_per_s="fast"), "peak_env_steps_per_s"),
+        (_hardware(), _throughput(target_env_steps_per_s="fast"), "target_env_steps_per_s"),
+        (_hardware(), _throughput(min_env_steps_per_s="fast"), "min_env_steps_per_s"),
+        (_hardware(), _throughput(rows=[{"n_envs": "many"}]), "row 0 n_envs"),
+        (_hardware(), _throughput(rows=[{"n_envs": 1, "env_steps_per_s": "fast"}]), "env_steps_per_s"),
+        (_hardware(), _throughput(rows=[{"n_envs": 1, "ms_per_step": "slow"}]), "ms_per_step"),
+        (_hardware(), _throughput(rows=[{"n_envs": 1, "us_per_env_step": "slow"}]), "us_per_env_step"),
+    ],
+)
+def test_validate_and_render_summary_reports_invalid_numeric_values(hardware, throughput, message):
+    with pytest.raises(BenchmarkSummaryError, match=message):
+        validate_and_render_summary(hardware, throughput)
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"envs": 256, "env_steps_per_s": 9000.0}, "| 256 | 9000 | 0.00 | 0.00 |"),
+        ({"n_envs": 0}, "n_envs=0"),
+        ({"n_envs": 256, "envs": 256}, "exactly one"),
+        ({"env_steps_per_s": 9000.0}, "exactly one"),
+        ("not-a-row", "row 0 must be an object"),
+    ],
+)
+def test_validate_and_render_summary_validates_throughput_rows(row, message):
+    throughput = _throughput(rows=[row])
+
+    if isinstance(row, dict) and set(row) == {"envs", "env_steps_per_s"}:
+        assert message in validate_and_render_summary(_hardware(), throughput)
+    else:
+        with pytest.raises(BenchmarkSummaryError, match=message):
+            validate_and_render_summary(_hardware(), throughput)
+
+
+def test_validate_and_render_summary_uses_placeholder_for_missing_optional_hardware():
+    summary = validate_and_render_summary(_hardware(warp=None), _throughput())
+
+    assert "Warp: `N/A`" in summary
 
 
 def test_main_writes_markdown_summary(tmp_path: Path):

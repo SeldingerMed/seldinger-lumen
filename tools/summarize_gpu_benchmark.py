@@ -35,19 +35,63 @@ def _load_json(path: Path) -> dict[str, Any]:
     return data
 
 
+def _display_value(value: Any) -> Any:
+    return "N/A" if value is None else value
+
+
+def _as_int(value: Any, field: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise BenchmarkSummaryError(f"invalid {field} value: {value!r}") from exc
+
+
+def _as_float(value: Any, field: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise BenchmarkSummaryError(f"invalid {field} value: {value!r}") from exc
+
+
+def _row_env_count(row: dict[str, Any], index: int) -> int:
+    has_n_envs = "n_envs" in row
+    has_envs = "envs" in row
+    if has_n_envs == has_envs:
+        raise BenchmarkSummaryError(
+            f"throughput row {index} must contain exactly one of 'n_envs' or 'envs'"
+        )
+    field = "n_envs" if has_n_envs else "envs"
+    n_envs = _as_int(row[field], f"throughput row {index} {field}")
+    if n_envs <= 0:
+        raise BenchmarkSummaryError(f"throughput row {index} {field}={n_envs}, expected positive")
+    return n_envs
+
+
 def validate_and_render_summary(hardware: dict[str, Any], throughput: dict[str, Any]) -> str:
     """Validate artifact consistency and return a Markdown benchmark summary."""
 
     errors: list[str] = []
     hardware_device = hardware.get("device")
     throughput_device = throughput.get("device")
-    cuda_devices = int(hardware.get("cuda_devices") or 0)
-    peak = float(throughput.get("peak_env_steps_per_s") or 0.0)
-    target = float(throughput.get("target_env_steps_per_s") or 0.0)
+    cuda_devices = _as_int(hardware.get("cuda_devices") or 0, "hardware cuda_devices")
+    peak = _as_float(
+        throughput.get("peak_env_steps_per_s") or 0.0,
+        "throughput peak_env_steps_per_s",
+    )
+    target = _as_float(
+        throughput.get("target_env_steps_per_s") or 0.0,
+        "throughput target_env_steps_per_s",
+    )
     threshold = throughput.get("min_env_steps_per_s")
-    threshold_float = float(threshold) if threshold is not None else None
+    threshold_float = (
+        _as_float(threshold, "throughput min_env_steps_per_s")
+        if threshold is not None
+        else None
+    )
     passed = bool(throughput.get("passed"))
     rows = throughput.get("rows") or []
+    if not isinstance(rows, list):
+        errors.append(f"throughput rows must be a list, got {type(rows).__name__}")
 
     if hardware_device != "cuda":
         errors.append(f"hardware device is {hardware_device!r}, expected 'cuda'")
@@ -71,8 +115,8 @@ def validate_and_render_summary(hardware: dict[str, Any], throughput: dict[str, 
         "## Lumen CUDA hardware benchmark",
         "",
         f"- Device: `{throughput_device}` ({cuda_devices} CUDA device(s) visible)",
-        f"- Warp: `{hardware.get('warp')}`",
-        f"- Newton available: `{hardware.get('newton_available')}`",
+        f"- Warp: `{_display_value(hardware.get('warp'))}`",
+        f"- Newton available: `{_display_value(hardware.get('newton_available'))}`",
         f"- Peak throughput: `{peak:.0f}` env-steps/s",
         f"- Target throughput: `{target:.0f}` env-steps/s",
     ]
@@ -83,13 +127,26 @@ def validate_and_render_summary(hardware: dict[str, Any], throughput: dict[str, 
         "| envs | env-steps/s | ms/step | us/env-step |",
         "| ---: | ----------: | ------: | ----------: |",
     ])
-    for row in rows:
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise BenchmarkSummaryError(
+                f"throughput row {index} must be an object, got {type(row).__name__}"
+            )
         lines.append(
             "| {n_envs} | {env_steps_per_s:.0f} | {ms_per_step:.2f} | {us_per_env_step:.2f} |".format(
-                n_envs=int(row.get("n_envs") or row.get("envs") or 0),
-                env_steps_per_s=float(row.get("env_steps_per_s") or 0.0),
-                ms_per_step=float(row.get("ms_per_step") or 0.0),
-                us_per_env_step=float(row.get("us_per_env_step") or 0.0),
+                n_envs=_row_env_count(row, index),
+                env_steps_per_s=_as_float(
+                    row.get("env_steps_per_s") or 0.0,
+                    f"throughput row {index} env_steps_per_s",
+                ),
+                ms_per_step=_as_float(
+                    row.get("ms_per_step") or 0.0,
+                    f"throughput row {index} ms_per_step",
+                ),
+                us_per_env_step=_as_float(
+                    row.get("us_per_env_step") or 0.0,
+                    f"throughput row {index} us_per_env_step",
+                ),
             )
         )
     lines.append("")
