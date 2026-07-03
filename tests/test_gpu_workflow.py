@@ -17,7 +17,16 @@ def test_gpu_benchmark_workflow_targets_cuda_runner_and_commands():
     assert "--device cuda" in text
     assert "--require-cuda" in text
     assert "--min-env-steps-per-s" in text
+    assert "python tools/summarize_gpu_benchmark.py" in text
+    assert "gpu-benchmark-summary.md" in text
+    assert "GITHUB_STEP_SUMMARY" in text
+    assert "if: success()" in text
     assert "actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb3cf108" in text
+
+    upload_section = text.split("- name: Upload GPU benchmark artifacts", maxsplit=1)[1]
+    assert "hardware.json" in upload_section
+    assert "gpu-throughput.json" in upload_section
+    assert "gpu-benchmark-summary.md" not in upload_section
 
 
 def test_gpu_benchmark_workflow_schedule_is_opt_in_until_runner_exists():
