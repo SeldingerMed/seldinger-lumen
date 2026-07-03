@@ -53,6 +53,12 @@ def _as_float(value: Any, field: str) -> float:
         raise BenchmarkSummaryError(f"invalid {field} value: {value!r}") from exc
 
 
+def _as_bool(value: Any, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise BenchmarkSummaryError(f"{field} must be a boolean, got {type(value).__name__}")
+    return value
+
+
 def _row_env_count(row: dict[str, Any], index: int) -> int:
     has_n_envs = "n_envs" in row
     has_envs = "envs" in row
@@ -88,8 +94,11 @@ def validate_and_render_summary(hardware: dict[str, Any], throughput: dict[str, 
         if threshold is not None
         else None
     )
-    passed = bool(throughput.get("passed"))
-    rows = throughput.get("rows") or []
+    passed = _as_bool(throughput.get("passed"), "throughput passed")
+    newton_available = _as_bool(hardware.get("newton_available"), "hardware newton_available")
+    rows = throughput.get("rows", [])
+    if rows is None:
+        rows = []
     if not isinstance(rows, list):
         errors.append(f"throughput rows must be a list, got {type(rows).__name__}")
 
@@ -99,7 +108,7 @@ def validate_and_render_summary(hardware: dict[str, Any], throughput: dict[str, 
         errors.append(f"throughput device is {throughput_device!r}, expected 'cuda'")
     if cuda_devices < 1:
         errors.append(f"cuda_devices={cuda_devices}, expected at least 1")
-    if not hardware.get("newton_available"):
+    if not newton_available:
         errors.append("Newton is not available in hardware report")
     if not passed:
         errors.append("throughput benchmark reported passed=false")
@@ -116,7 +125,7 @@ def validate_and_render_summary(hardware: dict[str, Any], throughput: dict[str, 
         "",
         f"- Device: `{throughput_device}` ({cuda_devices} CUDA device(s) visible)",
         f"- Warp: `{_display_value(hardware.get('warp'))}`",
-        f"- Newton available: `{_display_value(hardware.get('newton_available'))}`",
+        f"- Newton available: `{newton_available}`",
         f"- Peak throughput: `{peak:.0f}` env-steps/s",
         f"- Target throughput: `{target:.0f}` env-steps/s",
     ]
@@ -163,7 +172,10 @@ def main(argv: list[str] | None = None) -> int:
     hardware = _load_json(args.hardware)
     throughput = _load_json(args.throughput)
     summary = validate_and_render_summary(hardware, throughput)
-    args.out.write_text(summary)
+    try:
+        args.out.write_text(summary)
+    except OSError as exc:
+        raise BenchmarkSummaryError(f"failed to write summary: {exc}") from exc
     print(summary)
     return 0
 

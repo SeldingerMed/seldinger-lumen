@@ -51,9 +51,9 @@ python examples/benchmark_throughput.py \
 
 Scheduled runs are opt-in until a CUDA runner is attached: set the repository
 variable `LUMEN_ENABLE_SCHEDULED_GPU_BENCHMARK=true`. Manual `workflow_dispatch`
-runs are always available and upload `hardware.json`, `gpu-throughput.json`, and a
-validated Markdown `gpu-benchmark-summary.md` as artifacts; the summary is also
-published to the GitHub Actions job summary so GPU-claim regressions are auditable.
+runs are always available and upload `hardware.json` plus `gpu-throughput.json`
+as artifacts; a validated Markdown summary is published to the GitHub Actions job
+summary so GPU-claim regressions are auditable.
 
 ## Quick start
 

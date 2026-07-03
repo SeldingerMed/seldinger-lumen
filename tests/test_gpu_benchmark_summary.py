@@ -61,6 +61,7 @@ def test_validate_and_render_summary_requires_cuda_and_threshold():
         (_hardware(), _throughput(passed=False), "passed=false"),
         (_hardware(), _throughput(peak_env_steps_per_s=9999.0), "below threshold"),
         (_hardware(), _throughput(rows=[]), "rows are empty"),
+        (_hardware(), _throughput(rows=None), "rows are empty"),
         (_hardware(), _throughput(rows="not-a-list"), "rows must be a list"),
     ],
 )
@@ -88,23 +89,42 @@ def test_validate_and_render_summary_reports_invalid_numeric_values(hardware, th
 
 
 @pytest.mark.parametrize(
+    ("hardware", "throughput", "message"),
+    [
+        (_hardware(newton_available="false"), _throughput(), "newton_available must be a boolean"),
+        (_hardware(newton_available=None), _throughput(), "newton_available must be a boolean"),
+        (_hardware(), _throughput(passed="false"), "passed must be a boolean"),
+        (_hardware(), _throughput(passed=None), "passed must be a boolean"),
+    ],
+)
+def test_validate_and_render_summary_reports_invalid_boolean_values(hardware, throughput, message):
+    with pytest.raises(BenchmarkSummaryError, match=message):
+        validate_and_render_summary(hardware, throughput)
+
+
+def test_validate_and_render_summary_accepts_legacy_envs_key():
+    summary = validate_and_render_summary(
+        _hardware(),
+        _throughput(rows=[{"envs": 256, "env_steps_per_s": 9000.0}]),
+    )
+
+    assert "| 256 | 9000 | 0.00 | 0.00 |" in summary
+
+
+@pytest.mark.parametrize(
     ("row", "message"),
     [
-        ({"envs": 256, "env_steps_per_s": 9000.0}, "| 256 | 9000 | 0.00 | 0.00 |"),
         ({"n_envs": 0}, "n_envs=0"),
         ({"n_envs": 256, "envs": 256}, "exactly one"),
         ({"env_steps_per_s": 9000.0}, "exactly one"),
         ("not-a-row", "row 0 must be an object"),
     ],
 )
-def test_validate_and_render_summary_validates_throughput_rows(row, message):
+def test_validate_and_render_summary_rejects_invalid_throughput_rows(row, message):
     throughput = _throughput(rows=[row])
 
-    if isinstance(row, dict) and set(row) == {"envs", "env_steps_per_s"}:
-        assert message in validate_and_render_summary(_hardware(), throughput)
-    else:
-        with pytest.raises(BenchmarkSummaryError, match=message):
-            validate_and_render_summary(_hardware(), throughput)
+    with pytest.raises(BenchmarkSummaryError, match=message):
+        validate_and_render_summary(_hardware(), throughput)
 
 
 def test_validate_and_render_summary_uses_placeholder_for_missing_optional_hardware():
@@ -123,3 +143,13 @@ def test_main_writes_markdown_summary(tmp_path: Path):
     assert main(["--hardware", str(hardware), "--throughput", str(throughput), "--out", str(out)]) == 0
     assert out.exists()
     assert "Required minimum: `10000` env-steps/s" in out.read_text()
+
+
+def test_main_reports_summary_write_errors(tmp_path: Path):
+    hardware = tmp_path / "hardware.json"
+    throughput = tmp_path / "gpu-throughput.json"
+    hardware.write_text(json.dumps(_hardware()))
+    throughput.write_text(json.dumps(_throughput()))
+
+    with pytest.raises(BenchmarkSummaryError, match="failed to write summary"):
+        main(["--hardware", str(hardware), "--throughput", str(throughput), "--out", str(tmp_path)])
