@@ -71,10 +71,6 @@ class NewtonGuidewireSim:
             raise NotImplementedError(
                 "batched flow requires the 1-D FlowField; the lumped NewtonFlow is "
                 "single-env (analytic fallback)")
-        if self.n_envs > 1 and stentriever is not None:
-            raise NotImplementedError(
-                "batched stent-retriever retrieval is not ported (per-env host force "
-                "balance); run retrieval single-env")
 
         builder = newton.ModelBuilder(gravity=0.0)
         builder.default_shape_cfg.density = density
@@ -178,6 +174,9 @@ class NewtonGuidewireSim:
                                  dtype=wp.int32, device=self.device)
         self._guidewire_body_ids = wp.array(np.array(self.bodies, dtype=np.int32),
                                             dtype=wp.int32, device=self.device)
+        # cache wall s-grid for aneurysm interp (fixed per sim; avoids recompute in hot path)
+        w = getattr(self.solver, "_wall", None)
+        self._s_grid = np.linspace(0.0, w.s_max, w.n_s) if w is not None else None
         # on-device base actuation (no per-substep body_q host round-trip), one per env
         self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
                                   device=self.device)
@@ -222,8 +221,18 @@ class NewtonGuidewireSim:
                                   height=clot_height, params=clot_params,
                                   n_envs=self.n_envs, device=self.device)
         self.stentriever = stentriever   # optional device for clot retrieval
-        # optional saccular aneurysm + flow diverter (single-env; needs the 1-D
-        # FlowField, which supplies the pressure P(s_neck) that drives the sac).
+        if self.n_envs > 1 and self.stentriever is not None:
+            if self.clot is None:
+                raise ValueError("stentriever requires clot_segment so it has a clot to retrieve")
+            if not self._flow_is_field:
+                raise NotImplementedError(
+                    "batched stent-retriever retrieval requires the 1-D FlowField coupling path")
+            if isinstance(self.stentriever, (list, tuple)) and len(self.stentriever) != self.n_envs:
+                raise ValueError("batched stentriever list length must match n_envs")
+        # optional saccular aneurysm + flow diverter. Needs the 1-D FlowField, which
+        # supplies the pressure P(s_neck) that drives each sac. Batched sims keep one
+        # AneurysmSac per env and read the matching env's pressure block from the
+        # batched FlowField snapshot after every device-side flow solve.
         self.aneurysm = aneurysm
         self.flow_diverter = flow_diverter
         self.aneurysm_sac = None
@@ -231,17 +240,25 @@ class NewtonGuidewireSim:
             if not self._flow_is_field:
                 raise NotImplementedError("an aneurysm needs the 1-D FlowField (it reads "
                                           "the neck pressure P(s)); pass flow=FlowField(...)")
-            if self.n_envs != 1:
-                raise NotImplementedError("aneurysm flow diversion is single-env (the sac "
-                                          "reads the host pressure field)")
             s_max = self.solver._wall.s_max
-            if not (0.0 <= aneurysm.s_neck <= s_max):    # else np.interp silently clamps
-                raise ValueError(f"aneurysm s_neck ({aneurysm.s_neck}) is outside the "
-                                 f"vessel arc-length [0, {s_max:.1f}]")
             from lumen.newton.aneurysm import AneurysmSac
-            self.aneurysm_sac = AneurysmSac(aneurysm, visc=flow.p.visc)
+            self.aneurysms = self._per_env_objects(aneurysm, "aneurysm")
+            self.flow_diverters = self._per_env_objects(flow_diverter, "flow_diverter",
+                                                        allow_none=True)
+            for an in self.aneurysms:
+                if not (0.0 <= an.s_neck <= s_max):    # else np.interp silently clamps
+                    raise ValueError(f"aneurysm s_neck ({an.s_neck}) is outside the "
+                                     f"vessel arc-length [0, {s_max:.1f}]")
+            if flow is None:
+                raise ValueError("flow is required for aneurysm flow diversion")
+            self.aneurysm_sacs = [AneurysmSac(an, visc=flow.p.visc) for an in self.aneurysms]
+            self.aneurysm_sac = self.aneurysm_sacs[0]  # backward-compatible single-env handle
         elif flow_diverter is not None:
             raise ValueError("flow_diverter set without an aneurysm to divert from")
+        else:
+            self.aneurysms = []
+            self.flow_diverters = []
+            self.aneurysm_sacs = []
         # batched on-device coupling scratch (n_envs>1): node drag arrays + zero occ
         self._use_device_coupling = self.n_envs > 1 and (self.clot is not None
                                                          or self._flow_is_field)
@@ -254,6 +271,24 @@ class NewtonGuidewireSim:
                                         device=self.device)
         # snapshot for fast reset (avoid rebuilding the model/solver each episode)
         self._init_body_q = self.state_0.body_q.numpy().copy()
+
+    def _per_env_objects(self, value, name: str, allow_none: bool = False):
+        """Return one object per env; scalars broadcast, explicit sequences must match.
+
+        The objects are config/state holders, not numeric arrays. Strings are treated as
+        scalars for the generic helper even though current callers pass dataclasses.
+        """
+        if value is None:
+            if allow_none:
+                return [None] * self.n_envs
+            raise ValueError(f"{name} is required")
+        if isinstance(value, (list, tuple, np.ndarray)):
+            if len(value) != self.n_envs:
+                raise ValueError(f"{name} length ({len(value)}) must match n_envs ({self.n_envs})")
+            if not allow_none and any(v is None for v in value):
+                raise ValueError(f"{name} entries cannot be None")
+            return list(value)
+        return [value for _ in range(self.n_envs)]
 
     def reset(self):
         """Restore the initial state cheaply (no model/solver rebuild) — for RL."""
@@ -274,10 +309,17 @@ class NewtonGuidewireSim:
             tw.w_field.zero_()
             tw.wall_load.zero_()
         if self.clot is not None:
-            self.clot.o = self.clot.o0.copy()
-            self.clot.D[:] = 0.0
+            self.clot.o0_env[:] = self.clot._initial_o0_env
+            self.clot.o_env[:] = self.clot.o0_env
+            self.clot.D_env[:] = 0.0
+            self.clot.mask_env[:] = self.clot.o0_env > 1e-6
+            self.clot.retrieved_env[:] = 0.0
+            self.clot._sync_public_from_env(0)
+            self.clot.sync_to_device()
         if self.aneurysm_sac is not None:
             self.aneurysm_sac.reset()
+        for sac in self.aneurysm_sacs:
+            sac.reset()
 
     def _actuate(self, base_ids, ins_arr, tw_arr, insertion, twist, n):
         """Centerline-following insertion/twist of `n` kinematic bases (one per env, or
@@ -355,6 +397,19 @@ class NewtonGuidewireSim:
             if field_flow:
                 self.flow.advance(sub_dt)
                 self.flow.solve_device(wall.r0_field, n_s, n_th, s_max)
+                if self.aneurysm_sacs:
+                    # Synchronize the just-solved batched pressure field to host and
+                    # update each env's independent 0-D sac from its own P(s_neck) and
+                    # flow-diverter coverage. This preserves the device-side FlowField
+                    # solve while avoiding cross-env host state bleed-through.
+                    P_env = self.flow._P_d.numpy().reshape(self.n_envs, n_s)
+                    s_grid = self._s_grid if self._s_grid is not None else np.linspace(0.0, s_max, n_s)
+                    for env, (an, sac, fd) in enumerate(zip(self.aneurysms,
+                                                           self.aneurysm_sacs,
+                                                           self.flow_diverters)):
+                        P_neck = float(np.interp(an.s_neck, s_grid, P_env[env]))
+                        div = fd.diversion(an) if fd is not None else 0.0
+                        sac.update(P_neck, sub_dt, diversion=div)
                 wp.launch(flow_drag_k, dim=self.n_envs * self.n_per_env,
                           inputs=[self._snodes_d, self._tang_d, self.body_ids,
                                   self.flow._v_d, self.n_per_env, n_s, float(s_max),
@@ -364,6 +419,39 @@ class NewtonGuidewireSim:
             if self.clot is not None:
                 self.clot.update_device(wall.wall_load, sub_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
+        self._retrieve_batched_if_needed(insertion, dt=sub_dt * substeps)
+
+    def _retrieve_batched_if_needed(self, insertion, dt: float) -> None:
+        if self.stentriever is None or self.clot is None:
+            return
+        ins = np.broadcast_to(np.asarray(insertion, dtype=float), (self.n_envs,))
+        if not np.any(ins < 0.0):
+            return
+        self.clot.sync_from_device()
+        stents = (self.stentriever if isinstance(self.stentriever, (list, tuple))
+                  else [self.stentriever] * self.n_envs)
+        engagement = np.array([
+            st.engagement_strength_for_mask(self.clot.s_grid, self.clot.mask_env[e])
+            for e, st in enumerate(stents)
+        ], dtype=float)
+        aspiration = np.full(self.n_envs,
+                             self.flow.aspiration if self.flow is not None else 0.0,
+                             dtype=float)
+        wall = self.solver._wall
+        if self._flow_is_field and self.flow is not None and getattr(self.flow, "_P_d", None) is not None:
+            P = self.flow._P_d.numpy().reshape(self.n_envs, wall.n_s)
+            s_flow = np.linspace(0.0, wall.s_max, wall.n_s)
+            for e in range(self.n_envs):
+                mask = self.clot.mask_env[e]
+                if not mask.any():
+                    continue
+                clot_s = self.clot.s_grid[mask]
+                P_prox = float(np.interp(clot_s[0], s_flow, P[e]))
+                P_dist = float(np.interp(clot_s[-1], s_flow, P[e]))
+                r_open = np.maximum(self.R - self.clot.o_env[e, mask], self.flow.p.R_floor)
+                A_clot = np.pi * float(np.mean(r_open)) ** 2
+                aspiration[e] += (P_dist - P_prox) * A_clot
+        self.last_retrieval = self.clot.retrieve_batched(-ins, engagement, aspiration, dt)
 
     def _step_host(self, sub_dt, substeps, insertion, twist, preload, aspiration, dt,
                    insertion_cath=0.0, twist_cath=0.0):
@@ -419,10 +507,14 @@ class NewtonGuidewireSim:
                     self.flow.set_lumen(r_open_s, wall.s_max)
                     self.flow.solve()
                     if self.aneurysm_sac is not None:    # drive the sac from P(s_neck)
-                        P_neck = float(np.interp(self.aneurysm.s_neck, self.flow.s_grid,
+                        # Host path is only for n_envs==1 (see _use_device_coupling which requires n>1
+                        # for field flow); n>1 aneurysms go through the batched _step_device path.
+                        # The [0] indexing and singular handle are for single-env + backward compat.
+                        an = self.aneurysms[0]
+                        fd = self.flow_diverters[0]
+                        P_neck = float(np.interp(an.s_neck, self.flow.s_grid,
                                                  self.flow.pressure_field()))
-                        div = (self.flow_diverter.diversion(self.aneurysm)
-                               if self.flow_diverter is not None else 0.0)
+                        div = fd.diversion(an) if fd is not None else 0.0
                         self.aneurysm_sac.update(P_neck, sub_dt, diversion=div)
                     drag = self.flow.drag_at(s_nodes)[:, None]
                 else:
@@ -478,20 +570,29 @@ class NewtonGuidewireSim:
     # inflow/turnover are CUMULATIVE over the current window (since reset/sac_mark);
     # diversion is the CURRENT (static) neck coverage. Call sac_mark() at deployment
     # to isolate the post-deployment inflow/turnover from the pre-deployment phase.
-    def sac_inflow_peak(self) -> float:
+    def sac_inflow_peak(self):
         """Peak neck inflow jet over the current window (a flow diverter lowers it)."""
-        return self.aneurysm_sac.inflow_peak() if self.aneurysm_sac is not None else 0.0
+        if not self.aneurysm_sacs:
+            return 0.0
+        vals = np.array([sac.inflow_peak() for sac in self.aneurysm_sacs], dtype=float)
+        return float(vals[0]) if self.n_envs == 1 else vals
 
-    def sac_turnover_time(self) -> float:
+    def sac_turnover_time(self):
         """Sac washout time over the current window (a diverter lengthens it -> stasis)."""
-        return self.aneurysm_sac.turnover_time() if self.aneurysm_sac is not None else float("inf")
+        if not self.aneurysm_sacs:
+            return float("inf")
+        vals = np.array([sac.turnover_time() for sac in self.aneurysm_sacs], dtype=float)
+        return float(vals[0]) if self.n_envs == 1 else vals
 
-    def sac_diversion(self) -> float:
+    def sac_diversion(self):
         """Current effective neck coverage of the deployed flow diverter (0 if none/missed)."""
-        return self.aneurysm_sac.last_diversion if self.aneurysm_sac is not None else 0.0
+        if not self.aneurysm_sacs:
+            return 0.0
+        vals = np.array([sac.last_diversion for sac in self.aneurysm_sacs], dtype=float)
+        return float(vals[0]) if self.n_envs == 1 else vals
 
     def sac_mark(self) -> None:
         """Open a fresh aneurysm measurement window (call at flow-diverter deployment),
         keeping the sac-pressure equilibrium — so post-deployment stasis is isolated."""
-        if self.aneurysm_sac is not None:
-            self.aneurysm_sac.mark_window()
+        for sac in self.aneurysm_sacs:
+            sac.mark_window()

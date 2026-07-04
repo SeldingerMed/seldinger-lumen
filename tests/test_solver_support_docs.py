@@ -46,10 +46,6 @@ def test_solver_support_matrix_tracks_batched_guardrails():
             "an aneurysm needs the 1-D FlowField (it reads the neck pressure P(s)); pass flow=FlowField(...)",
             "an aneurysm needs the 1-D FlowField",
         ),
-        (
-            "aneurysm flow diversion is single-env (the sac reads the host pressure field)",
-            "aneurysm flow diversion is single-env",
-        ),
     ]
     for source_guard, doc_guard in required_guards:
         assert source_guard in not_implemented_messages
@@ -57,16 +53,15 @@ def test_solver_support_matrix_tracks_batched_guardrails():
 
     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
     assert "| Vascular-tree contact | ✅ | ✅ | none | — |" in support
-    for issue_ref in ("53", "54", "55", "56"):
+    assert "| Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling |" in support
+    for issue_ref in ("53", "55", "56"):
         assert f"| #{issue_ref} |" not in support
         assert f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})" in support
 
     assert "## Follow-up implementation tracker" in support
     for closure_evidence in (
         "two-env coaxial construction/step test",
-        "two-env retrieval test",
         "two-env tree contact test",
-        "two-env aneurysm test",
     ):
         assert closure_evidence in support
 
