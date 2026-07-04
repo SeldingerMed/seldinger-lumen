@@ -136,10 +136,31 @@ def test_flowfield_not_shared_across_sims():
 def test_batched_rejects_lumped_flow_and_stentriever():
     vessel, dev = _vessel_and_device()
     from lumen.newton.flow import NewtonFlow
-    from lumen.newton.devices import Stentriever
     with pytest.raises(NotImplementedError):            # lumped flow is single-env only
         NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2, flow=NewtonFlow(), device="cpu")
-    with pytest.raises(NotImplementedError):            # batched retrieval not ported
-        NewtonGuidewireSim(vessel, 2.0, dev, n_envs=2,
-                           stentriever=Stentriever(deployed_center=40.0, span=10.0),
-                           device="cpu")
+
+
+def test_batched_stentriever_retrieval_diverges_per_env():
+    # A two-env clot + FlowField + stent-retriever rollout must keep retrieval
+    # state per env: env 0 captures/translates while env 1 slips and remains in
+    # place. This regresses the old constructor guard from #54.
+    from lumen.newton.devices import Stentriever
+    from lumen.newton.flow import FlowField, FlowFieldParams
+    vessel, dev = _vessel_and_device(M=60, L=120.0, n=11)
+    strong = Stentriever(deployed_center=62, radial_force=0.2, n_struts=6)
+    weak = Stentriever(deployed_center=62, radial_force=0.003, n_struts=2)
+    sim = NewtonGuidewireSim(
+        vessel, 2.0, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+        flow=FlowField(FlowFieldParams(P_mean=0.0, P_pulse=0.0)),
+        clot_segment=(55, 70), clot_height=1.6,
+        stentriever=[strong, weak], n_envs=2, device="cpu",
+    )
+    sim.step(dt=2.5e-2, substeps=2)
+    centre0 = sim.clot.clot_centers().copy()
+    sim.step(dt=2.5e-2, substeps=2, insertion=np.array([-2.0, -2.0]), aspiration=0.0)
+    statuses = [r["status"] for r in sim.last_retrieval]
+    assert statuses == ["retrieve", "slip"]
+    centres = sim.clot.clot_centers()
+    assert centres[0] < centre0[0] - 0.5
+    assert abs(centres[1] - centre0[1]) < 1e-6
+    assert sim.clot.retrieved_env.tolist() == [2.0, 0.0]

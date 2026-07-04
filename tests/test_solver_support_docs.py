@@ -30,10 +30,6 @@ def test_solver_support_matrix_tracks_batched_guardrails():
             "batched flow requires the 1-D FlowField; the lumped NewtonFlow is single-env (analytic fallback)",
             "batched flow requires the 1-D FlowField",
         ),
-        (
-            "batched stent-retriever retrieval is not ported (per-env host force balance); run retrieval single-env",
-            "batched stent-retriever retrieval is not ported",
-        ),
         ("tree contact is single-env (batched trees are future)", "tree contact is single-env"),
         (
             "tree contact takes R0 from each edge's lumen field; a sim-level lumen_field doesn't apply",
@@ -57,14 +53,14 @@ def test_solver_support_matrix_tracks_batched_guardrails():
         assert doc_guard in support
 
     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
-    for issue_ref in ("53", "54", "55", "56"):
+    assert "| Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling |" in support
+    for issue_ref in ("53", "55", "56"):
         assert f"| #{issue_ref} |" not in support
         assert f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})" in support
 
     assert "## Follow-up implementation tracker" in support
     for closure_evidence in (
         "two-env coaxial construction/step test",
-        "two-env retrieval test",
         "two-env tree contact test",
         "two-env aneurysm test",
     ):
