@@ -34,14 +34,13 @@ def test_solver_support_matrix_tracks_batched_guardrails():
             "batched stent-retriever retrieval is not ported (per-env host force balance); run retrieval single-env",
             "batched stent-retriever retrieval is not ported",
         ),
-        ("tree contact is single-env (batched trees are future)", "tree contact is single-env"),
         (
             "tree contact takes R0 from each edge's lumen field; a sim-level lumen_field doesn't apply",
             "tree contact takes R0 from each edge's lumen field",
         ),
         (
-            "tree + flow/clot is not wired (flow drag / clot grids use a single centerline, not the edge graph)",
-            "tree + flow/clot is not wired",
+            "edge-aware tree flow/clot coupling is not wired yet: flow drag and clot grids need per-edge graph fields, not a single route centerline",
+            "edge-aware tree flow/clot coupling is not wired yet",
         ),
         (
             "an aneurysm needs the 1-D FlowField (it reads the neck pressure P(s)); pass flow=FlowField(...)",
@@ -57,6 +56,7 @@ def test_solver_support_matrix_tracks_batched_guardrails():
         assert doc_guard in support
 
     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
+    assert "| Vascular-tree contact | ✅ | ✅ | none | — |" in support
     for issue_ref in ("53", "54", "55", "56"):
         assert f"| #{issue_ref} |" not in support
         assert f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})" in support

@@ -14,9 +14,9 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | Finite clot deformation/damage | ✅ | ✅ with `FlowField`/device coupling | none for batched clot alone | — |
 | Coaxial guidewire + catheter assembly | ✅ | 🚧 | `coaxial assemblies are single-env` | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) |
 | Stent-retriever capture/slip/fragmentation | ✅ | 🚧 | `batched stent-retriever retrieval is not ported` | [#54](https://github.com/SeldingerMed/seldinger-lumen/issues/54) |
-| Vascular-tree contact | ✅ | 🚧 | `tree contact is single-env` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+| Vascular-tree contact | ✅ | ✅ | none | — |
 | Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
-| Tree + flow/clot coupling | 🚧 | 🚧 | `tree + flow/clot is not wired` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+| Tree + flow/clot coupling | 🚧 | 🚧 | `edge-aware tree flow/clot coupling is not wired yet` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
 | Aneurysm + flow diverter | ✅ with `FlowField` | 🚧 | `aneurysm flow diversion is single-env` | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) |
 | Aneurysm without `FlowField` | 🚧 | 🚧 | `an aneurysm needs the 1-D FlowField` | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) |
 
@@ -26,7 +26,7 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 |---|---|---|
 | Batched coaxial guidewire + catheter assemblies | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) | A two-env coaxial construction/step test with independent guidewire and catheter bases, plus unchanged single-env coaxial coverage. |
 | Batched stent-retriever clot retrieval | [#54](https://github.com/SeldingerMed/seldinger-lumen/issues/54) | A two-env retrieval test where capture/slip/fragmentation state diverges per env without host-state bleed-through. |
-| Batched vascular-tree contact and tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | A two-env tree contact test and either edge-aware flow/clot coverage or an updated guard/doc row for any intentionally remaining sub-gap. |
+| Tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | Edge-aware flow/clot coverage on graph edges. Batched tree contact is covered by a two-env tree contact test on a procedural tree; flow/clot stays guarded until it has graph fields instead of a single route centerline. |
 | Batched aneurysm flow-diverter simulations | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) | A two-env aneurysm test with per-env sac state and neck-pressure reads from the matching batched `FlowField`. |
 
 ## Why the remaining gaps exist
@@ -39,9 +39,9 @@ The single-env coaxial path adds one catheter rod, one catheter base, and one se
 
 Retrieval currently performs capture, slip, fragmentation, and force-balance updates as per-env host logic. Batched retrieval needs independent device or batched host state for each clot/retriever pair so one env's capture event cannot affect another env.
 
-### Tree batching and tree flow/clot (#55)
+### Tree flow/clot (#55)
 
-Tree contact uses per-edge lumen fields and route-centered actuation. Batched support needs a safe env dimension over that edge graph. Flow drag and clot grids are also currently parameterized by one linear centerline, so tree + flow/clot must first become edge-aware rather than reusing the straight/route centerline arrays.
+Tree contact uses per-edge lumen fields and route-centered actuation, and is now safe in batched simulations by allocating independent env×edge wall deformation/load blocks over the shared procedural tree graph. Flow drag and clot grids remain intentionally blocked because they are still parameterized by one linear centerline; tree + flow/clot must first become edge-aware rather than reusing the straight/route centerline arrays.
 
 ### Aneurysm batching (#56)
 

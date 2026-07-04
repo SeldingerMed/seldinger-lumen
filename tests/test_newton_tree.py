@@ -106,12 +106,36 @@ def test_coaxial_tree_contact_builds_and_steps():
     assert sim.catheter_node_radii().max() <= 2.0 + 0.3 + 0.2
 
 
-def test_batched_tree_rejected():
+def test_batched_tree_contact_steps_independently_on_one_procedural_tree():
     asset = procedural.bifurcation()
     tree = VascularTree(asset)
     trunk_pts = np.asarray(asset.edges[0].centerline_mm)
-    with pytest.raises(NotImplementedError, match="single-env"):
-        NewtonGuidewireSim(trunk_pts, 2.0, _device(), n_envs=2, device="cpu", tree=tree)
+    sim = NewtonGuidewireSim(trunk_pts, 2.0, _device(), n_envs=2, device="cpu", tree=tree,
+                             vbd_iterations=8)
+
+    sim.step(dt=2.5e-2, substeps=5, insertion=[0.0, 1.0],
+             preload=([20.0, 0.0, 0.0]))
+    pos = sim.env_positions()
+
+    assert pos.shape == (2, sim.n_per_env, 3)
+    assert np.isfinite(pos).all()
+    assert sim.node_radii().reshape(2, sim.n_per_env).max(axis=1).max() <= 2.0 + 0.3 + 0.2
+    assert not np.allclose(pos[0], pos[1])       # per-env actuation/contact state is independent
+
+
+def test_tree_flow_clot_remains_guarded_with_edge_graph_message():
+    # #55 documents the remaining sub-gap explicitly: tree contact is now batched, but
+    # flow/clot are still intentionally blocked until a graph flow/clot field exists.
+    # The guard must name edge-aware coupling so callers do not silently fall back to a
+    # wrong route-centered linear centerline.
+    from lumen.newton.flow import FlowField
+
+    asset = procedural.bifurcation()
+    tree = VascularTree(asset)
+    trunk_pts = np.asarray(asset.edges[0].centerline_mm)
+    with pytest.raises(NotImplementedError, match="edge-aware tree flow/clot"):
+        NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree,
+                           flow=FlowField())
 
 
 def test_tree_rejects_unsupported_physics():

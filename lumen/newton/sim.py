@@ -102,7 +102,15 @@ class NewtonGuidewireSim:
             gw = _add_rod(device_points, radius, stretch_stiffness, bend_stiffness)
             self.bodies.extend(gw)
             self.bases.append(gw[0])
-        self.n_per_env = len(self.bodies) // self.n_envs   # add_rod: N+1 points -> N bodies
+        if self.n_envs <= 0:
+            raise ValueError("n_envs must be > 0")
+        n_bodies = len(self.bodies)
+        if n_bodies % self.n_envs != 0:
+            raise ValueError(
+                f"bodies length ({n_bodies}) must be evenly divisible by n_envs ({self.n_envs}) "
+                "when computing n_per_env (integer division would cause incorrect env indexing)"
+            )
+        self.n_per_env = n_bodies // self.n_envs   # add_rod: N+1 points -> N bodies
         self.base = self.bases[0]
         # optional coaxial microcatheter (single-env): a second, larger, stiffer rod
         self.cath_bodies, self.cath_bases = [], []
@@ -132,9 +140,7 @@ class NewtonGuidewireSim:
                                     category=UserWarning)
             self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
         self.tree = tree
-        if tree is not None:                          # multi-edge vascular tree (single-env)
-            if self.n_envs != 1:
-                raise NotImplementedError("tree contact is single-env (batched trees are future)")
+        if tree is not None:                          # multi-edge vascular tree (batched contact)
             # the tree uses each edge's own lumen field for the base R0, so a sim-level
             # lumen_field doesn't apply; flow/clot project a single centerline. deformable_
             # wall + hgo_params ARE supported (per-edge HGO wall, L0d.1d).
@@ -143,13 +149,15 @@ class NewtonGuidewireSim:
                                           "field; a sim-level lumen_field doesn't apply")
             if flow is not None or clot_segment is not None:
                 raise NotImplementedError(
-                    "tree + flow/clot is not wired (flow drag / clot grids use a single "
-                    "centerline, not the edge graph)")
+                    "edge-aware tree flow/clot coupling is not wired yet: flow drag and "
+                    "clot grids need per-edge graph fields, not a single route centerline")
+            n_per_env_contact = len(self._contact_bodies) if self.coaxial else self.n_per_env
             self.solver.set_tree_contact(tree, self._contact_bodies, kappa=kappa, d_hat=d_hat,
                                          barrier_mode=barrier_mode, mu_along=mu_along,
                                          mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
                                          actuation_centerline=route_centerline,
-                                         deformable_wall=deformable_wall, hgo_params=hgo_params)
+                                         deformable_wall=deformable_wall, hgo_params=hgo_params,
+                                         n_envs=self.n_envs, n_per_env=n_per_env_contact)
         else:
             # single-env coaxial passes n_per_env = ALL bodies so every body maps to env 0
             # (env = body_id // n_per_env); non-coaxial keeps the per-env guidewire blocking.
@@ -333,7 +341,8 @@ class NewtonGuidewireSim:
         occ_arr = self.clot.o_d if self.clot is not None else self._zero_occ_d
         for _ in range(substeps):
             self.state_0.clear_forces()
-            self._actuate_base(insertion / substeps, twist / substeps)   # batched: no coaxial
+            self._actuate_base(np.asarray(insertion, np.float32) / substeps,
+                               np.asarray(twist, np.float32) / substeps)   # batched: no coaxial
             if any(preload):
                 wp.launch(add_world_force, dim=self.body_ids.shape[0],
                           inputs=[self.body_ids, float(preload[0]), float(preload[1]),
@@ -379,7 +388,8 @@ class NewtonGuidewireSim:
                     self.flow.set_tip(float(s_nodes.max()))   # no catheter: deepest wire node
         for _ in range(substeps):
             self.state_0.clear_forces()
-            self._actuate_base(insertion / substeps, twist / substeps)
+            self._actuate_base(np.asarray(insertion, np.float32) / substeps,
+                               np.asarray(twist, np.float32) / substeps)
             if self.coaxial:                          # independent microcatheter actuation
                 self._actuate_catheter(insertion_cath / substeps, twist_cath / substeps)
             if any(preload):

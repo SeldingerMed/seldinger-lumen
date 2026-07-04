@@ -203,7 +203,8 @@ class TubeVBDSolver(SolverVBD):
                             self._tree_vstart, self._tree_vcount, self._tree_smax,
                             self._tree_start_junc, self._tree_end_junc, self._tree_n_edges,
                             self._tree_R0, self._tree_w, self._tree_ns, self._tree_nth,
-                            self._tree_kappa, self._tree_d_hat, self._tree_mode,
+                            self._tree_n_per_env, self._tree_kappa, self._tree_d_hat,
+                            self._tree_mode,
                             self._tree_mu_along, self._tree_mu_across,
                             self._tree_gamma_fric, dt],
                     outputs=[self.body_forces, self.body_hessian_ll, self._tree_wall_load],
@@ -413,8 +414,19 @@ class TubeVBDSolver(SolverVBD):
             R0_grid = _np.array([[lumen_field.eval(float(s), float(t)) for t in th]
                                  for s in ss]).ravel()
         self._tube_n_envs = int(n_envs)
-        self._tube_n_per_env = int(n_per_env if n_per_env is not None
-                                   else len(wire_body_ids) // n_envs)
+        if n_per_env is not None:
+            self._tube_n_per_env = int(n_per_env)
+        else:
+            if n_envs <= 0:
+                raise ValueError("n_envs must be > 0")
+            n_wires = len(wire_body_ids)
+            if n_wires % n_envs != 0:
+                raise ValueError(
+                    f"wire_body_ids length ({n_wires}) must be evenly divisible by n_envs "
+                    f"({n_envs}) when computing n_per_env; got n_per_env={n_wires // n_envs} "
+                    "(integer division would cause incorrect env indexing)"
+                )
+            self._tube_n_per_env = n_wires // n_envs
         self._wall = WallField(R0=R0_grid, s_max=s_max, n_s=n_s, n_th=n_th,
                                params=hgo_params, device=dev, n_envs=n_envs)
         self._tube_wall_load = self._wall.wall_load
@@ -455,13 +467,14 @@ class TubeVBDSolver(SolverVBD):
     def set_tree_contact(self, tree, wire_body_ids, kappa=2.0e3, d_hat=0.3,
                          barrier_mode="compliant", n_s=40, n_th=16,
                          mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
-                         actuation_centerline=None, deformable_wall=False, hgo_params=None):
+                         actuation_centerline=None, deformable_wall=False, hgo_params=None,
+                         n_envs=1, n_per_env=None):
         """Multi-edge (vascular-tree) contact: each wire node contacts its nearest edge,
         with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
-        here so the kernel stays simple). Single-env. `deformable_wall=True` gives each
-        edge an HGO wall (w field shared with the barrier, like the single tube, §3.5.6),
-        with each edge's OWN arc-length feeding its cell area (correct for unequal-length
-        edges). `tree` is a ``lumen.core.VascularTree``.
+        here so the kernel stays simple). `deformable_wall=True` gives each env×edge
+        block an HGO wall (w field shared with the barrier, like the single tube,
+        §3.5.6), with each edge's OWN arc-length feeding its cell area (correct for
+        unequal-length edges). `tree` is a ``lumen.core.VascularTree``.
 
         `actuation_centerline` is the path the kinematic base follows for insertion
         (centerline-following). Pass the full route polyline (trunk→target branch) so the
@@ -500,14 +513,29 @@ class TubeVBDSolver(SolverVBD):
         self._tree_start_junc = _wp.array(_np.array(sj, _np.int32), dtype=_wp.int32, device=dev)
         self._tree_end_junc = _wp.array(_np.array(ej, _np.int32), dtype=_wp.int32, device=dev)
         self._tree_n_edges = len(tree.edges)
-        # one HGO wall over all edges (each edge is a block, like a batched env). r0_field
-        # is the blended base R0; w_field is the shared deformation the barrier reads and
-        # the contact load relaxes. rigid (deformable_wall=False) just leaves w≡0.
+        self._tree_n_envs = int(n_envs)
+        if n_per_env is not None:
+            self._tree_n_per_env = int(n_per_env)
+        else:
+            if self._tree_n_envs <= 0:
+                raise ValueError("n_envs must be > 0")
+            n_wires = len(wire_body_ids)
+            if n_wires % self._tree_n_envs != 0:
+                raise ValueError(
+                    f"wire_body_ids length ({n_wires}) must be evenly divisible by n_envs "
+                    f"({self._tree_n_envs}) when computing n_per_env; got n_per_env={n_wires // self._tree_n_envs} "
+                    "(integer division would cause incorrect env indexing in tree barrier kernel)"
+                )
+            self._tree_n_per_env = n_wires // self._tree_n_envs
+        # one HGO wall over all env×edge blocks. r0_field is the blended base R0; w_field
+        # is the shared deformation the barrier reads and the contact load relaxes. rigid
+        # (deformable_wall=False) just leaves w≡0. The per-edge blocks are tiled per env.
         from lumen.newton.hgo_wall import WallField
-        self._tree_wall = WallField(R0=_np.concatenate(R0_blocks).astype(_np.float32),
-                                    s_max=_np.asarray(smax, float),   # per-edge arc-length (H1 fix)
+        edge_R0 = _np.concatenate(R0_blocks).astype(_np.float32)
+        self._tree_wall = WallField(R0=_np.tile(edge_R0, self._tree_n_envs),
+                                    s_max=_np.tile(_np.asarray(smax, float), self._tree_n_envs),
                                     n_s=n_s, n_th=n_th, params=hgo_params,
-                                    device=dev, n_envs=self._tree_n_edges)
+                                    device=dev, n_envs=self._tree_n_envs * self._tree_n_edges)
         self._tree_R0 = self._tree_wall.r0_field
         self._tree_w = self._tree_wall.w_field
         self._tree_wall_load = self._tree_wall.wall_load
