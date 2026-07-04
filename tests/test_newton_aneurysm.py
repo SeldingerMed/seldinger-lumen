@@ -124,6 +124,46 @@ def test_flow_diverter_reduces_sac_inflow_in_sim():
     assert im == pytest.approx(i0) and tm == pytest.approx(t0)   # a missed diverter does nothing
 
 
+def test_batched_aneurysm_flow_diverters_keep_independent_sac_state():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+    from lumen.newton.flow import FlowField, FlowFieldParams
+    from lumen.newton.sim import NewtonGuidewireSim
+
+    M, L, R, n = 50, 100.0, 2.0, 11
+    vessel = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, L, M)], axis=1)
+    dev = np.stack([np.zeros(n), np.zeros(n), np.linspace(4, 4 + 2 * (n - 1), n)], axis=1)
+    aneurysms = [
+        Aneurysm(s_neck=45.0, neck_width=4.0, sac_volume=90.0, wall_stiffness=1800.0),
+        Aneurysm(s_neck=55.0, neck_width=6.0, sac_volume=160.0, wall_stiffness=2600.0),
+    ]
+    diverters = [
+        FlowDiverter(deployed_center=45.0, span=20.0, metal_coverage=0.6),
+        FlowDiverter(deployed_center=55.0, span=3.0, metal_coverage=0.4),
+    ]
+    sim = NewtonGuidewireSim(
+        vessel, R, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+        flow=FlowField(FlowFieldParams(heart_rate=1.5)),
+        aneurysm=aneurysms, flow_diverter=diverters, n_envs=2, device="cpu",
+    )
+
+    for _ in range(120):
+        sim.step(dt=2.5e-2, substeps=2)
+
+    inflow = np.asarray(sim.sac_inflow_peak())
+    turnover = np.asarray(sim.sac_turnover_time())
+    diversion = np.asarray(sim.sac_diversion())
+    sac_pressure = np.array([sac.P_sac for sac in sim.aneurysm_sacs])
+    assert inflow.shape == turnover.shape == diversion.shape == (2,)
+    assert diversion == pytest.approx([0.6, 0.2])
+    assert np.all(inflow > 0.0) and np.all(np.isfinite(turnover))
+    assert sac_pressure[0] != pytest.approx(sac_pressure[1])
+
+    sim.reset()
+    assert sim.sac_inflow_peak() == pytest.approx([0.0, 0.0])
+    assert [sac.P_sac for sac in sim.aneurysm_sacs] == [None, None]
+
+
 def test_aneurysm_sac_resets_with_the_sim():
     pytest.importorskip("warp")
     pytest.importorskip("newton")
@@ -135,7 +175,7 @@ def test_aneurysm_sac_resets_with_the_sim():
     assert sim.sac_inflow_peak() == 0.0 and sim.aneurysm_sac.P_sac is None
 
 
-def test_aneurysm_requires_flow_field_and_single_env():
+def test_aneurysm_requires_flow_field_and_valid_per_env_config():
     pytest.importorskip("warp")
     pytest.importorskip("newton")
     from lumen.newton.flow import FlowField
@@ -147,9 +187,9 @@ def test_aneurysm_requires_flow_field_and_single_env():
     with pytest.raises(ValueError, match="without an aneurysm"):        # diverter, no sac
         NewtonGuidewireSim(vessel, 2.0, dev, flow=FlowField(),
                            flow_diverter=FlowDiverter(40.0), device="cpu")
-    with pytest.raises(NotImplementedError, match="single-env"):        # batched
-        NewtonGuidewireSim(vessel, 2.0, dev, flow=FlowField(), n_envs=2,
-                           aneurysm=Aneurysm(s_neck=40.0), device="cpu")
     with pytest.raises(ValueError, match="outside the vessel"):         # s_neck past the end (L2)
         NewtonGuidewireSim(vessel, 2.0, dev, flow=FlowField(),
                            aneurysm=Aneurysm(s_neck=200.0), device="cpu")
+    with pytest.raises(ValueError, match="aneurysm length"):            # per-env config must align
+        NewtonGuidewireSim(vessel, 2.0, dev, flow=FlowField(), n_envs=2,
+                           aneurysm=[Aneurysm(s_neck=40.0)], device="cpu")
