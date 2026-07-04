@@ -228,8 +228,6 @@ class NewtonGuidewireSim:
             if not self._flow_is_field:
                 raise NotImplementedError("an aneurysm needs the 1-D FlowField (it reads "
                                           "the neck pressure P(s)); pass flow=FlowField(...)")
-            if flow is None:
-                raise ValueError("flow is required for aneurysm flow diversion")
             s_max = self.solver._wall.s_max
             from lumen.newton.aneurysm import AneurysmSac
             self.aneurysms = self._per_env_objects(aneurysm, "aneurysm")
@@ -239,6 +237,8 @@ class NewtonGuidewireSim:
                 if not (0.0 <= an.s_neck <= s_max):    # else np.interp silently clamps
                     raise ValueError(f"aneurysm s_neck ({an.s_neck}) is outside the "
                                      f"vessel arc-length [0, {s_max:.1f}]")
+            if flow is None:
+                raise ValueError("flow is required for aneurysm flow diversion")
             self.aneurysm_sacs = [AneurysmSac(an, visc=flow.p.visc) for an in self.aneurysms]
             self.aneurysm_sac = self.aneurysm_sacs[0]  # backward-compatible single-env handle
         elif flow_diverter is not None:
