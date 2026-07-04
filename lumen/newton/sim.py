@@ -383,7 +383,7 @@ class NewtonGuidewireSim:
                              self.flow.aspiration if self.flow is not None else 0.0,
                              dtype=float)
         wall = self.solver._wall
-        if self._flow_is_field and getattr(self.flow, "_P_d", None) is not None:
+        if self._flow_is_field and self.flow is not None and getattr(self.flow, "_P_d", None) is not None:
             P = self.flow._P_d.numpy().reshape(self.n_envs, wall.n_s)
             s_flow = np.linspace(0.0, wall.s_max, wall.n_s)
             for e in range(self.n_envs):
