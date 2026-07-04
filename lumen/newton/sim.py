@@ -170,6 +170,9 @@ class NewtonGuidewireSim:
                                  dtype=wp.int32, device=self.device)
         self._guidewire_body_ids = wp.array(np.array(self.bodies, dtype=np.int32),
                                             dtype=wp.int32, device=self.device)
+        # cache wall s-grid for aneurysm interp (fixed per sim; avoids recompute in hot path)
+        w = getattr(self.solver, "_wall", None)
+        self._s_grid = np.linspace(0.0, w.s_max, w.n_s) if w is not None else None
         # on-device base actuation (no per-substep body_q host round-trip), one per env
         self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
                                   device=self.device)
@@ -225,7 +228,8 @@ class NewtonGuidewireSim:
             if not self._flow_is_field:
                 raise NotImplementedError("an aneurysm needs the 1-D FlowField (it reads "
                                           "the neck pressure P(s)); pass flow=FlowField(...)")
-            assert flow is not None
+            if flow is None:
+                raise ValueError("flow is required for aneurysm flow diversion")
             s_max = self.solver._wall.s_max
             from lumen.newton.aneurysm import AneurysmSac
             self.aneurysms = self._per_env_objects(aneurysm, "aneurysm")
@@ -266,7 +270,7 @@ class NewtonGuidewireSim:
             if allow_none:
                 return [None] * self.n_envs
             raise ValueError(f"{name} is required")
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, (list, tuple, np.ndarray)):
             if len(value) != self.n_envs:
                 raise ValueError(f"{name} length ({len(value)}) must match n_envs ({self.n_envs})")
             if not allow_none and any(v is None for v in value):
@@ -379,7 +383,7 @@ class NewtonGuidewireSim:
                     # flow-diverter coverage. This preserves the device-side FlowField
                     # solve while avoiding cross-env host state bleed-through.
                     P_env = self.flow._P_d.numpy().reshape(self.n_envs, n_s)
-                    s_grid = np.linspace(0.0, s_max, n_s)
+                    s_grid = self._s_grid if self._s_grid is not None else np.linspace(0.0, s_max, n_s)
                     for env, (an, sac, fd) in enumerate(zip(self.aneurysms,
                                                            self.aneurysm_sacs,
                                                            self.flow_diverters)):
@@ -449,6 +453,9 @@ class NewtonGuidewireSim:
                     self.flow.set_lumen(r_open_s, wall.s_max)
                     self.flow.solve()
                     if self.aneurysm_sac is not None:    # drive the sac from P(s_neck)
+                        # Host path is only for n_envs==1 (see _use_device_coupling which requires n>1
+                        # for field flow); n>1 aneurysms go through the batched _step_device path.
+                        # The [0] indexing and singular handle are for single-env + backward compat.
                         an = self.aneurysms[0]
                         fd = self.flow_diverters[0]
                         P_neck = float(np.interp(an.s_neck, self.flow.s_grid,
