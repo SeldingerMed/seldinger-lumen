@@ -17,7 +17,7 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | Vascular-tree contact | ✅ | 🚧 | `tree contact is single-env` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
 | Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
 | Tree + flow/clot coupling | 🚧 | 🚧 | `tree + flow/clot is not wired` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
-| Aneurysm + flow diverter | ✅ with `FlowField` | 🚧 | `aneurysm flow diversion is single-env` | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) |
+| Aneurysm + flow diverter | ✅ with `FlowField` | ✅ with `FlowField` | none | — |
 | Aneurysm without `FlowField` | 🚧 | 🚧 | `an aneurysm needs the 1-D FlowField` | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) |
 
 ## Follow-up implementation tracker
@@ -27,7 +27,6 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | Batched coaxial guidewire + catheter assemblies | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) | A two-env coaxial construction/step test with independent guidewire and catheter bases, plus unchanged single-env coaxial coverage. |
 | Batched stent-retriever clot retrieval | [#54](https://github.com/SeldingerMed/seldinger-lumen/issues/54) | A two-env retrieval test where capture/slip/fragmentation state diverges per env without host-state bleed-through. |
 | Batched vascular-tree contact and tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | A two-env tree contact test and either edge-aware flow/clot coverage or an updated guard/doc row for any intentionally remaining sub-gap. |
-| Batched aneurysm flow-diverter simulations | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) | A two-env aneurysm test with per-env sac state and neck-pressure reads from the matching batched `FlowField`. |
 
 ## Why the remaining gaps exist
 
@@ -45,7 +44,7 @@ Tree contact uses per-edge lumen fields and route-centered actuation. Batched su
 
 ### Aneurysm batching (#56)
 
-Aneurysm flow diversion uses the 1-D `FlowField` neck pressure to update one sac state on the host. Batched support must store sac state per env and read the corresponding batched pressure/flow-diverter state before it can be used for RL-throughput rollouts.
+Aneurysm flow diversion is now batched when the sim uses the 1-D `FlowField`: each env owns an independent `AneurysmSac`, can use distinct aneurysm/diverter parameters, and reads the corresponding env block from the batched pressure field. The physics limit remains the same as the single-env path: sac→parent back-reaction is not fed into the 1-D parent-flow solve, so the model captures diverter-induced sac stasis but not a neck draw that perturbs parent-vessel through-flow.
 
 ## Development rule
 
