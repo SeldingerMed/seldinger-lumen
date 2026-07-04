@@ -71,10 +71,6 @@ class NewtonGuidewireSim:
             raise NotImplementedError(
                 "batched flow requires the 1-D FlowField; the lumped NewtonFlow is "
                 "single-env (analytic fallback)")
-        if self.n_envs > 1 and stentriever is not None:
-            raise NotImplementedError(
-                "batched stent-retriever retrieval is not ported (per-env host force "
-                "balance); run retrieval single-env")
 
         builder = newton.ModelBuilder(gravity=0.0)
         builder.default_shape_cfg.density = density
@@ -217,6 +213,14 @@ class NewtonGuidewireSim:
                                   height=clot_height, params=clot_params,
                                   n_envs=self.n_envs, device=self.device)
         self.stentriever = stentriever   # optional device for clot retrieval
+        if self.n_envs > 1 and self.stentriever is not None:
+            if self.clot is None:
+                raise ValueError("stentriever requires clot_segment so it has a clot to retrieve")
+            if not self._flow_is_field:
+                raise NotImplementedError(
+                    "batched stent-retriever retrieval requires the 1-D FlowField coupling path")
+            if isinstance(self.stentriever, (list, tuple)) and len(self.stentriever) != self.n_envs:
+                raise ValueError("batched stentriever list length must match n_envs")
         # optional saccular aneurysm + flow diverter. Needs the 1-D FlowField, which
         # supplies the pressure P(s_neck) that drives each sac. Batched sims keep one
         # AneurysmSac per env and read the matching env's pressure block from the
@@ -297,8 +301,15 @@ class NewtonGuidewireSim:
             tw.w_field.zero_()
             tw.wall_load.zero_()
         if self.clot is not None:
-            self.clot.o = self.clot.o0.copy()
-            self.clot.D[:] = 0.0
+            self.clot.o0_env[:] = self.clot._initial_o0_env
+            self.clot.o_env[:] = self.clot.o0_env
+            self.clot.D_env[:] = 0.0
+            self.clot.mask_env[:] = self.clot.o0_env > 1e-6
+            self.clot.retrieved_env[:] = 0.0
+            self.clot._sync_public_from_env(0)
+            self.clot.sync_to_device()
+        if self.aneurysm_sac is not None:
+            self.aneurysm_sac.reset()
         for sac in self.aneurysm_sacs:
             sac.reset()
 
@@ -399,6 +410,39 @@ class NewtonGuidewireSim:
             if self.clot is not None:
                 self.clot.update_device(wall.wall_load, sub_dt)
             self.state_0, self.state_1 = self.state_1, self.state_0
+        self._retrieve_batched_if_needed(insertion, dt=sub_dt * substeps)
+
+    def _retrieve_batched_if_needed(self, insertion, dt: float) -> None:
+        if self.stentriever is None or self.clot is None:
+            return
+        ins = np.broadcast_to(np.asarray(insertion, dtype=float), (self.n_envs,))
+        if not np.any(ins < 0.0):
+            return
+        self.clot.sync_from_device()
+        stents = (self.stentriever if isinstance(self.stentriever, (list, tuple))
+                  else [self.stentriever] * self.n_envs)
+        engagement = np.array([
+            st.engagement_strength_for_mask(self.clot.s_grid, self.clot.mask_env[e])
+            for e, st in enumerate(stents)
+        ], dtype=float)
+        aspiration = np.full(self.n_envs,
+                             self.flow.aspiration if self.flow is not None else 0.0,
+                             dtype=float)
+        wall = self.solver._wall
+        if self._flow_is_field and self.flow is not None and getattr(self.flow, "_P_d", None) is not None:
+            P = self.flow._P_d.numpy().reshape(self.n_envs, wall.n_s)
+            s_flow = np.linspace(0.0, wall.s_max, wall.n_s)
+            for e in range(self.n_envs):
+                mask = self.clot.mask_env[e]
+                if not mask.any():
+                    continue
+                clot_s = self.clot.s_grid[mask]
+                P_prox = float(np.interp(clot_s[0], s_flow, P[e]))
+                P_dist = float(np.interp(clot_s[-1], s_flow, P[e]))
+                r_open = np.maximum(self.R - self.clot.o_env[e, mask], self.flow.p.R_floor)
+                A_clot = np.pi * float(np.mean(r_open)) ** 2
+                aspiration[e] += (P_dist - P_prox) * A_clot
+        self.last_retrieval = self.clot.retrieve_batched(-ins, engagement, aspiration, dt)
 
     def _step_host(self, sub_dt, substeps, insertion, twist, preload, aspiration, dt,
                    insertion_cath=0.0, twist_cath=0.0):

@@ -26,7 +26,11 @@ class Stentriever:
 
     def engagement_strength(self, clot) -> float:
         """Grip force on the clot = radial_force·struts·embedment · (span∩clot overlap)."""
-        s = clot.s_grid[clot.mask]
+        return self.engagement_strength_for_mask(clot.s_grid, clot.mask)
+
+    def engagement_strength_for_mask(self, s_grid, mask) -> float:
+        """Grip force for one env's live clot mask on a shared arc-length grid."""
+        s = s_grid[mask]
         if s.size == 0:
             return 0.0
         a, b = self.deployed_center - self.span / 2, self.deployed_center + self.span / 2
