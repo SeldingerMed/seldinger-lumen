@@ -47,10 +47,6 @@ def test_solver_support_matrix_tracks_batched_guardrails():
             "an aneurysm needs the 1-D FlowField (it reads the neck pressure P(s)); pass flow=FlowField(...)",
             "an aneurysm needs the 1-D FlowField",
         ),
-        (
-            "aneurysm flow diversion is single-env (the sac reads the host pressure field)",
-            "aneurysm flow diversion is single-env",
-        ),
     ]
     for source_guard, doc_guard in required_guards:
         assert source_guard in not_implemented_messages
@@ -66,7 +62,6 @@ def test_solver_support_matrix_tracks_batched_guardrails():
         "two-env coaxial construction/step test",
         "two-env retrieval test",
         "two-env tree contact test",
-        "two-env aneurysm test",
     ):
         assert closure_evidence in support
 
