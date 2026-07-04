@@ -223,9 +223,9 @@ def accumulate_tree_barrier(
     edge_start_junc: wp.array(dtype=wp.int32),  # [n_edges] 1 if the edge's start node is a junction
     edge_end_junc: wp.array(dtype=wp.int32),    # [n_edges] 1 if the edge's end node is a junction
     n_edges: int,
-    R0_grid: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] branch-BLENDED base radius R0(s,θ)
-    w_field: wp.array(dtype=wp.float32),      # [n_edges*n_s*n_th] radial deformation (0 if rigid)
-    n_s: int, n_th: int,
+    R0_grid: wp.array(dtype=wp.float32),      # [n_envs*n_edges*n_s*n_th] blended R0(s,θ)
+    w_field: wp.array(dtype=wp.float32),      # [n_envs*n_edges*n_s*n_th] radial deformation
+    n_s: int, n_th: int, n_per_env: int,
     kappa: float, d_hat: float, mode: int,
     mu_along: float, mu_across: float, gamma_fric: float, dt: float,
     body_forces: wp.array(dtype=wp.vec3),
@@ -236,7 +236,8 @@ def accumulate_tree_barrier(
     ACROSS ALL EDGES, then reads that edge's blended rigid radius block. The §3.5.2
     branch blending is pre-baked into R0_grid at build time, so the kernel stays
     simple. Junction ends are NOT culled (a node there is transitioning between edges),
-    unlike open vessel ends. Single-env, rigid wall (deformable tree wall is future)."""
+    unlike open vessel ends. Batched envs share the same edge graph but read/write
+    disjoint per-env edge wall blocks: [env][edge][s][theta]."""
     t = wp.tid()
     bid = color_group[t]
     if wire_mask[bid] == 0:
@@ -285,7 +286,9 @@ def accumulate_tree_barrier(
     theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
     th01 = (theta + wp.pi) / (2.0 * wp.pi)
     i_th = int(th01 * float(n_th)) % n_th
-    cell = be * (n_s * n_th) + i_s * n_th + i_th
+    env = bid // n_per_env
+    edge_cells = n_s * n_th
+    cell = (env * n_edges + be) * edge_cells + i_s * n_th + i_th
     R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: blended base R0 + HGO deformation
     dwall = R_eff - r
     if dwall < d_hat:
