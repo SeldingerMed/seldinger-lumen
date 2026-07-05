@@ -164,3 +164,36 @@ def test_batched_stentriever_retrieval_diverges_per_env():
     assert centres[0] < centre0[0] - 0.5
     assert abs(centres[1] - centre0[1]) < 1e-6
     assert sim.clot.retrieved_env.tolist() == [2.0, 0.0]
+
+
+def test_batched_stentriever_accepts_per_env_aspiration():
+    # Per-env suction is part of the batched retrieval contract: env 0 uses
+    # aspiration to overcome a high-grip clot while env 1, with the same stent
+    # and clot parameters, fragments independently.
+    from lumen.newton.devices import Stentriever
+    from lumen.newton.clot import ClotParams
+    from lumen.newton.flow import FlowField, FlowFieldParams
+    vessel, dev = _vessel_and_device(M=60, L=120.0, n=11)
+    st = Stentriever(deployed_center=62, radial_force=0.2, n_struts=6)
+    sim = NewtonGuidewireSim(
+        vessel, 2.0, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+        flow=FlowField(FlowFieldParams(P_mean=0.0, P_pulse=0.0)),
+        clot_segment=(55, 70), clot_height=1.6,
+        clot_params=ClotParams(grip_coeff=0.4),
+        stentriever=st, n_envs=2, device="cpu",
+    )
+    sim.step(dt=2.5e-2, substeps=2)
+    centre0 = sim.clot.clot_centers().copy()
+    sim.step(
+        dt=2.5e-2,
+        substeps=2,
+        insertion=np.array([-2.0, -2.0]),
+        aspiration=np.array([0.06, 0.0]),
+    )
+    statuses = [r["status"] for r in sim.last_retrieval]
+    assert statuses == ["retrieve", "fragment"]
+    centres = sim.clot.clot_centers()
+    assert centres[0] < centre0[0] - 0.5
+    assert sim.clot.retrieved_env.tolist() == [2.0, 0.0]
+    assert sim.clot.D_env[0].max() == 0.0
+    assert sim.clot.D_env[1].max() > 0.0
