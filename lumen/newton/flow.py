@@ -372,7 +372,20 @@ class FlowField:
         self._Q_down = self._Q
 
     def drag_at_tree(self, env_index, edge_index, s_query):
-        """Local axial drag for tree nodes, addressed by env + projected edge + s."""
+        """Local axial drag for tree nodes, addressed by env + projected edge + s.
+        
+        Args:
+            env_index (int or np.ndarray): Environment index.
+            edge_index (int or np.ndarray): Projected edge index in the tree topology.
+            s_query (float or np.ndarray): 1D local axial coordinate along the edge.
+            
+        Expected Shapes:
+            Inputs `env_index`, `edge_index`, and `s_query` must have matching shapes.
+            
+        Interpolation:
+            Retrieves the fluid velocity and area along the queried edge and linearly
+            interpolates the local flow properties to compute the resulting axial drag.
+        """
         import numpy as np
         env = np.asarray(env_index, dtype=int)
         edge = np.asarray(edge_index, dtype=int)
