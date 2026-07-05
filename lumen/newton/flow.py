@@ -380,12 +380,18 @@ class FlowField:
         if env.shape != edge.shape or env.shape != s.shape:
             raise ValueError("tree drag inputs must have matching shapes")
         out = np.zeros_like(s, dtype=float)
-        if self._tree_v is None:
+        tree_v = self._tree_v
+        tree_s_grids = self._tree_s_grids
+        if tree_v is None or tree_s_grids is None:
             return out
-        flat = out.ravel()
-        for i, (ee, gg, ss) in enumerate(zip(env.ravel(), edge.ravel(), s.ravel())):
-            flat[i] = self.p.drag_coeff * float(
-                np.interp(ss, self._tree_s_grids[int(gg)], self._tree_v[int(ee), int(gg)])
+        env_f = env.ravel()
+        edge_f = edge.ravel()
+        s_f = s.ravel()
+        out_f = out.ravel()
+        for ee, gg in np.unique(np.stack([env_f, edge_f], axis=1), axis=0):
+            mask = (env_f == ee) & (edge_f == gg)
+            out_f[mask] = self.p.drag_coeff * np.interp(
+                s_f[mask], tree_s_grids[int(gg)], tree_v[int(ee), int(gg)]
             )
         return out.reshape(s.shape)
 
