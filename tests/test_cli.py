@@ -502,6 +502,7 @@ def test_dataset_card_cli_writes_markdown_and_json_from_index(tmp_path, capsys):
     assert payload["findings"] == []
 
     direct = build_dataset_card(index_path, check_arrays=True, require_cv_labels=True)
+    assert "obs" in direct["summary"]["array_payloads"]
     assert direct["summary"]["array_payloads"]["obs"][0]["shape"] == [4, 4]
 
     (obs_dir / "000.npy").unlink()

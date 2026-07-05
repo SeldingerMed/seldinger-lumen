@@ -15,18 +15,30 @@ def _format_counts(counts: dict) -> str:
     return ", ".join(f"{name}={count}" for name, count in counts.items())
 
 
-def _format_numeric(summary: dict, unit: str = "") -> str:
-    if summary.get("mean") is None:
+def _format_numeric(summary: dict | None, unit: str = "") -> str:
+    if not isinstance(summary, dict):
         return "-"
-    return (f"mean={summary['mean']:.3f}{unit}, min={summary['min']:.3f}{unit}, "
-            f"max={summary['max']:.3f}{unit}, n={summary['count']}")
+    mean = summary.get("mean")
+    minimum = summary.get("min")
+    maximum = summary.get("max")
+    count = summary.get("count")
+    if mean is None or minimum is None or maximum is None or count is None:
+        return "-"
+    return (f"mean={mean:.3f}{unit}, min={minimum:.3f}{unit}, "
+            f"max={maximum:.3f}{unit}, n={count}")
 
 
-def _format_percent(summary: dict) -> str:
-    if summary.get("mean") is None:
+def _format_percent(summary: dict | None) -> str:
+    if not isinstance(summary, dict):
         return "-"
-    return (f"mean={summary['mean']:.3%}, min={summary['min']:.3%}, "
-            f"max={summary['max']:.3%}, n={summary['count']}")
+    mean = summary.get("mean")
+    minimum = summary.get("min")
+    maximum = summary.get("max")
+    count = summary.get("count")
+    if mean is None or minimum is None or maximum is None or count is None:
+        return "-"
+    return (f"mean={mean:.3%}, min={minimum:.3%}, "
+            f"max={maximum:.3%}, n={count}")
 
 
 def _quality_findings(summary: dict) -> list[str]:
@@ -112,7 +124,7 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
         lines += ["", "Array payloads:"]
         for name, payloads in summary["array_payloads"].items():
             payload_text = ", ".join(
-                f"{tuple(item['shape'])} {item['dtype']} n={item['count']}" for item in payloads
+                f"{item['shape']} {item['dtype']} n={item['count']}" for item in payloads
             )
             lines.append(f"- {name}: {payload_text}")
     if summary.get("mask_coverage"):
