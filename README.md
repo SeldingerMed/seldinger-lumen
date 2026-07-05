@@ -95,6 +95,7 @@ lumen validate /tmp/lumen-episodes
 lumen replay /tmp/lumen-episodes
 lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
 lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-arrays --require-cv-labels
+lumen dataset-card /tmp/lumen-episodes/index.jsonl --out /tmp/lumen-episodes/DATASET_CARD.md --check-arrays --require-cv-labels
 lumen materialize-batch /tmp/lumen-episodes/index.jsonl /tmp/lumen-episodes/smoke_batch.npz --limit 32
 lumen split-index /tmp/lumen-episodes/index.jsonl --out-dir /tmp/lumen-episodes/splits
 lumen calibrate
@@ -149,11 +150,13 @@ be loaded with `iter_index_records(path, load_arrays=True)`; pass
 or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
 modalities, labels, calibration types, episode-level clinical outcome/safety counts,
 keypoint coverage, and missing sidecar references before a training job opens arrays;
-add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
+`lumen dataset-card` turns that same index QA into a shareable Markdown or JSON
+handoff artifact with provenance, clinical endpoint, annotation coverage, sidecar,
+and array-payload sections. Add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
 keypoints, `--check-arrays` to load referenced arrays, report observation/mask/node
 shape and dtype counts, report mask coverage and keypoint-to-device distances,
-reject empty/bad masks, and catch off-frame or off-device keypoints, and `--json`
-for scripts and notebooks. Add `--require-uniform-arrays` before fixed-shape
+reject empty/bad masks, and catch off-frame or off-device keypoints (JSON output
+is selected automatically via a `.json` file extension). Add `--require-uniform-arrays` before fixed-shape
 batch training to fail if any loaded array field mixes shape/dtype payloads.
 `lumen materialize-batch` writes a compressed `.npz` smoke-test batch plus
 `.manifest.json` from the first valid index rows; it fails fast on missing or

@@ -28,6 +28,7 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "lumen-inspect-index": "lumen.cli:inspect_index_main",
     "lumen-materialize-batch": "lumen.cli:materialize_batch_main",
     "lumen-split-index": "lumen.cli:split_index_main",
+    "lumen-dataset-card": "lumen.cli:dataset_card_main",
     "lumen-calibrate": "lumen.cli:calibrate_main",
 }
 
@@ -439,6 +440,76 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     broken = json.loads(capsys.readouterr().out)
     assert broken["missing_paths"]["obs_path"] == 1
     assert broken["missing_path_examples"][0]["field"] == "obs_path"
+
+
+def test_dataset_card_cli_writes_markdown_and_json_from_index(tmp_path, capsys):
+    from lumen.cli import dataset_card_main, main
+    from lumen.data import build_dataset_card
+
+    obs_dir = tmp_path / "case" / "obs"
+    obs_dir.mkdir(parents=True)
+    np.save(obs_dir / "000.npy", np.ones((4, 4), dtype=np.float32))
+    np.save(obs_dir / "000_device_mask.npy", np.eye(4, dtype=np.uint8))
+    np.save(obs_dir / "000_vessel_mask.npy", np.ones((4, 4), dtype=np.uint8))
+    row = {
+        "episode": "case",
+        "episode_dir": "case",
+        "label": "dataset_card_case",
+        "step_index": 0,
+        "t": 0.0,
+        "obs_modality": "fluoro",
+        "obs_path": "case/obs/000.npy",
+        "device_mask_path": "case/obs/000_device_mask.npy",
+        "vessel_mask_path": "case/obs/000_vessel_mask.npy",
+        "node_positions_path": None,
+        "keypoints": {
+            "base": {"uv": [0.0, 0.0], "present": True},
+            "tip": {"uv": [3.0, 3.0], "present": True},
+        },
+        "action": {"insertion": 1.0},
+        "kinematics": {},
+        "labels": {"outcome": "dataset_card_case"},
+        "outcome": {"success": True, "final_dist": 0.25, "steps": 1, "label": "dataset_card_case"},
+        "clinical_metrics": {
+            "tip_target": {"success": True, "final_dist": 0.25},
+            "wall_safety": {"perforation_risk": False},
+        },
+        "calibration_type": "carm",
+        "provenance": "procedural",
+        "version": "lumen-episode/0",
+    }
+    index_path = tmp_path / "index.jsonl"
+    index_path.write_text(json.dumps(row) + "\n")
+
+    card_path = tmp_path / "DATASET_CARD.md"
+    main(["dataset-card", str(index_path), "--out", str(card_path), "--check-arrays",
+          "--require-cv-labels", "--title", "Smoke Dataset"])
+    out = capsys.readouterr().out
+    assert "wrote dataset card" in out
+    assert "quality_gate: pass" in out
+    card = card_path.read_text()
+    assert "# Smoke Dataset" in card
+    assert "Records: 1" in card
+    assert "Modalities: fluoro=1" in card
+    assert "Status: pass" in card
+    assert "Provenance policy" in card
+
+    json_path = tmp_path / "card.json"
+    dataset_card_main([str(index_path), "--out", str(json_path), "--check-paths"])
+    payload = json.loads(json_path.read_text())
+    assert payload["summary"]["records"] == 1
+    assert payload["summary"]["paths_checked"] is True
+    assert payload["findings"] == []
+
+    direct = build_dataset_card(index_path, check_arrays=True, require_cv_labels=True)
+    assert "obs" in direct["summary"]["array_payloads"]
+    assert direct["summary"]["array_payloads"]["obs"][0]["shape"] == [4, 4]
+
+    (obs_dir / "000.npy").unlink()
+    dataset_card_main([str(index_path), "--out", str(card_path), "--check-paths"])
+    warn_out = capsys.readouterr().out
+    assert "quality_gate: needs attention" in warn_out
+    assert "obs_path has 1 missing sidecar references" in card_path.read_text()
 
 
 def test_index_inspection_reports_invalid_inputs_without_traceback(tmp_path, capsys):
@@ -1078,3 +1149,40 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     assert "indexed 0 step records from 0/2 valid case bundles" in out
     assert "no index records emitted" in out
     assert not none_index.exists()
+
+def test_dataset_card_cli_reports_array_and_keypoint_errors(tmp_path, capsys):
+    from lumen.cli import dataset_card_main
+    
+    obs_dir = tmp_path / "case" / "obs"
+    obs_dir.mkdir(parents=True)
+    np.save(obs_dir / "000.npy", np.ones((4, 4), dtype=np.float32))
+    np.save(obs_dir / "001.npy", np.ones((5, 5), dtype=np.float32))
+    
+    row1 = {
+        "episode": "case", "episode_dir": "case", "label": "c", "step_index": 0, "t": 0.0,
+        "obs_modality": "fluoro", "obs_path": "case/obs/000.npy",
+        "keypoints": {"tip": {"uv": [10.0, 10.0], "present": True}},
+        "action": {}, "kinematics": {}, "labels": {},
+        "calibration_type": "carm", "provenance": "procedural", "version": "lumen-episode/0",
+    }
+    row2 = {
+        **row1, "step_index": 1, "t": 1.0, "obs_path": "case/obs/001.npy",
+        "keypoints": {"tip": {"uv": [2.0, 2.0], "present": True}},
+    }
+    
+    index_path = tmp_path / "index.jsonl"
+    index_path.write_text(json.dumps(row1) + "\n" + json.dumps(row2) + "\n")
+    
+    card_path = tmp_path / "DATASET_CARD.md"
+    dataset_card_main([
+        str(index_path), "--out", str(card_path),
+        "--check-arrays", "--require-uniform-arrays",
+        "--keypoint-mask-tolerance", "1.0",
+    ])
+    out = capsys.readouterr().out
+    assert "quality_gate: needs attention" in out
+    
+    card = card_path.read_text()
+    assert "Status: needs attention" in card
+    assert "array payloads are not uniform for fixed-shape batching" in card
+    assert "keypoint QA found invalid or off-device keypoints" in card

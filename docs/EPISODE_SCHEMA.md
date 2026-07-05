@@ -178,6 +178,7 @@ Audit the JSONL before handing it to a training job:
 
 ```bash
 lumen inspect-index episodes/index.jsonl --check-arrays --require-cv-labels
+lumen dataset-card episodes/index.jsonl --out episodes/DATASET_CARD.md --check-arrays --require-cv-labels
 ```
 
 The inspection summary reports row counts by episode, observation modality,
@@ -193,7 +194,10 @@ empty, malformed, or shape-mismatched masks, and catch present keypoints outside
 the observation frame or away from the device mask. Add `--json` when a CI job or
 notebook needs the raw machine-readable summary. Add `--require-uniform-arrays`
 before fixed-shape batch training to fail if any loaded array field mixes
-shape/dtype payloads. Use
+shape/dtype payloads. Use `lumen dataset-card` to export the same audit as a
+shareable Markdown or JSON handoff card for dataset releases, including clinical
+endpoint counts, annotation coverage, sidecar status, array payload summaries, and
+a quality-gate section. Use
 `--keypoint-mask-tolerance` to tune how far device keypoints may sit from the
 device mask before the index fails; the same option applies to `lumen validate`
 and `lumen index` when `--require-cv-labels` is enabled.
