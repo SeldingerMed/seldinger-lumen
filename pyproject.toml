@@ -52,6 +52,7 @@ lumen-index = "lumen.cli:index_main"
 lumen-inspect-index = "lumen.cli:inspect_index_main"
 lumen-materialize-batch = "lumen.cli:materialize_batch_main"
 lumen-split-index = "lumen.cli:split_index_main"
+lumen-dataset-card = "lumen.cli:dataset_card_main"
 lumen-calibrate = "lumen.cli:calibrate_main"
 
 [tool.setuptools.packages.find]

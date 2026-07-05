@@ -29,6 +29,8 @@ def _command_table():
                               materialize_batch_main),
         "split-index": ("Write episode-grouped train/val/test splits for a JSONL index.",
                         split_index_main),
+        "dataset-card": ("Generate a Markdown/JSON dataset card from a dataloader index.",
+                         dataset_card_main),
         "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
         "import-mask": ("Import a segmented .npz volume as a Lumen asset.", import_mask_main),
     }
@@ -726,6 +728,58 @@ def materialize_batch_main(argv=None, prog=None) -> None:
     print(f"materialized {manifest['records']} records -> {manifest['out_npz']}")
     print(f"manifest: {manifest['manifest_path']}")
     print(f"arrays: {arrays}")
+
+
+def dataset_card_main(argv=None, prog=None) -> None:
+    from lumen.data import build_dataset_card, write_dataset_card
+
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Generate a shareable Markdown or JSON dataset card from a Lumen index.")
+    parser.add_argument("index_path", help="JSONL index produced by `lumen index`.")
+    parser.add_argument("--out", default="DATASET_CARD.md",
+                        help="Output .md or .json path. Defaults to DATASET_CARD.md.")
+    parser.add_argument("--title", default="Lumen Dataset Card")
+    parser.add_argument("--base-dir",
+                        help="Resolve index-relative paths against this directory instead of the index parent.")
+    parser.add_argument("--check-paths", action="store_true",
+                        help="Check referenced observation/mask/node sidecars exist before writing the card.")
+    parser.add_argument("--check-arrays", action="store_true",
+                        help="Load arrays and include payload, mask coverage, and keypoint-distance QA.")
+    parser.add_argument("--require-cv-labels", action="store_true",
+                        help="Mark the card failed if fluoro rows lack masks or tip/base keypoints.")
+    parser.add_argument("--require-uniform-arrays", action="store_true",
+                        help="Load arrays and mark the card failed if payload shape/dtype mixes.")
+    parser.add_argument("--keypoint-mask-tolerance", type=float,
+                        default=KEYPOINT_MASK_TOLERANCE_PX,
+                        help="Max pixel distance from device keypoints to the device mask. Defaults to 1.5.")
+    args = parser.parse_args(argv)
+    if args.keypoint_mask_tolerance < 0:
+        parser.error("--keypoint-mask-tolerance must be non-negative")
+    try:
+        card = build_dataset_card(
+            args.index_path,
+            title=args.title,
+            base_dir=args.base_dir,
+            check_paths=args.check_paths,
+            check_arrays=args.check_arrays,
+            require_cv_labels=args.require_cv_labels,
+            require_uniform_arrays=args.require_uniform_arrays,
+            keypoint_mask_tolerance_px=args.keypoint_mask_tolerance,
+        )
+    except FileNotFoundError:
+        print(f"no index file at {args.index_path!r}")
+        raise SystemExit(1) from None
+    except ValueError as e:
+        print(f"invalid index {args.index_path!r}: {e}")
+        raise SystemExit(1) from None
+    out = write_dataset_card(card, args.out)
+    status = "pass" if not card["findings"] else "needs attention"
+    print(f"wrote dataset card: {out}")
+    print(f"quality_gate: {status}")
+    if card["findings"]:
+        for finding in card["findings"]:
+            print(f"  - {finding}")
 
 
 def calibrate_main(argv=None, prog=None) -> None:
