@@ -2,7 +2,7 @@
 
 This matrix is the contract for `lumen.newton.sim.NewtonGuidewireSim`: what works in a single simulation environment, what is vectorized across `n_envs > 1`, and which combinations intentionally fail fast. It tracks the explicit `NotImplementedError` paths in `lumen/newton/sim.py` so users do not discover solver limits only at runtime.
 
-Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally blocked / follow-up filed. Follow-up links point at the implementation issues that own each remaining batched feature gap.
+Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally blocked / follow-up filed. A 🚧 row with no follow-up is an intentional model boundary rather than an untracked implementation gap. Follow-up links point at the implementation issues that own each remaining batched feature gap.
 
 | Solver path | Single env (`n_envs=1`) | Batched envs (`n_envs>1`) | Runtime guard | Follow-up |
 |---|---:|---:|---|---|
