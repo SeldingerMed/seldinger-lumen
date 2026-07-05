@@ -50,16 +50,15 @@ class NewtonGuidewireSim:
         self.device = device or detect_device()      # cuda if available, else cpu
         self.R, self.kappa, self.d_hat = R, kappa, d_hat
         self.n_envs = int(n_envs)
-        # L0d.2a — optional COAXIAL microcatheter: a second rod (larger radius, stiffer)
-        # sharing the lumen with the guidewire. Single-env for now; flow/clot/stentriever
-        # run through the host path, with aspiration keyed to the catheter tip and
-        # flow-drag applied to the guidewire.
+        # L0d.2a — optional COAXIAL microcatheter: a second rod (larger radius,
+        # stiffer) sharing the lumen with the guidewire. Batched coaxial builds one
+        # guidewire+catheter assembly per env in a single Newton model; per-env bodies
+        # stay contiguous so contact/coupling kernels map body ids to the right wall
+        # block without host synchronization in substeps.
         self.coaxial = catheter_points is not None
         if self.coaxial:
             if len(catheter_points) < 2:          # fail fast, before _add_rod's opaque error
                 raise ValueError("catheter_points needs >= 2 nodes (a rod centerline)")
-            if self.n_envs != 1:
-                raise NotImplementedError("coaxial assemblies are single-env (batched coaxial is future)")
         self.contact_frame = CenterlineFrame(vessel_centerline)
         # Batched envs share one vessel (the contact is wire-vs-wall, never wire-vs-wire,
         # so E rods in one model are independent). For n_envs>1 the wall/clot/flow co-sim
@@ -91,13 +90,19 @@ class NewtonGuidewireSim:
             builder.body_inv_inertia[bodies[0]] = wp.mat33(0.0)
             return bodies
 
-        # guidewire (one rod per env). self.bodies stays the GUIDEWIRE so positions /
+        # One assembly per env. self.bodies stays the GUIDEWIRE so positions /
         # projection / flow are backward-compatible; the catheter rides _contact_bodies.
         self.bodies, self.bases = [], []
+        self.cath_bodies, self.cath_bases = [], []
         for _ in range(self.n_envs):
             gw = _add_rod(device_points, radius, stretch_stiffness, bend_stiffness)
             self.bodies.extend(gw)
             self.bases.append(gw[0])
+            if self.coaxial:
+                cath = _add_rod(catheter_points, catheter_radius,
+                                catheter_stretch_stiffness, catheter_bend_stiffness)
+                self.cath_bodies.extend(cath)
+                self.cath_bases.append(cath[0])
         if self.n_envs <= 0:
             raise ValueError("n_envs must be > 0")
         n_bodies = len(self.bodies)
@@ -107,14 +112,15 @@ class NewtonGuidewireSim:
                 "when computing n_per_env (integer division would cause incorrect env indexing)"
             )
         self.n_per_env = n_bodies // self.n_envs   # add_rod: N+1 points -> N bodies
-        self.base = self.bases[0]
-        # optional coaxial microcatheter (single-env): a second, larger, stiffer rod
-        self.cath_bodies, self.cath_bases = [], []
+        self.n_cath_per_env = 0
+        self.n_per_env_contact = self.n_per_env
         if self.coaxial:
-            cath = _add_rod(catheter_points, catheter_radius,
-                            catheter_stretch_stiffness, catheter_bend_stiffness)
-            self.cath_bodies.extend(cath)
-            self.cath_bases.append(cath[0])
+            n_cath_bodies = len(self.cath_bodies)
+            if n_cath_bodies % self.n_envs != 0:
+                raise ValueError("catheter bodies length must be evenly divisible by n_envs")
+            self.n_cath_per_env = n_cath_bodies // self.n_envs
+            self.n_per_env_contact = self.n_per_env + self.n_cath_per_env
+        self.base = self.bases[0]
         self._contact_bodies = self.bodies + self.cath_bodies   # both rods hit the wall
         if self.coaxial:
             # the guidewire and catheter are coupled by the radial constraint (L0d.2b),
@@ -147,7 +153,7 @@ class NewtonGuidewireSim:
                 raise NotImplementedError(
                     "edge-aware tree flow/clot coupling is not wired yet: flow drag and "
                     "clot grids need per-edge graph fields, not a single route centerline")
-            n_per_env_contact = len(self._contact_bodies) if self.coaxial else self.n_per_env
+            n_per_env_contact = self.n_per_env_contact
             self.solver.set_tree_contact(tree, self._contact_bodies, kappa=kappa, d_hat=d_hat,
                                          barrier_mode=barrier_mode, mu_along=mu_along,
                                          mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
@@ -155,9 +161,7 @@ class NewtonGuidewireSim:
                                          deformable_wall=deformable_wall, hgo_params=hgo_params,
                                          n_envs=self.n_envs, n_per_env=n_per_env_contact)
         else:
-            # single-env coaxial passes n_per_env = ALL bodies so every body maps to env 0
-            # (env = body_id // n_per_env); non-coaxial keeps the per-env guidewire blocking.
-            n_per_env_contact = len(self._contact_bodies) if self.coaxial else self.n_per_env
+            n_per_env_contact = self.n_per_env_contact
             self.solver.set_tube_contact(vessel_centerline, R, self._contact_bodies,
                                          kappa=kappa, d_hat=d_hat,
                                          barrier_mode=barrier_mode,
@@ -185,8 +189,8 @@ class NewtonGuidewireSim:
         if self.coaxial:                              # independent catheter proximal actuation
             self._cath_base_ids = wp.array(np.array(self.cath_bases, dtype=np.int32),
                                            dtype=wp.int32, device=self.device)
-            self._cath_ins_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
-            self._cath_tw_arr = wp.zeros(1, dtype=wp.float32, device=self.device)
+            self._cath_ins_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
+            self._cath_tw_arr = wp.zeros(self.n_envs, dtype=wp.float32, device=self.device)
             if couple_coaxial:                        # gw rides inside the catheter lumen (L0d.2b)
                 # forward the gw radius so the coupling keeps the gw SURFACE (not just its
                 # centre) inside the catheter inner lumen (the barrier limit is
@@ -194,7 +198,10 @@ class NewtonGuidewireSim:
                 self.solver.set_coaxial_coupling(self.bodies, self.cath_bodies,
                                                  catheter_inner_radius, kappa=coax_kappa,
                                                  d_hat=coax_d_hat, two_way=coax_two_way,
-                                                 gw_radius=radius)
+                                                 gw_radius=radius, n_envs=self.n_envs,
+                                                 n_gw_per_env=self.n_per_env,
+                                                 n_cath_per_env=self.n_cath_per_env,
+                                                 n_assembly_per_env=self.n_per_env_contact)
         self.flow = flow                 # optional NewtonFlow (lumped) or FlowField (1-D)
         if self._flow_is_field:
             # Bind the FlowField to this sim's batch/device. Its device arrays are
@@ -342,11 +349,13 @@ class NewtonGuidewireSim:
 
     def _actuate_catheter(self, insertion, twist):
         self._actuate(self._cath_base_ids, self._cath_ins_arr, self._cath_tw_arr,
-                      insertion, twist, 1)
+                      insertion, twist, self.n_envs)
 
     def step(self, dt: float = 2.5e-2, substeps: int = 5,
-             insertion: float = 0.0, twist: float = 0.0, preload=(0.0, 0.0, 0.0),
-             aspiration: float = 0.0, insertion_cath: float = 0.0, twist_cath: float = 0.0):
+             insertion: float | np.ndarray = 0.0, twist: float | np.ndarray = 0.0,
+             preload=(0.0, 0.0, 0.0),
+             aspiration: float = 0.0, insertion_cath: float | np.ndarray = 0.0,
+             twist_cath: float | np.ndarray = 0.0):
         """Advance the simulation by `dt` total, as `substeps` sub-steps of
         `dt/substeps` each (the standard substep convention).
 
@@ -356,12 +365,15 @@ class NewtonGuidewireSim:
         if self.flow is not None and aspiration:
             self.flow.aspiration = aspiration        # aspiration recovers downstream flow
         if self._use_device_coupling:                # n_envs>1 with clot/flow: on-device
-            self._step_device(sub_dt, substeps, insertion, twist, preload)
+            self._step_device(sub_dt, substeps, insertion, twist, preload,
+                              insertion_cath, twist_cath)
             return
         self._step_host(sub_dt, substeps, insertion, twist, preload, aspiration, dt,
                         insertion_cath, twist_cath)
 
-    def _step_device(self, sub_dt, substeps, insertion, twist, preload):
+    def _step_device(self, sub_dt, substeps, insertion, twist, preload,
+                     insertion_cath: float | np.ndarray = 0.0,
+                     twist_cath: float | np.ndarray = 0.0):
         """Batched per-substep co-sim entirely on device (no host round-trip):
         compose R0 (pulse − clot occlusion) -> flow solve -> local drag -> contact
         solve -> clot update. Each env reads/writes its own wall/clot/flow block."""
@@ -384,7 +396,10 @@ class NewtonGuidewireSim:
         for _ in range(substeps):
             self.state_0.clear_forces()
             self._actuate_base(np.asarray(insertion, np.float32) / substeps,
-                               np.asarray(twist, np.float32) / substeps)   # batched: no coaxial
+                               np.asarray(twist, np.float32) / substeps)
+            if self.coaxial:
+                self._actuate_catheter(np.asarray(insertion_cath, np.float32) / substeps,
+                                       np.asarray(twist_cath, np.float32) / substeps)
             if any(preload):
                 wp.launch(add_world_force, dim=self.body_ids.shape[0],
                           inputs=[self.body_ids, float(preload[0]), float(preload[1]),
@@ -454,8 +469,9 @@ class NewtonGuidewireSim:
         self.last_retrieval = self.clot.retrieve_batched(-ins, engagement, aspiration, dt)
 
     def _step_host(self, sub_dt, substeps, insertion, twist, preload, aspiration, dt,
-                   insertion_cath=0.0, twist_cath=0.0):
-        """Single-env (n_envs==1) path: the original host-side co-sim, unchanged."""
+                   insertion_cath: float | np.ndarray = 0.0,
+                   twist_cath: float | np.ndarray = 0.0):
+        """Host-side co-sim path for single-env or batched sims without device flow/clot."""
         # flow drag acts along the (slowly-varying) device tangents — compute once/step
         tang = None
         s_nodes = None

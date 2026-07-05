@@ -25,7 +25,6 @@ def test_solver_support_matrix_tracks_batched_guardrails():
     not_implemented_messages = _not_implemented_messages(sim)
 
     required_guards = [
-        ("coaxial assemblies are single-env (batched coaxial is future)", "coaxial assemblies are single-env"),
         (
             "batched flow requires the 1-D FlowField; the lumped NewtonFlow is single-env (analytic fallback)",
             "batched flow requires the 1-D FlowField",
@@ -57,8 +56,8 @@ def test_solver_support_matrix_tracks_batched_guardrails():
     assert "| Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling |" in support
     # Keep linked open follow-up issues distinct from closed gaps such as #56: resolved
     # issues may appear in prose as closure evidence, but should not remain linked as work.
-    issues_with_followup_links = {"53", "55"}
-    resolved_issues_without_followup_links = {"56"}
+    issues_with_followup_links = {"55"}
+    resolved_issues_without_followup_links = {"53", "54", "56"}
     for issue_ref in issues_with_followup_links | resolved_issues_without_followup_links:
         assert f"| #{issue_ref} |" not in support
         url = f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})"

@@ -12,7 +12,7 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | 1-D `FlowField` coupling | ✅ | ✅ | none | — |
 | Lumped `NewtonFlow` analytic fallback | ✅ | 🚧 | `batched flow requires the 1-D FlowField` | — |
 | Finite clot deformation/damage | ✅ | ✅ with `FlowField`/device coupling | none for batched clot alone | — |
-| Coaxial guidewire + catheter assembly | ✅ | 🚧 | `coaxial assemblies are single-env` | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) |
+| Coaxial guidewire + catheter assembly | ✅ | ✅ | none | — |
 | Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling | `batched stent-retriever retrieval requires the 1-D FlowField coupling path` for non-`FlowField` batched sims | — |
 | Vascular-tree contact | ✅ | ✅ | none | — |
 | Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
@@ -24,14 +24,18 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 
 | Gap | Implementation issue | Required closure evidence |
 |---|---|---|
-| Batched coaxial guidewire + catheter assemblies | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) | A two-env coaxial construction/step test with independent guidewire and catheter bases, plus unchanged single-env coaxial coverage. |
+
 | Tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | Edge-aware flow/clot coverage on graph edges. Batched tree contact is covered by a two-env tree contact test on a procedural tree; flow/clot stays guarded until it has graph fields instead of a single route centerline. |
 
-## Why the remaining gaps exist
+## Closed batched gaps
 
 ### Coaxial batching (#53)
 
-The single-env coaxial path adds one catheter rod, one catheter base, and one set of catheter insertion/twist arrays. Batched support must allocate one catheter assembly per env and preserve the body-to-env mapping for both tube contact and coaxial guidewire-catheter coupling. Until then, `n_envs > 1` would mix bodies across envs, so the constructor fails fast.
+Batched coaxial guidewire + catheter assemblies now allocate one guidewire rod, one catheter rod, one guidewire base, and one catheter base per env. Bodies are created as contiguous per-env assemblies so tube/tree wall contact can map body ids to the correct env wall block, while the coaxial coupling kernel restricts each guidewire to its own env's catheter centerline. Closure evidence: a two-env coaxial construction/step test drives independent guidewire and catheter base arrays and preserves the existing single-env coaxial coverage.
+
+### Stent-retriever batching (#54)
+
+Batched stent-retriever capture/slip/fragmentation is supported when the sim uses the 1-D `FlowField` clot/device coupling path. The remaining guard requires `FlowField` for batched retrieval because the analytic lumped flow path is still single-env.
 
 ### Tree flow/clot (#55)
 

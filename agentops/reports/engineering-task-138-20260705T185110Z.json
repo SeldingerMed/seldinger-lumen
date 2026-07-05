@@ -1,0 +1,74 @@
+{
+  "task_id": 138,
+  "title": "seldinger-lumen#53: Implement batched coaxial guidewire + catheter assemblies",
+  "issue_url": "https://github.com/SeldingerMed/seldinger-lumen/issues/53",
+  "repo": "SeldingerMed/seldinger-lumen",
+  "repo_path": "/Users/colin/Desktop/projects/seldinger/.worktrees/seldinger-lumen-task132",
+  "base_branch": "master",
+  "branch": "feat/task132-batched-coaxial",
+  "head_sha": "417f846a74f7031aaadcb1080361e24e537a6cfc",
+  "pr_number": 77,
+  "pr_url": "https://github.com/SeldingerMed/seldinger-lumen/pull/77",
+  "merge_policy": "do_not_merge",
+  "overlap_handling": "Existing open PR #77 already addressed issue #53; used and verified the existing overlapping branch instead of opening a duplicate PR.",
+  "implementation_summary": [
+    "Batched coaxial construction builds one guidewire rod and one catheter rod per env in a single Newton model.",
+    "Per-env guidewire and catheter base actuation arrays are allocated and exercised by tests.",
+    "n_per_env_contact/n_cath_per_env map guidewire+catheter body blocks to the correct env for wall contact and coaxial coupling.",
+    "Coaxial coupling keeps each guidewire scoped to its env catheter centerline while preserving two-way reactions.",
+    "Solver support documentation marks coaxial batching closed and links issue #53 closure evidence."
+  ],
+  "local_checks": [
+    {
+      "command": "python -m ruff check .",
+      "result": "pass",
+      "evidence": "All checks passed!"
+    },
+    {
+      "command": "python -m pytest tests/test_newton_coaxial.py tests/test_newton_coaxial_coupling.py tests/test_newton_batched.py tests/test_solver_support_docs.py -q",
+      "result": "pass",
+      "evidence": "23 passed in 8.67s"
+    },
+    {
+      "command": "python -m pytest -q",
+      "result": "pass",
+      "evidence": "354 passed in 338.71s"
+    }
+  ],
+  "mandatory_review": {
+    "engine": "openai-codex/gpt-5.5",
+    "request_path": "/Users/colin/Desktop/projects/seldinger/.worktrees/seldinger-lumen-task132/agentops/reports/review-request-task138.md",
+    "loop_count": 1,
+    "result": "REVIEW_RESULT: PASS",
+    "notes": "Static scan found no added secret/injection/eval/pickle/SQL-formatting risks; git diff --check passed; targeted regression suite passed: 23 passed in 8.36s."
+  },
+  "ci_state": {
+    "overall": "pass",
+    "merge_state_status": "CLEAN",
+    "checks": [
+      {"name": "dco", "state": "pass"},
+      {"name": "docs build + links", "state": "pass"},
+      {"name": "lint", "state": "pass"},
+      {"name": "review / review", "state": "pass"},
+      {"name": "test (py3.10)", "state": "pass"},
+      {"name": "test (py3.11)", "state": "pass"},
+      {"name": "test (py3.12)", "state": "pass"}
+    ]
+  },
+  "robinreview_state": {
+    "overall": "pass",
+    "issue_comment": "Review done. Nothing worth flagging — looks clean to me.",
+    "review_comment": "No issues found; implementation correctly partitions catheter bodies per environment and passes necessary parameters to the coupling kernel.",
+    "inline_comments": 0,
+    "rerun_requested": false,
+    "rerun_reason": "No new code changes were pushed in this task run; existing Robin review is green on current head SHA."
+  },
+  "security_and_data": {
+    "secrets_committed": false,
+    "phi_or_private_clinical_data": false,
+    "new_external_assets_or_dependencies": false,
+    "license_notes": "Apache-2.0 repo; implementation uses existing Newton/Warp code paths."
+  },
+  "blockers": [],
+  "created_at_utc": "2026-07-05T18:51:10Z"
+}
