@@ -54,12 +54,12 @@ def test_solver_support_matrix_tracks_batched_guardrails():
     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
     assert "| Vascular-tree contact | ✅ | ✅ | none | — |" in support
     assert "| Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling |" in support
-    tracked_issue_refs = {"53", "55"}
-    excluded_issue_refs = {"56"}
-    for issue_ref in tracked_issue_refs | excluded_issue_refs:
+    issues_with_followup_links = {"53", "55"}
+    resolved_issues_without_followup_links = {"56"}
+    for issue_ref in issues_with_followup_links | resolved_issues_without_followup_links:
         assert f"| #{issue_ref} |" not in support
         url = f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})"
-        if issue_ref in tracked_issue_refs:
+        if issue_ref in issues_with_followup_links:
             assert url in support
         else:
             assert url not in support
