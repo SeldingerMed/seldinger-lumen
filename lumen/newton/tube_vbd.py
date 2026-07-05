@@ -461,6 +461,8 @@ class TubeVBDSolver(SolverVBD):
         self._coax_n_cath = len(cath_body_ids)
         if n_envs <= 0:
             raise ValueError("n_envs must be > 0 for coaxial coupling")
+        if n_cath_per_env is not None and n_cath_per_env < 2:
+            raise ValueError("n_cath_per_env must be >= 2 for coaxial coupling")
         if n_cath_per_env is None:
             if len(cath_body_ids) % n_envs != 0:
                 raise ValueError("catheter body count must be evenly divisible by n_envs")
