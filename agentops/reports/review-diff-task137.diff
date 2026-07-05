@@ -1,0 +1,191 @@
+diff --git a/docs/SOLVER_SUPPORT.md b/docs/SOLVER_SUPPORT.md
+index 1b3ed24..325872a 100644
+--- a/docs/SOLVER_SUPPORT.md
++++ b/docs/SOLVER_SUPPORT.md
+@@ -13,7 +13,6 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
+ | Lumped `NewtonFlow` analytic fallback | ✅ | 🚧 | `batched flow requires the 1-D FlowField` | — |
+ | Finite clot deformation/damage | ✅ | ✅ with `FlowField`/device coupling | none for batched clot alone | — |
+ | Coaxial guidewire + catheter assembly | ✅ | 🚧 | `coaxial assemblies are single-env` | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) |
+-<<<<<<< HEAD
+ | Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling | `batched stent-retriever retrieval requires the 1-D FlowField coupling path` for non-`FlowField` batched sims | — |
+ | Vascular-tree contact | ✅ | ✅ | none | — |
+ | Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+@@ -26,8 +25,6 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
+ | Gap | Implementation issue | Required closure evidence |
+ |---|---|---|
+ | Batched coaxial guidewire + catheter assemblies | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) | A two-env coaxial construction/step test with independent guidewire and catheter bases, plus unchanged single-env coaxial coverage. |
+-<<<<<<< HEAD
+-| Batched stent-retriever clot retrieval | [#54](https://github.com/SeldingerMed/seldinger-lumen/issues/54) | A two-env retrieval test where capture/slip/fragmentation state diverges per env without host-state bleed-through. |
+ | Tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | Edge-aware flow/clot coverage on graph edges. Batched tree contact is covered by a two-env tree contact test on a procedural tree; flow/clot stays guarded until it has graph fields instead of a single route centerline. |
+ | Batched aneurysm flow-diverter simulations | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) | A two-env aneurysm test with per-env sac state and neck-pressure reads from the matching batched `FlowField`. |
+ 
+@@ -39,7 +36,7 @@ The single-env coaxial path adds one catheter rod, one catheter base, and one se
+ 
+ ### Stent-retriever batching (#54)
+ 
+-Retrieval currently performs capture, slip, fragmentation, and force-balance updates as per-env host logic. Batched retrieval needs independent device or batched host state for each clot/retriever pair so one env's capture event cannot affect another env.
++Stent-retriever capture/slip/fragmentation is batched when paired with the 1-D `FlowField` and clot device-coupling path. Each env keeps separate clot occlusion, damage, live-mask, retrieved distance, engagement, aspiration, and retrieval result arrays; the single-env attributes mirror env 0 for backward compatibility. Batched sims still reject lumped `NewtonFlow` because the analytic model has only one aspiration/occlusion state.
+ 
+ ### Tree flow/clot (#55)
+ 
+diff --git a/lumen/newton/clot.py b/lumen/newton/clot.py
+index 5ca5e16..5724b54 100644
+--- a/lumen/newton/clot.py
++++ b/lumen/newton/clot.py
+@@ -266,7 +266,9 @@ class ClotField:
+         self.sync_to_device()
+         return {"status": "retrieve", "retrieved": self.retrieved}
+ 
+-    def retrieve_batched(self, delta_s, engagement, aspiration=0.0,
++    def retrieve_batched(self, delta_s: float | np.ndarray,
++                         engagement: float | np.ndarray,
++                         aspiration: float | np.ndarray = 0.0,
+                          dt: float = 2.5e-2) -> list[dict]:
+         """Attempt independent retrieval in each env from batched host arrays."""
+         self.sync_from_device()
+diff --git a/tests/test_newton_stentriever.py b/tests/test_newton_stentriever.py
+index 487d619..c7430c2 100644
+--- a/tests/test_newton_stentriever.py
++++ b/tests/test_newton_stentriever.py
+@@ -44,6 +44,18 @@ def test_high_grip_fragments_and_aspiration_rescues():
+     assert r["status"] == "retrieve" and r["retrieved"] == 2.0
+ 
+ 
++def test_batched_retrieve_keeps_fragmentation_independent():
++    c = ClotField(80.0, 40, 8, 2.0, 35, 45, 1.6,
++                  ClotParams(grip_coeff=0.4), n_envs=2, device="cpu")
++    st = Stentriever(deployed_center=40, radial_force=0.2, n_struts=6)
++    engagement = [st.engagement_strength_for_mask(c.s_grid, c.mask_env[e]) for e in range(2)]
++    r = c.retrieve_batched(2.0, engagement, aspiration=np.array([0.06, 0.0]))
++    assert [x["status"] for x in r] == ["retrieve", "fragment"]
++    assert c.retrieved_env.tolist() == [2.0, 0.0]
++    assert c.D_env[0].max() == 0.0
++    assert c.D_env[1].max() > 0.0
++
++
+ def test_stentriever_retrieves_clot_in_full_sim():
+     pytest.importorskip("warp")
+     pytest.importorskip("newton")
+diff --git a/tests/test_solver_support_docs.py b/tests/test_solver_support_docs.py
+index 2022e0a..cdefd1b 100644
+--- a/tests/test_solver_support_docs.py
++++ b/tests/test_solver_support_docs.py
+@@ -30,10 +30,6 @@ def test_solver_support_matrix_tracks_batched_guardrails():
+             "batched flow requires the 1-D FlowField; the lumped NewtonFlow is single-env (analytic fallback)",
+             "batched flow requires the 1-D FlowField",
+         ),
+-        (
+-            "batched stent-retriever retrieval is not ported (per-env host force balance); run retrieval single-env",
+-            "batched stent-retriever retrieval is not ported",
+-        ),
+         (
+             "tree contact takes R0 from each edge's lumen field; a sim-level lumen_field doesn't apply",
+             "tree contact takes R0 from each edge's lumen field",
+@@ -51,9 +47,12 @@ def test_solver_support_matrix_tracks_batched_guardrails():
+         assert source_guard in not_implemented_messages
+         assert doc_guard in support
+ 
++    assert "<<<<<<<" not in support and ">>>>>>>" not in support
+     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
+     assert "| Vascular-tree contact | ✅ | ✅ | none | — |" in support
+     assert "| Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling |" in support
++    assert "batched stent-retriever retrieval is not ported" not in support
++    assert "[#54](https://github.com/SeldingerMed/seldinger-lumen/issues/54)" not in support
+     for issue_ref in ("53", "55", "56"):
+         assert f"| #{issue_ref} |" not in support
+         assert f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})" in support
+diff --git a/lumen/newton/flow.py b/lumen/newton/flow.py
+index ae9da06..c4a68d1 100644
+--- a/lumen/newton/flow.py
++++ b/lumen/newton/flow.py
+@@ -262,7 +262,8 @@ class FlowField:
+         tip_s = s.max(axis=1)
+         it = np.clip(np.round(tip_s / s_max * (n_s - 1)), 0, n_s - 1).astype(np.int32)
+         self._tip_d.assign(it)
+-        asp = np.full(self.n_envs, min(max(self.aspiration, 0.0), 1.0), np.float32)
++        asp = np.broadcast_to(np.asarray(self.aspiration, dtype=float), (self.n_envs,))
++        asp = np.clip(asp, 0.0, 1.0).astype(np.float32)
+         self._asp_d.assign(asp)
+ 
+     def solve_device(self, r0_field, n_s: int, n_th: int, s_max: float) -> None:
+diff --git a/lumen/newton/sim.py b/lumen/newton/sim.py
+index a5a8fd0..3a511d1 100644
+--- a/lumen/newton/sim.py
++++ b/lumen/newton/sim.py
+@@ -345,16 +345,17 @@ class NewtonGuidewireSim:
+                       insertion, twist, 1)
+ 
+     def step(self, dt: float = 2.5e-2, substeps: int = 5,
+-             insertion: float = 0.0, twist: float = 0.0, preload=(0.0, 0.0, 0.0),
+-             aspiration: float = 0.0, insertion_cath: float = 0.0, twist_cath: float = 0.0):
++             insertion: float | np.ndarray = 0.0, twist: float | np.ndarray = 0.0,
++             preload=(0.0, 0.0, 0.0), aspiration: float | np.ndarray = 0.0,
++             insertion_cath: float = 0.0, twist_cath: float = 0.0):
+         """Advance the simulation by `dt` total, as `substeps` sub-steps of
+         `dt/substeps` each (the standard substep convention).
+ 
+         `insertion_cath`/`twist_cath` independently actuate the coaxial microcatheter
+         (ignored when there is no catheter)."""
+         sub_dt = dt / substeps
+-        if self.flow is not None and aspiration:
+-            self.flow.aspiration = aspiration        # aspiration recovers downstream flow
++        if self.flow is not None:
++            self.flow.aspiration = aspiration        # scalar or per-env suction command
+         if self._use_device_coupling:                # n_envs>1 with clot/flow: on-device
+             self._step_device(sub_dt, substeps, insertion, twist, preload)
+             return
+@@ -434,9 +435,10 @@ class NewtonGuidewireSim:
+             st.engagement_strength_for_mask(self.clot.s_grid, self.clot.mask_env[e])
+             for e, st in enumerate(stents)
+         ], dtype=float)
+-        aspiration = np.full(self.n_envs,
+-                             self.flow.aspiration if self.flow is not None else 0.0,
+-                             dtype=float)
++        aspiration = np.broadcast_to(
++            np.asarray(self.flow.aspiration if self.flow is not None else 0.0, dtype=float),
++            (self.n_envs,),
++        ).astype(float)
+         wall = self.solver._wall
+         if self._flow_is_field and self.flow is not None and getattr(self.flow, "_P_d", None) is not None:
+             P = self.flow._P_d.numpy().reshape(self.n_envs, wall.n_s)
+diff --git a/tests/test_newton_batched.py b/tests/test_newton_batched.py
+index ddfb041..433e91d 100644
+--- a/tests/test_newton_batched.py
++++ b/tests/test_newton_batched.py
+@@ -164,3 +164,36 @@ def test_batched_stentriever_retrieval_diverges_per_env():
+     assert centres[0] < centre0[0] - 0.5
+     assert abs(centres[1] - centre0[1]) < 1e-6
+     assert sim.clot.retrieved_env.tolist() == [2.0, 0.0]
++
++
++def test_batched_stentriever_accepts_per_env_aspiration():
++    # Per-env suction is part of the batched retrieval contract: env 0 uses
++    # aspiration to overcome a high-grip clot while env 1, with the same stent
++    # and clot parameters, fragments independently.
++    from lumen.newton.devices import Stentriever
++    from lumen.newton.clot import ClotParams
++    from lumen.newton.flow import FlowField, FlowFieldParams
++    vessel, dev = _vessel_and_device(M=60, L=120.0, n=11)
++    st = Stentriever(deployed_center=62, radial_force=0.2, n_struts=6)
++    sim = NewtonGuidewireSim(
++        vessel, 2.0, dev, radius=0.2, kappa=3e3, d_hat=0.3,
++        flow=FlowField(FlowFieldParams(P_mean=0.0, P_pulse=0.0)),
++        clot_segment=(55, 70), clot_height=1.6,
++        clot_params=ClotParams(grip_coeff=0.4),
++        stentriever=st, n_envs=2, device="cpu",
++    )
++    sim.step(dt=2.5e-2, substeps=2)
++    centre0 = sim.clot.clot_centers().copy()
++    sim.step(
++        dt=2.5e-2,
++        substeps=2,
++        insertion=np.array([-2.0, -2.0]),
++        aspiration=np.array([0.06, 0.0]),
++    )
++    statuses = [r["status"] for r in sim.last_retrieval]
++    assert statuses == ["retrieve", "fragment"]
++    centres = sim.clot.clot_centers()
++    assert centres[0] < centre0[0] - 0.5
++    assert sim.clot.retrieved_env.tolist() == [2.0, 0.0]
++    assert sim.clot.D_env[0].max() == 0.0
++    assert sim.clot.D_env[1].max() > 0.0
