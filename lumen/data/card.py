@@ -43,7 +43,7 @@ def _format_percent(summary: dict | None) -> str:
 
 def _quality_findings(summary: dict) -> list[str]:
     findings = []
-    if summary["records"] == 0:
+    if summary.get("records", 0) == 0:
         findings.append("index contains no records")
     for field, missing in summary.get("missing_paths", {}).items():
         if missing:
@@ -87,16 +87,16 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
         f"# {title}",
         "",
         f"Generated: {generated_at}",
-        f"Index: `{summary['index_path']}`",
+        f"Index: `{summary.get('index_path', 'unknown')}`",
         "Provenance policy: this card is generated from index metadata; no PHI or private clinical data is embedded.",
         "",
         "## Corpus summary",
         "",
-        f"- Records: {summary['records']}",
-        f"- Episodes: {len(summary['episodes'])} ({_format_counts(summary['episodes'])})",
-        f"- Modalities: {_format_counts(summary['modalities'])}",
-        f"- Outcome labels: {_format_counts(summary['labels'])}",
-        f"- Calibration types: {_format_counts(summary['calibration_types'])}",
+        f"- Records: {summary.get('records', 0)}",
+        f"- Episodes: {len(summary.get('episodes', {}))} ({_format_counts(summary.get('episodes', {}))})",
+        f"- Modalities: {_format_counts(summary.get('modalities', {}))}",
+        f"- Outcome labels: {_format_counts(summary.get('labels', {}))}",
+        f"- Calibration types: {_format_counts(summary.get('calibration_types', {}))}",
         "",
         "## Clinical endpoints",
         "",
@@ -107,7 +107,7 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
         "",
         "## Annotation coverage",
         "",
-        f"- Steps with keypoints: {annotations.get('keypoint_steps', 0)}/{summary['records']}",
+        f"- Steps with keypoints: {annotations.get('keypoint_steps', 0)}/{summary.get('records', 0)}",
         f"- Keypoints present: {_format_counts(annotations.get('keypoints_present', {}))}",
         f"- Keypoints total: {_format_counts(annotations.get('keypoints_total', {}))}",
         f"- CV labels required: {str(annotations.get('cv_labels_required', False)).lower()}",
@@ -122,18 +122,18 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
         lines.append(f"- {field}: {count} refs, {missing} missing")
     if summary.get("array_payloads"):
         lines += ["", "Array payloads:"]
-        for name, payloads in summary["array_payloads"].items():
+        for name, payloads in summary.get("array_payloads", {}).items():
             payload_text = ", ".join(
                 f"{item['shape']} {item['dtype']} n={item['count']}" for item in payloads
             )
             lines.append(f"- {name}: {payload_text}")
     if summary.get("mask_coverage"):
         lines += ["", "Mask coverage:"]
-        for name, values in summary["mask_coverage"].items():
+        for name, values in summary.get("mask_coverage", {}).items():
             lines.append(f"- {name}: {_format_percent(values)}")
     if summary.get("keypoint_device_distance"):
         lines += ["", "Device-keypoint distance:"]
-        for name, values in summary["keypoint_device_distance"].items():
+        for name, values in summary.get("keypoint_device_distance", {}).items():
             lines.append(f"- {name}: {_format_numeric(values, 'px')}")
     lines += ["", "## Quality gate", ""]
     if findings:

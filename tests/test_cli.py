@@ -1149,3 +1149,40 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     assert "indexed 0 step records from 0/2 valid case bundles" in out
     assert "no index records emitted" in out
     assert not none_index.exists()
+
+def test_dataset_card_cli_reports_array_and_keypoint_errors(tmp_path, capsys):
+    from lumen.cli import dataset_card_main
+    
+    obs_dir = tmp_path / "case" / "obs"
+    obs_dir.mkdir(parents=True)
+    np.save(obs_dir / "000.npy", np.ones((4, 4), dtype=np.float32))
+    np.save(obs_dir / "001.npy", np.ones((5, 5), dtype=np.float32))
+    
+    row1 = {
+        "episode": "case", "episode_dir": "case", "label": "c", "step_index": 0, "t": 0.0,
+        "obs_modality": "fluoro", "obs_path": "case/obs/000.npy",
+        "keypoints": {"tip": {"uv": [10.0, 10.0], "present": True}},
+        "action": {}, "kinematics": {}, "labels": {},
+        "calibration_type": "carm", "provenance": "procedural", "version": "lumen-episode/0",
+    }
+    row2 = {
+        **row1, "step_index": 1, "t": 1.0, "obs_path": "case/obs/001.npy",
+        "keypoints": {"tip": {"uv": [2.0, 2.0], "present": True}},
+    }
+    
+    index_path = tmp_path / "index.jsonl"
+    index_path.write_text(json.dumps(row1) + "\n" + json.dumps(row2) + "\n")
+    
+    card_path = tmp_path / "DATASET_CARD.md"
+    dataset_card_main([
+        str(index_path), "--out", str(card_path),
+        "--check-arrays", "--require-uniform-arrays",
+        "--keypoint-mask-tolerance", "1.0",
+    ])
+    out = capsys.readouterr().out
+    assert "quality_gate: needs attention" in out
+    
+    card = card_path.read_text()
+    assert "Status: needs attention" in card
+    assert "array payloads are not uniform for fixed-shape batching" in card
+    assert "keypoint QA found invalid or off-device keypoints" in card
