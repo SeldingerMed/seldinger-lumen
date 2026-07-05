@@ -155,8 +155,8 @@ handoff artifact with provenance, clinical endpoint, annotation coverage, sideca
 and array-payload sections. Add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
 keypoints, `--check-arrays` to load referenced arrays, report observation/mask/node
 shape and dtype counts, report mask coverage and keypoint-to-device distances,
-reject empty/bad masks, and catch off-frame or off-device keypoints, and `--json`
-for scripts and notebooks. Add `--require-uniform-arrays` before fixed-shape
+reject empty/bad masks, and catch off-frame or off-device keypoints (JSON output
+is selected automatically via a `.json` file extension). Add `--require-uniform-arrays` before fixed-shape
 batch training to fail if any loaded array field mixes shape/dtype payloads.
 `lumen materialize-batch` writes a compressed `.npz` smoke-test batch plus
 `.manifest.json` from the first valid index rows; it fails fast on missing or

@@ -83,6 +83,7 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
     clinical = summary.get("clinical", {})
     annotations = summary.get("annotations", {})
 
+    episodes = summary.get('episodes', {})
     lines = [
         f"# {title}",
         "",
@@ -93,7 +94,7 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
         "## Corpus summary",
         "",
         f"- Records: {summary.get('records', 0)}",
-        f"- Episodes: {len(summary.get('episodes', {}))} ({_format_counts(summary.get('episodes', {}))})",
+        f"- Episodes: {len(episodes)} ({_format_counts(episodes)})",
         f"- Modalities: {_format_counts(summary.get('modalities', {}))}",
         f"- Outcome labels: {_format_counts(summary.get('labels', {}))}",
         f"- Calibration types: {_format_counts(summary.get('calibration_types', {}))}",
@@ -124,7 +125,7 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
         lines += ["", "Array payloads:"]
         for name, payloads in summary.get("array_payloads", {}).items():
             payload_text = ", ".join(
-                f"{item['shape']} {item['dtype']} n={item['count']}" for item in payloads
+                f"{item.get('shape', 'unknown')} {item.get('dtype', 'unknown')} n={item.get('count', 0)}" for item in payloads
             )
             lines.append(f"- {name}: {payload_text}")
     if summary.get("mask_coverage"):
