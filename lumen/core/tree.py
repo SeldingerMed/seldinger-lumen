@@ -131,6 +131,54 @@ class VascularTree:
                               s=best_pr.s, theta=best_pr.theta, r=best_pr.r,
                               e_r=best_pr.e_r, R=R, gap=R - best_pr.r)
 
+    def project_edge_s(self, points) -> tuple[np.ndarray, np.ndarray]:
+        """Vectorized nearest tree edge and local arc-length for many points.
+
+        This intentionally returns only ``edge_index`` and ``s`` for hot paths such
+        as tree-flow drag sampling. Full ``project()`` still computes θ/r/e_r/R/gap
+        for contact and diagnostics, but looping through that richer object per
+        solver node is unnecessary when flow only needs env×edge×s addresses.
+        """
+        P = np.asarray(points, dtype=float)
+        if P.shape == (3,):
+            leading = ()
+            flat = P[None, :]
+        elif P.ndim >= 2 and P.shape[-1] == 3:
+            leading = P.shape[:-1]
+            flat = P.reshape(-1, 3)
+        else:
+            raise ValueError("points must have shape (..., 3)")
+        all_s = []
+        all_d2 = []
+        for e in self.edges:
+            s, d2 = self._project_s_d2(e.frame, flat)
+            all_s.append(s)
+            all_d2.append(d2)
+        d2_stack = np.stack(all_d2, axis=1)
+        s_stack = np.stack(all_s, axis=1)
+        rows = np.arange(flat.shape[0])
+        edge = np.argmin(d2_stack, axis=1).astype(np.int32)
+        s = s_stack[rows, edge].astype(np.float32)
+        return edge.reshape(leading), s.reshape(leading)
+
+    @staticmethod
+    def _project_s_d2(frame: CenterlineFrame, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Nearest-segment arc length and squared distance for a batch of points."""
+        a = frame.points[:-1]
+        ab = frame.points[1:] - a
+        denom = np.einsum("mj,mj->m", ab, ab)
+        denom[denom == 0] = 1.0
+        num = np.einsum("nj,mj->nm", points, ab) - np.einsum("mj,mj->m", a, ab)[None]
+        u = np.clip(num / denom[None], 0.0, 1.0)
+        foot = a[None] + u[:, :, None] * ab[None]
+        diff = points[:, None, :] - foot
+        d2 = np.einsum("nmj,nmj->nm", diff, diff)
+        j = np.argmin(d2, axis=1)
+        rows = np.arange(points.shape[0])
+        seglen = np.linalg.norm(ab[j], axis=1)
+        s = frame.cum_s[j] + u[rows, j] * seglen
+        return s, d2[rows, j]
+
     def gap(self, p) -> float:
         return self.project(p).gap
 

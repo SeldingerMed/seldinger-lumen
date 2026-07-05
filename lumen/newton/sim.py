@@ -400,13 +400,7 @@ class NewtonGuidewireSim:
         tang[:, 0] = pos[:, 1] - pos[:, 0]
         tang[:, -1] = pos[:, -1] - pos[:, -2]
         tang /= (np.linalg.norm(tang, axis=2, keepdims=True) + 1e-12)
-        edge = np.zeros((self.n_envs, self.n_per_env), dtype=np.int32)
-        s = np.zeros((self.n_envs, self.n_per_env), dtype=np.float32)
-        for env in range(self.n_envs):
-            for node in range(self.n_per_env):
-                pr = self.tree.project(pos[env, node])
-                edge[env, node] = pr.edge_index
-                s[env, node] = pr.s
+        edge, s = self.tree.project_edge_s(pos)
         return edge, s, tang
 
     def _tree_radius_blocks(self, pulse: float):
@@ -415,6 +409,9 @@ class NewtonGuidewireSim:
         n_edges = self.solver._tree_n_edges
         n_s, n_th = wall.n_s, wall.n_th
         base = self._tree_base_R0.astype(np.float32) * np.float32(pulse)
+        # The tree wall stores the solver's current open-radius field. Updating
+        # it here applies the pulsatile baseline before reading R0+w for flow;
+        # contact and deformation continue to share that same per-edge wall state.
         wall.r0_field.assign(base)
         r = wall.r0_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)
         w = wall.w_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)

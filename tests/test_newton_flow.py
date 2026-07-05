@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from lumen.newton.flow import NewtonFlow, FlowParams
+from lumen.newton.flow import NewtonFlow, FlowParams, FlowField
 
 
 def test_windkessel_decay_and_pulse():
@@ -30,6 +30,23 @@ def test_drag_scales_with_flow():
     lo = NewtonFlow(FlowParams(Q_mean=2.0, Q_pulse=0.0, drag_coeff=30.0))
     hi = NewtonFlow(FlowParams(Q_mean=6.0, Q_pulse=0.0, drag_coeff=30.0))
     assert hi.drag_per_unit_tangent() > lo.drag_per_unit_tangent() > 0
+
+
+def test_tree_flow_tip_shape_validation_is_explicit():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((2, 3, 5)), np.ones(3))
+    with pytest.raises(ValueError, match=r"tree tip edge_index must broadcast to \(n_envs,\)"):
+        f.set_tree_tips([0, 1, 2], [1.0, 2.0, 3.0])
+    with pytest.raises(ValueError, match=r"tree tip s_tip must broadcast to \(n_envs,\)"):
+        f.set_tree_tips([0, 1], [1.0, 2.0, 3.0])
+
+
+def test_tree_drag_shape_validation_is_explicit():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((2, 3, 5)), np.ones(3))
+    f.solve_tree()
+    with pytest.raises(ValueError, match="tree drag inputs must have matching shapes"):
+        f.drag_at_tree([0, 1], [0], [0.0, 1.0])
 
 
 def test_pulsatility_modulates_lumen_in_sim():

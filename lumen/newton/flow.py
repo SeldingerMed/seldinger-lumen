@@ -313,8 +313,16 @@ class FlowField:
     def set_tree_tips(self, edge_index, s_tip) -> None:
         """Per-env aspiration/drag tip as an edge id plus local edge arc-length."""
         import numpy as np
-        self._tree_tip_edge = np.asarray(edge_index, dtype=int).reshape(self.n_envs)
-        self._tree_tip_s = np.asarray(s_tip, dtype=float).reshape(self.n_envs)
+        try:
+            edge = np.broadcast_to(np.asarray(edge_index, dtype=int), (self.n_envs,))
+        except ValueError as exc:
+            raise ValueError("tree tip edge_index must broadcast to (n_envs,)") from exc
+        try:
+            s = np.broadcast_to(np.asarray(s_tip, dtype=float), (self.n_envs,))
+        except ValueError as exc:
+            raise ValueError("tree tip s_tip must broadcast to (n_envs,)") from exc
+        self._tree_tip_edge = edge.astype(int, copy=True)
+        self._tree_tip_s = s.astype(float, copy=True)
 
     def solve_tree(self) -> None:
         """Solve independent 1-D fields on every tree edge for every env.
@@ -369,6 +377,8 @@ class FlowField:
         env = np.asarray(env_index, dtype=int)
         edge = np.asarray(edge_index, dtype=int)
         s = np.asarray(s_query, dtype=float)
+        if env.shape != edge.shape or env.shape != s.shape:
+            raise ValueError("tree drag inputs must have matching shapes")
         out = np.zeros_like(s, dtype=float)
         if self._tree_v is None:
             return out
