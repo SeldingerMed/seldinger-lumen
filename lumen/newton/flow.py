@@ -262,7 +262,7 @@ class FlowField:
         tip_s = s.max(axis=1)
         it = np.clip(np.round(tip_s / s_max * (n_s - 1)), 0, n_s - 1).astype(np.int32)
         self._tip_d.assign(it)
-        asp = np.broadcast_to(np.asarray(self.aspiration, dtype=float), (self.n_envs,))
+        asp = np.broadcast_to(np.asarray(self.aspiration, dtype=np.float32), (self.n_envs,))
         asp = np.clip(asp, 0.0, 1.0).astype(np.float32)
         self._asp_d.assign(asp)
 
