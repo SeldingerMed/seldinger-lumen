@@ -44,6 +44,18 @@ def test_high_grip_fragments_and_aspiration_rescues():
     assert r["status"] == "retrieve" and r["retrieved"] == 2.0
 
 
+def test_batched_retrieve_keeps_fragmentation_independent():
+    c = ClotField(80.0, 40, 8, 2.0, 35, 45, 1.6,
+                  ClotParams(grip_coeff=0.4), n_envs=2, device="cpu")
+    st = Stentriever(deployed_center=40, radial_force=0.2, n_struts=6)
+    engagement = [st.engagement_strength_for_mask(c.s_grid, c.mask_env[e]) for e in range(2)]
+    r = c.retrieve_batched(2.0, engagement, aspiration=np.array([0.06, 0.0]))
+    assert [x["status"] for x in r] == ["retrieve", "fragment"]
+    assert c.retrieved_env.tolist() == [2.0, 0.0]
+    assert c.D_env[0].max() == 0.0
+    assert c.D_env[1].max() > 0.0
+
+
 def test_stentriever_retrieves_clot_in_full_sim():
     pytest.importorskip("warp")
     pytest.importorskip("newton")

@@ -266,7 +266,7 @@ class ClotField:
         self.sync_to_device()
         return {"status": "retrieve", "retrieved": self.retrieved}
 
-    def retrieve_batched(self, delta_s, engagement, aspiration=0.0,
+    def retrieve_batched(self, delta_s, engagement, aspiration: float | np.ndarray = 0.0,
                          dt: float = 2.5e-2) -> list[dict]:
         """Attempt independent retrieval in each env from batched host arrays."""
         self.sync_from_device()
