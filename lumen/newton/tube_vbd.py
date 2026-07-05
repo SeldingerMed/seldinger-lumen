@@ -215,8 +215,10 @@ class TubeVBDSolver(SolverVBD):
                     kernel=accumulate_coaxial_coupling,
                     dim=color_group.size,
                     inputs=[color_group, self._coax_gw_mask, state_in.body_q,
-                            self._coax_cath_ids, self._coax_n_cath, self._coax_r_inner,
-                            self._coax_kappa, self._coax_d_hat, self._coax_two_way],
+                            self._coax_cath_ids, self._coax_n_cath,
+                            self._coax_n_cath_per_env, self._coax_n_assembly_per_env,
+                            self._coax_r_inner, self._coax_kappa, self._coax_d_hat,
+                            self._coax_two_way],
                     outputs=[self.body_forces, self.body_hessian_ll],
                     device=self.device,
                 )
@@ -436,7 +438,9 @@ class TubeVBDSolver(SolverVBD):
         self._tube_enabled = True
 
     def set_coaxial_coupling(self, gw_body_ids, cath_body_ids, r_inner,
-                             kappa=2.0e3, d_hat=0.3, two_way=True, gw_radius=0.0):
+                             kappa=2.0e3, d_hat=0.3, two_way=True, gw_radius=0.0,
+                             n_envs=1, n_gw_per_env=None, n_cath_per_env=None,
+                             n_assembly_per_env=None):
         """Constrain the guidewire to ride inside the catheter's inner lumen (radius
         `r_inner`), reading the catheter's LIVE centerline each AVBD iteration so the gw
         follows the catheter as it bends, sliding freely axially (L0d.2b). `two_way`
@@ -455,6 +459,20 @@ class TubeVBDSolver(SolverVBD):
         self._coax_cath_ids = _wp.array(_np.asarray(cath_body_ids, _np.int32),
                                         dtype=_wp.int32, device=dev)
         self._coax_n_cath = len(cath_body_ids)
+        if n_envs <= 0:
+            raise ValueError("n_envs must be > 0 for coaxial coupling")
+        if n_cath_per_env is None:
+            if len(cath_body_ids) % n_envs != 0:
+                raise ValueError("catheter body count must be evenly divisible by n_envs")
+            n_cath_per_env = len(cath_body_ids) // n_envs
+        if n_gw_per_env is None:
+            if len(gw_body_ids) % n_envs != 0:
+                raise ValueError("guidewire body count must be evenly divisible by n_envs")
+            n_gw_per_env = len(gw_body_ids) // n_envs
+        if n_assembly_per_env is None:
+            n_assembly_per_env = int(n_gw_per_env) + int(n_cath_per_env)
+        self._coax_n_cath_per_env = int(n_cath_per_env)
+        self._coax_n_assembly_per_env = int(n_assembly_per_env)
         if float(gw_radius) >= float(r_inner):       # impossible fit -> fail fast, not near-singular
             raise ValueError(f"guidewire radius ({gw_radius}) must be < catheter inner "
                              f"radius ({r_inner}); the guidewire can't fit inside")
