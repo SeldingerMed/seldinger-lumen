@@ -187,6 +187,17 @@ class FlowField:
         self._P = None                   # solved pressure field P(s)  [host path]
         self._v = None                   # solved velocity field v(s)
         self._Q = 0.0                    # solved through-flow (proximal)
+        self._Q_down = 0.0
+        # Edge-aware vascular-tree host path. Shape convention is [env, edge, s].
+        # It deliberately does not flatten edges onto one route: a branch node keeps
+        # independent edge fields so tree contact/drag can use the projected edge.
+        self._tree_R = None
+        self._tree_s_grids = None
+        self._tree_P = None
+        self._tree_v = None
+        self._tree_Q_down = None
+        self._tree_tip_edge = None
+        self._tree_tip_s = None
         # device fields for the on-device per-env solve (set up lazily on first use)
         self._n_s = None
         self._P_d = self._v_d = self._tip_d = self._asp_d = self._Qdown_d = None
@@ -279,6 +290,103 @@ class FlowField:
 
     def velocity_field_device(self):
         return self._v_d
+
+    # --- edge-aware vascular-tree solve (host, batched) ----------------------
+    def set_tree_lumen(self, radius_env_edge_s, edge_lengths) -> None:
+        """Set env×edge lumen radii for tree flow.
+
+        ``radius_env_edge_s`` is [n_envs, n_edges, n_s] after θ-averaging the
+        tree wall blocks. Every edge keeps its own arc-length grid; no single
+        route-centered centerline is fabricated across a branch.
+        """
+        import numpy as np
+        R = np.maximum(np.asarray(radius_env_edge_s, dtype=float), self.p.R_floor)
+        if R.ndim != 3:
+            raise ValueError("tree lumen radii must have shape [n_envs, n_edges, n_s]")
+        self.n_envs = int(R.shape[0])
+        self._tree_R = R
+        lengths = np.asarray(edge_lengths, dtype=float)
+        if lengths.shape != (R.shape[1],):
+            raise ValueError("edge_lengths length must match tree lumen edge count")
+        self._tree_s_grids = [np.linspace(0.0, float(L), R.shape[2]) for L in lengths]
+
+    def set_tree_tips(self, edge_index, s_tip) -> None:
+        """Per-env aspiration/drag tip as an edge id plus local edge arc-length."""
+        import numpy as np
+        self._tree_tip_edge = np.asarray(edge_index, dtype=int).reshape(self.n_envs)
+        self._tree_tip_s = np.asarray(s_tip, dtype=float).reshape(self.n_envs)
+
+    def solve_tree(self) -> None:
+        """Solve independent 1-D fields on every tree edge for every env.
+
+        This is edge-aware, not a full Kirchhoff graph solver yet: each edge gets
+        the current inlet pressure and distal bed resistance. Local drag is keyed
+        by env×edge wall fields instead of a fabricated linear route centerline.
+        """
+        import numpy as np
+        if self._tree_R is None:
+            return
+        R = self._tree_R
+        E, G, S = R.shape
+        P = np.empty((E, G, S), dtype=float)
+        v = np.empty((E, G, S), dtype=float)
+        qdown = np.empty((E, G), dtype=float)
+        Pin = self.P_in()
+        asp = min(max(self.aspiration, 0.0), 1.0)
+        for e in range(E):
+            tip_edge = -1 if self._tree_tip_edge is None else int(self._tree_tip_edge[e])
+            for g in range(G):
+                s_grid = self._tree_s_grids[g]
+                radii = R[e, g]
+                area = math.pi * radii ** 2
+                ds = s_grid[1] - s_grid[0] if S > 1 else 1.0
+                r_mid = 0.5 * (radii[:-1] + radii[1:])
+                r_seg = self.p.visc * ds / r_mid ** 4 if S > 1 else np.zeros(0)
+                cum = np.concatenate([[0.0], np.cumsum(r_seg)])
+                if g == tip_edge and self._tree_tip_s is not None:
+                    it = int(np.clip(round(self._tree_tip_s[e] / max(s_grid[-1], 1e-9) * (S - 1)), 0, S - 1))
+                else:
+                    it = S - 1
+                R_up = cum[it]
+                R_down = (cum[-1] - cum[it]) + self.p.R_periph
+                Q_nat = Pin / max(R_up + R_down, 1e-9)
+                P_tip_nat = Pin - Q_nat * R_up
+                P_tip = P_tip_nat - (asp * self.p.asp_gain if g == tip_edge else 0.0)
+                Q_up = (Pin - P_tip) / max(R_up, 1e-9)
+                Q_down = P_tip / max(R_down, 1e-9)
+                P[e, g, :it + 1] = Pin - Q_up * cum[:it + 1]
+                P[e, g, it:] = P_tip - Q_down * (cum[it:] - cum[it])
+                Qn = np.where(np.arange(S) < it, Q_up, Q_down)
+                v[e, g] = Qn / area
+                qdown[e, g] = Q_down
+        self._tree_P, self._tree_v, self._tree_Q_down = P, v, qdown
+        self._Q = float(np.mean(np.maximum(qdown, 0.0)))
+        self._Q_down = self._Q
+
+    def drag_at_tree(self, env_index, edge_index, s_query):
+        """Local axial drag for tree nodes, addressed by env + projected edge + s."""
+        import numpy as np
+        env = np.asarray(env_index, dtype=int)
+        edge = np.asarray(edge_index, dtype=int)
+        s = np.asarray(s_query, dtype=float)
+        out = np.zeros_like(s, dtype=float)
+        if self._tree_v is None:
+            return out
+        flat = out.ravel()
+        for i, (ee, gg, ss) in enumerate(zip(env.ravel(), edge.ravel(), s.ravel())):
+            flat[i] = self.p.drag_coeff * float(
+                np.interp(ss, self._tree_s_grids[int(gg)], self._tree_v[int(ee), int(gg)])
+            )
+        return out.reshape(s.shape)
+
+    def tree_pressure_fields(self):
+        return self._tree_P
+
+    def tree_velocity_fields(self):
+        return self._tree_v
+
+    def tree_downstream_Q(self):
+        return self._tree_Q_down
 
     # --- accessors -----------------------------------------------------------
     def pressure_field(self):

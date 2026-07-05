@@ -142,17 +142,20 @@ class NewtonGuidewireSim:
                                     category=UserWarning)
             self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
         self.tree = tree
+        self._tree_flow_is_field = tree is not None and flow is not None and self._flow_is_field
         if tree is not None:                          # multi-edge vascular tree (batched contact)
-            # the tree uses each edge's own lumen field for the base R0, so a sim-level
-            # lumen_field doesn't apply; flow/clot project a single centerline. deformable_
-            # wall + hgo_params ARE supported (per-edge HGO wall, L0d.1d).
+            # the tree uses each edge's own lumen field for the base R0; a sim-level
+            # lumen_field doesn't apply. FlowField is supported through env×edge graph
+            # blocks; clot remains blocked until callers can specify per-edge clot spans.
             if lumen_field is not None:
                 raise NotImplementedError("tree contact takes R0 from each edge's lumen "
                                           "field; a sim-level lumen_field doesn't apply")
-            if flow is not None or clot_segment is not None:
+            if flow is not None and not self._flow_is_field:
+                raise NotImplementedError("tree flow requires the 1-D FlowField edge-graph path")
+            if clot_segment is not None:
                 raise NotImplementedError(
-                    "edge-aware tree flow/clot coupling is not wired yet: flow drag and "
-                    "clot grids need per-edge graph fields, not a single route centerline")
+                    "edge-aware tree clot coupling is not wired yet: clot_segment is a "
+                    "single route-centered range; tree clots need per-edge graph spans")
             n_per_env_contact = self.n_per_env_contact
             self.solver.set_tree_contact(tree, self._contact_bodies, kappa=kappa, d_hat=d_hat,
                                          barrier_mode=barrier_mode, mu_along=mu_along,
@@ -181,6 +184,12 @@ class NewtonGuidewireSim:
         # cache wall s-grid for aneurysm interp (fixed per sim; avoids recompute in hot path)
         w = getattr(self.solver, "_wall", None)
         self._s_grid = np.linspace(0.0, w.s_max, w.n_s) if w is not None else None
+        tw = getattr(self.solver, "_tree_wall", None)
+        self._tree_edge_lengths = (
+            np.array([edge.frame.length for edge in tree.edges], dtype=float)
+            if tree is not None else None
+        )
+        self._tree_base_R0 = tw._R0_base.copy() if tw is not None else None
         # on-device base actuation (no per-substep body_q host round-trip), one per env
         self._base_ids = wp.array(np.array(self.bases, dtype=np.int32), dtype=wp.int32,
                                   device=self.device)
@@ -266,9 +275,11 @@ class NewtonGuidewireSim:
             self.aneurysms = []
             self.flow_diverters = []
             self.aneurysm_sacs = []
-        # batched on-device coupling scratch (n_envs>1): node drag arrays + zero occ
-        self._use_device_coupling = self.n_envs > 1 and (self.clot is not None
-                                                         or self._flow_is_field)
+        # batched on-device coupling scratch (n_envs>1): node drag arrays + zero occ.
+        # Tree FlowField uses an edge-aware host path because its wall blocks are
+        # env×edge, not one linear _wall centerline.
+        self._use_device_coupling = (self.tree is None and self.n_envs > 1
+                                     and (self.clot is not None or self._flow_is_field))
         if self._use_device_coupling:
             w = self.solver._wall
             n_node = self.n_per_env * self.n_envs
@@ -373,8 +384,82 @@ class NewtonGuidewireSim:
             self._step_device(sub_dt, substeps, insertion, twist, preload,
                               insertion_cath, twist_cath)
             return
+        if self._tree_flow_is_field:
+            self._step_tree_host(sub_dt, substeps, insertion, twist, preload,
+                                 insertion_cath, twist_cath)
+            return
         self._step_host(sub_dt, substeps, insertion, twist, preload, aspiration, dt,
                         insertion_cath, twist_cath)
+
+    def _tree_flow_geometry(self):
+        """Project guidewire nodes onto tree edges for edge-aware flow drag."""
+        pos = self.state_0.body_q.numpy()[self.bodies, :3].reshape(
+            self.n_envs, self.n_per_env, 3)
+        tang = np.zeros_like(pos)
+        tang[:, 1:-1] = pos[:, 2:] - pos[:, :-2]
+        tang[:, 0] = pos[:, 1] - pos[:, 0]
+        tang[:, -1] = pos[:, -1] - pos[:, -2]
+        tang /= (np.linalg.norm(tang, axis=2, keepdims=True) + 1e-12)
+        edge = np.zeros((self.n_envs, self.n_per_env), dtype=np.int32)
+        s = np.zeros((self.n_envs, self.n_per_env), dtype=np.float32)
+        for env in range(self.n_envs):
+            for node in range(self.n_per_env):
+                pr = self.tree.project(pos[env, node])
+                edge[env, node] = pr.edge_index
+                s[env, node] = pr.s
+        return edge, s, tang
+
+    def _tree_radius_blocks(self, pulse: float):
+        """Return θ-averaged open radius blocks shaped [env, edge, s]."""
+        wall = self.solver._tree_wall
+        n_edges = self.solver._tree_n_edges
+        n_s, n_th = wall.n_s, wall.n_th
+        base = self._tree_base_R0.astype(np.float32) * np.float32(pulse)
+        wall.r0_field.assign(base)
+        r = wall.r0_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)
+        w = wall.w_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)
+        return (r + w).mean(axis=3)
+
+    def _step_tree_host(self, sub_dt, substeps, insertion, twist, preload,
+                        insertion_cath: float | np.ndarray = 0.0,
+                        twist_cath: float | np.ndarray = 0.0):
+        """Edge-aware vascular-tree flow coupling.
+
+        Tree contact/wall deformation remains in the tree barrier. Flow receives
+        env×edge radius blocks and drag is sampled by each node's projected edge+s,
+        avoiding the old single-centerline fallback that #55 rejected.
+        """
+        edge, s_nodes, tang = self._tree_flow_geometry()
+        tip_edge = edge[:, -1]
+        tip_s = s_nodes[:, -1]
+        self.flow.set_tree_tips(tip_edge, tip_s)
+        for _ in range(substeps):
+            self.state_0.clear_forces()
+            self._actuate_base(np.asarray(insertion, np.float32) / substeps,
+                               np.asarray(twist, np.float32) / substeps)
+            if self.coaxial:
+                self._actuate_catheter(np.asarray(insertion_cath, np.float32) / substeps,
+                                       np.asarray(twist_cath, np.float32) / substeps)
+            if any(preload):
+                wp.launch(add_world_force, dim=self.body_ids.shape[0],
+                          inputs=[self.body_ids, float(preload[0]), float(preload[1]),
+                                  float(preload[2]), 1],
+                          outputs=[self.state_0.body_f], device=self.device)
+            self.flow.advance(sub_dt)
+            radii = self._tree_radius_blocks(self.flow.pulse_factor())
+            self.flow.set_tree_lumen(radii, self._tree_edge_lengths)
+            self.flow.solve_tree()
+            drag = self.flow.drag_at_tree(
+                np.repeat(np.arange(self.n_envs), self.n_per_env),
+                edge.reshape(-1), s_nodes.reshape(-1),
+            ).reshape(self.n_envs, self.n_per_env)
+            dvecs = wp.array((drag[:, :, None] * tang).reshape(-1, 3).astype(np.float32),
+                             dtype=wp.vec3, device=self.device)
+            wp.launch(add_body_forces, dim=self._guidewire_body_ids.shape[0],
+                      inputs=[self._guidewire_body_ids, dvecs, 1],
+                      outputs=[self.state_0.body_f], device=self.device)
+            self.solver.step(self.state_0, self.state_1, self.control, self.contacts, sub_dt)
+            self.state_0, self.state_1 = self.state_1, self.state_0
 
     def _step_device(self, sub_dt, substeps, insertion, twist, preload,
                      insertion_cath: float | np.ndarray = 0.0,

@@ -39,8 +39,12 @@ def test_solver_support_matrix_tracks_batched_guardrails():
             "tree contact takes R0 from each edge's lumen field",
         ),
         (
-            "edge-aware tree flow/clot coupling is not wired yet: flow drag and clot grids need per-edge graph fields, not a single route centerline",
-            "edge-aware tree flow/clot coupling is not wired yet",
+            "tree flow requires the 1-D FlowField edge-graph path",
+            "tree flow requires the 1-D FlowField edge-graph path",
+        ),
+        (
+            "edge-aware tree clot coupling is not wired yet: clot_segment is a single route-centered range; tree clots need per-edge graph spans",
+            "edge-aware tree clot coupling is not wired yet",
         ),
         (
             "an aneurysm needs the 1-D FlowField (it reads the neck pressure P(s)); pass flow=FlowField(...)",
@@ -52,6 +56,7 @@ def test_solver_support_matrix_tracks_batched_guardrails():
         assert doc_guard in support
 
     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
+    assert "| Tree + `FlowField` coupling | ✅ | ✅ |" in support
     assert "| Vascular-tree contact | ✅ | ✅ | none | — |" in support
     assert "| Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling |" in support
     # Keep linked open follow-up issues distinct from closed gaps such as #56: resolved

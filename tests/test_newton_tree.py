@@ -123,30 +123,48 @@ def test_batched_tree_contact_steps_independently_on_one_procedural_tree():
     assert not np.allclose(pos[0], pos[1])       # per-env actuation/contact state is independent
 
 
-def test_tree_flow_clot_remains_guarded_with_edge_graph_message():
-    # #55 documents the remaining sub-gap explicitly: tree contact is now batched, but
-    # flow/clot are still intentionally blocked until a graph flow/clot field exists.
-    # The guard must name edge-aware coupling so callers do not silently fall back to a
-    # wrong route-centered linear centerline.
+def test_batched_tree_flow_uses_edge_graph_fields():
+    # #55: Flow on a vascular tree must be keyed by env×edge blocks, not by a
+    # single route-centered centerline. Two envs share one procedural tree/contact
+    # graph while solving independent per-edge flow fields and local node drag.
     from lumen.newton.flow import FlowField
 
     asset = procedural.bifurcation()
     tree = VascularTree(asset)
     trunk_pts = np.asarray(asset.edges[0].centerline_mm)
-    with pytest.raises(NotImplementedError, match="edge-aware tree flow/clot"):
-        NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree,
-                           flow=FlowField())
+    sim = NewtonGuidewireSim(trunk_pts, 2.0, _device(), n_envs=2, device="cpu",
+                             tree=tree, flow=FlowField(), vbd_iterations=8)
+
+    sim.step(dt=2.5e-2, substeps=3, insertion=[0.0, 1.0])
+
+    assert np.isfinite(sim.env_positions()).all()
+    assert sim.flow.tree_pressure_fields().shape[:2] == (2, len(tree.edges))
+    assert sim.flow.tree_velocity_fields().shape[:2] == (2, len(tree.edges))
+    assert np.isfinite(sim.flow.tree_downstream_Q()).all()
 
 
-def test_tree_rejects_unsupported_physics():
-    # flow/clot + a sim-level lumen_field aren't wired for the edge graph -> fail loud
-    # (deformable_wall IS supported now, L0d.1d).
+def test_tree_clot_remains_guarded_with_edge_graph_message():
+    # #55: tree flow is edge-aware; clot remains intentionally blocked until callers
+    # can specify per-edge clot segments instead of one ambiguous route-centered range.
     asset = procedural.bifurcation()
     tree = VascularTree(asset)
     trunk_pts = np.asarray(asset.edges[0].centerline_mm)
-    with pytest.raises(NotImplementedError, match="flow/clot"):
+    with pytest.raises(NotImplementedError, match="edge-aware tree clot"):
         NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree,
                            clot_segment=(10.0, 20.0))
+
+
+def test_tree_rejects_sim_level_lumen_field():
+    # A tree takes per-edge R0 from its asset; a sim-level linear lumen_field would
+    # be ambiguous across branches. FlowField is covered by the edge-graph test.
+    from lumen.core import LumenField
+
+    asset = procedural.bifurcation()
+    tree = VascularTree(asset)
+    trunk_pts = np.asarray(asset.edges[0].centerline_mm)
+    with pytest.raises(NotImplementedError, match="sim-level lumen_field"):
+        NewtonGuidewireSim(trunk_pts, 2.0, _device(), device="cpu", tree=tree,
+                           lumen_field=LumenField.cylinder(50.0, 2.0))
 
 
 def test_tree_deformable_wall_deflects_under_load():
