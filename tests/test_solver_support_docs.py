@@ -31,8 +31,8 @@ def test_solver_support_matrix_tracks_batched_guardrails():
             "batched flow requires the 1-D FlowField",
         ),
         (
-            "batched stent-retriever retrieval is not ported (per-env host force balance); run retrieval single-env",
-            "batched stent-retriever retrieval is not ported",
+            "batched stent-retriever retrieval requires the 1-D FlowField coupling path",
+            "batched stent-retriever retrieval requires the 1-D FlowField coupling path",
         ),
         (
             "tree contact takes R0 from each edge's lumen field; a sim-level lumen_field doesn't apply",
@@ -54,9 +54,10 @@ def test_solver_support_matrix_tracks_batched_guardrails():
     assert "| 1-D `FlowField` coupling | ✅ | ✅ | none | — |" in support
     assert "| Vascular-tree contact | ✅ | ✅ | none | — |" in support
     assert "| Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling |" in support
-    for issue_ref in ("53", "55", "56"):
+    for issue_ref in ("53", "55"):
         assert f"| #{issue_ref} |" not in support
         assert f"[#{issue_ref}](https://github.com/SeldingerMed/seldinger-lumen/issues/{issue_ref})" in support
+    assert "github.com/SeldingerMed/seldinger-lumen/issues/56" not in support
 
     assert "## Follow-up implementation tracker" in support
     for closure_evidence in (
@@ -64,6 +65,8 @@ def test_solver_support_matrix_tracks_batched_guardrails():
         "two-env tree contact test",
     ):
         assert closure_evidence in support
+    assert "Batched aneurysm flow-diverter support" in support
+    assert "sac→parent back-reaction is not fed into the 1-D parent-flow solve" in support
 
 
 def test_readme_and_architecture_link_solver_support_matrix():
