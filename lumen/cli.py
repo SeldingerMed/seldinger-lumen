@@ -773,7 +773,11 @@ def dataset_card_main(argv=None, prog=None) -> None:
     except ValueError as e:
         print(f"invalid index {args.index_path!r}: {e}")
         raise SystemExit(1) from None
-    out = write_dataset_card(card, args.out)
+    try:
+        out = write_dataset_card(card, args.out)
+    except Exception as e:
+        print(f"could not write dataset card: {type(e).__name__}: {e}")
+        raise SystemExit(1) from None
     status = "pass" if not card["findings"] else "needs attention"
     print(f"wrote dataset card: {out}")
     print(f"quality_gate: {status}")

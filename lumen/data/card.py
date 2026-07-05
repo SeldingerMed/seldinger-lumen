@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -145,9 +146,16 @@ def write_dataset_card(card: dict, out_path: str | Path) -> str:
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.suffix.lower() == ".json":
-        import json
-        out.write_text(json.dumps({k: v for k, v in card.items() if k != "markdown"}, indent=2,
-                                  sort_keys=True) + "\n")
+        try:
+            text = json.dumps(
+                {k: v for k, v in card.items() if k != "markdown"},
+                indent=2,
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+        except TypeError as e:
+            raise ValueError(f"dataset card contains non-serializable data: {e}") from e
+        out.write_text(text + "\n")
     else:
         out.write_text(card["markdown"])
     return str(out)
