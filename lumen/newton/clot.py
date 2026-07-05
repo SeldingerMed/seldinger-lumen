@@ -270,7 +270,16 @@ class ClotField:
                          engagement: float | np.ndarray,
                          aspiration: float | np.ndarray = 0.0,
                          dt: float = 2.5e-2) -> list[dict]:
-        """Attempt independent retrieval in each env from batched host arrays."""
+        """Attempt independent retrieval in each env from batched host arrays.
+        
+        Scalar inputs will be broadcast to all environments. Array inputs must 
+        have shape (n_envs,).
+
+        ``delta_s``, ``engagement``, and ``aspiration`` accept either scalars
+        (broadcast to every env) or arrays with shape ``(n_envs,)``. Retrieval
+        results and clot mutation stay per-env in ``*_env`` arrays; public
+        single-env attributes mirror env 0 after the batched update.
+        """
         self.sync_from_device()
         delta = np.broadcast_to(np.asarray(delta_s, dtype=float), (self.n_envs,))
         grip = np.broadcast_to(np.asarray(engagement, dtype=float), (self.n_envs,))
