@@ -353,17 +353,22 @@ class NewtonGuidewireSim:
 
     def step(self, dt: float = 2.5e-2, substeps: int = 5,
              insertion: float | np.ndarray = 0.0, twist: float | np.ndarray = 0.0,
-             preload=(0.0, 0.0, 0.0),
-             aspiration: float = 0.0, insertion_cath: float | np.ndarray = 0.0,
+             preload=(0.0, 0.0, 0.0), aspiration: float | np.ndarray = 0.0,
+             insertion_cath: float | np.ndarray = 0.0,
              twist_cath: float | np.ndarray = 0.0):
         """Advance the simulation by `dt` total, as `substeps` sub-steps of
         `dt/substeps` each (the standard substep convention).
 
+        `aspiration` accepts a scalar (broadcast to all environments) or an array
+        matching `n_envs` for per-environment suction.
+
         `insertion_cath`/`twist_cath` independently actuate the coaxial microcatheter
         (ignored when there is no catheter)."""
         sub_dt = dt / substeps
-        if self.flow is not None and aspiration:
-            self.flow.aspiration = aspiration        # aspiration recovers downstream flow
+        if self.flow is not None:
+            # Always write the command so a zero scalar/array clears any prior
+            # nonzero suction; truthiness is also ambiguous for per-env arrays.
+            self.flow.aspiration = aspiration        # scalar or per-env suction command
         if self._use_device_coupling:                # n_envs>1 with clot/flow: on-device
             self._step_device(sub_dt, substeps, insertion, twist, preload,
                               insertion_cath, twist_cath)
@@ -449,9 +454,10 @@ class NewtonGuidewireSim:
             st.engagement_strength_for_mask(self.clot.s_grid, self.clot.mask_env[e])
             for e, st in enumerate(stents)
         ], dtype=float)
-        aspiration = np.full(self.n_envs,
-                             self.flow.aspiration if self.flow is not None else 0.0,
-                             dtype=float)
+        aspiration = np.broadcast_to(
+            np.asarray(self.flow.aspiration if self.flow is not None else 0.0, dtype=float),
+            (self.n_envs,),
+        ).astype(float)
         wall = self.solver._wall
         if self._flow_is_field and self.flow is not None and getattr(self.flow, "_P_d", None) is not None:
             P = self.flow._P_d.numpy().reshape(self.n_envs, wall.n_s)
