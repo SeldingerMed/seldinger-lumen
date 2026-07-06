@@ -13,7 +13,7 @@ permissions:
 jobs:
   review:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
-    uses: antongulin/robin/.github/workflows/review.yml@v2.0.7
+    uses: antongulin/robin/.github/workflows/review.yml@v2.2.0
     with:
       review-on-synchronize: true
     secrets:
