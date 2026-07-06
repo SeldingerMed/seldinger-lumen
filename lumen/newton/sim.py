@@ -454,10 +454,13 @@ class NewtonGuidewireSim:
             st.engagement_strength_for_mask(self.clot.s_grid, self.clot.mask_env[e])
             for e, st in enumerate(stents)
         ], dtype=float)
-        aspiration = np.broadcast_to(
-            np.asarray(self.flow.aspiration if self.flow is not None else 0.0, dtype=float),
-            (self.n_envs,),
-        ).astype(float)
+        aspiration = np.clip(
+            np.broadcast_to(
+                np.asarray(self.flow.aspiration if self.flow is not None else 0.0, dtype=np.float32),
+                (self.n_envs,),
+            ),
+            0.0, 1.0,
+        )
         wall = self.solver._wall
         if self._flow_is_field and self.flow is not None and getattr(self.flow, "_P_d", None) is not None:
             P = self.flow._P_d.numpy().reshape(self.n_envs, wall.n_s)

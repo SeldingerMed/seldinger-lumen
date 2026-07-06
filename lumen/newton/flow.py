@@ -25,6 +25,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
+
 try:
     import warp as wp
 except Exception:  # pragma: no cover
@@ -256,14 +258,12 @@ class FlowField:
 
     def set_tips(self, s_nodes_per_env, s_max: float, n_s: int) -> None:
         """Per-env catheter tip = the env's deepest node, as a wall-grid s index."""
-        import numpy as np
         self._ensure_device(n_s)
         s = np.asarray(s_nodes_per_env, dtype=float).reshape(self.n_envs, -1)
         tip_s = s.max(axis=1)
         it = np.clip(np.round(tip_s / s_max * (n_s - 1)), 0, n_s - 1).astype(np.int32)
         self._tip_d.assign(it)
-        asp = np.broadcast_to(np.asarray(self.aspiration, dtype=np.float32), (self.n_envs,))
-        asp = np.clip(asp, 0.0, 1.0).astype(np.float32)
+        asp = np.clip(np.broadcast_to(np.asarray(self.aspiration, dtype=np.float32), (self.n_envs,)), 0.0, 1.0)
         self._asp_d.assign(asp)
 
     def solve_device(self, r0_field, n_s: int, n_th: int, s_max: float) -> None:
