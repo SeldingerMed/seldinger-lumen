@@ -39,6 +39,62 @@ def test_tree_flow_tip_shape_validation_is_explicit():
         f.set_tree_tips([0, 1, 2], [1.0, 2.0, 3.0])
     with pytest.raises(ValueError, match=r"tree tip s_tip must broadcast to \(n_envs,\)"):
         f.set_tree_tips([0, 1], [1.0, 2.0, 3.0])
+    with pytest.raises(ValueError, match=r"tree tip edge_index values must be in \[0, 3\)"):
+        f.set_tree_tips([0, 3], [1.0, 2.0])
+
+
+def test_tree_flow_rejects_unsolved_drag_query():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 3)), np.ones(1))
+    with pytest.raises(RuntimeError, match=r"solve_tree\(\) must be called before drag_at_tree\(\)"):
+        f.drag_at_tree([0], [0], [0.5])
+
+
+def test_tree_flow_invalidates_solved_fields_when_inputs_change():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 3)), np.ones(1))
+    f.set_tree_tips([0], [0.5])
+    f.solve_tree()
+    assert f.tree_velocity_fields() is not None
+
+    f.set_tree_lumen(np.full((1, 1, 3), 2.0), np.ones(1))
+    assert f.tree_velocity_fields() is None
+    assert f._tree_tip_edge is None
+    assert f._tree_tip_s is None
+    with pytest.raises(RuntimeError, match=r"solve_tree\(\) must be called before drag_at_tree\(\)"):
+        f.drag_at_tree([0], [0], [0.5])
+
+    f.set_tree_tips([0], [0.25])
+    f.solve_tree()
+    f.set_tree_tips([0], [0.75])
+    assert f.tree_velocity_fields() is None
+
+
+def test_tree_flow_lumen_shape_change_drops_stale_tips():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 3)), np.ones(1))
+    f.set_tree_tips([0], [0.5])
+    f.set_tree_lumen(np.ones((2, 1, 3)), np.ones(1))
+    f.solve_tree()
+    qdown = f.tree_downstream_Q()
+    assert qdown is not None
+    assert qdown.shape == (2, 1)
+
+
+def test_tree_drag_matches_linear_edge_interpolation():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((2, 2, 3)), np.array([2.0, 4.0]))
+    f._tree_v = np.array([
+        [[0.0, 2.0, 4.0], [10.0, 14.0, 18.0]],
+        [[1.0, 3.0, 5.0], [20.0, 28.0, 36.0]],
+    ])
+    drag = f.drag_at_tree(
+        np.array([[0, 1], [0, 1]]),
+        np.array([[0, 0], [1, 1]]),
+        np.array([[1.0, 1.0], [2.0, 2.0]]),
+    )
+    expected_v = np.array([[2.0, 3.0], [14.0, 28.0]])
+    assert np.allclose(drag, f.p.drag_coeff * expected_v)
 
 
 def test_tree_drag_shape_validation_is_explicit():

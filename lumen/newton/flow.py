@@ -23,6 +23,7 @@ The learned GNN hemodynamic surrogate is the private/later upgrade behind the sa
 from __future__ import annotations
 
 import math
+import numpy as np
 from dataclasses import dataclass
 
 import numpy as np
@@ -204,7 +205,6 @@ class FlowField:
 
     # --- geometry / actuation set each step by the sim ----------------------
     def set_lumen(self, radius_s, s_max: float) -> None:
-        import numpy as np
         self.R_s = np.maximum(np.asarray(radius_s, dtype=float), self.p.R_floor)
         self.s_grid = np.linspace(0.0, s_max, len(self.R_s))
 
@@ -225,7 +225,6 @@ class FlowField:
     # --- the 1-D solve -------------------------------------------------------
     def solve(self) -> None:
         """Solve the series network for Q, P(s), v(s) at the current geometry/phase."""
-        import numpy as np
         if self.R_s is None:
             return
         R = self.R_s
@@ -289,6 +288,8 @@ class FlowField:
                   outputs=[self._P_d, self._v_d, self._Qdown_d], device=self.device)
 
     def velocity_field_device(self):
+        if self._v_d is None:
+            raise RuntimeError("Device flow fields not initialized.")
         return self._v_d
 
     # --- edge-aware vascular-tree solve (host, batched) ----------------------
@@ -299,12 +300,17 @@ class FlowField:
         tree wall blocks. Every edge keeps its own arc-length grid; no single
         route-centered centerline is fabricated across a branch.
         """
-        import numpy as np
         R = np.maximum(np.asarray(radius_env_edge_s, dtype=float), self.p.R_floor)
         if R.ndim != 3:
             raise ValueError("tree lumen radii must have shape [n_envs, n_edges, n_s]")
         self.n_envs = int(R.shape[0])
         self._tree_R = R
+        self._tree_s_grids = None
+        self._tree_tip_edge = None
+        self._tree_tip_s = None
+        self._tree_P = None
+        self._tree_v = None
+        self._tree_Q_down = None
         lengths = np.asarray(edge_lengths, dtype=float)
         if lengths.shape != (R.shape[1],):
             raise ValueError("edge_lengths length must match tree lumen edge count")
@@ -312,7 +318,8 @@ class FlowField:
 
     def set_tree_tips(self, edge_index, s_tip) -> None:
         """Per-env aspiration/drag tip as an edge id plus local edge arc-length."""
-        import numpy as np
+        if self._tree_R is None:
+            raise RuntimeError("set_tree_lumen() must be called before set_tree_tips()")
         try:
             edge = np.broadcast_to(np.asarray(edge_index, dtype=int), (self.n_envs,))
         except ValueError as exc:
@@ -321,8 +328,15 @@ class FlowField:
             s = np.broadcast_to(np.asarray(s_tip, dtype=float), (self.n_envs,))
         except ValueError as exc:
             raise ValueError("tree tip s_tip must broadcast to (n_envs,)") from exc
-        self._tree_tip_edge = edge.astype(int, copy=True)
+        edge = edge.astype(int, copy=True)
+        n_edges = self._tree_R.shape[1]
+        if np.any((edge < 0) | (edge >= n_edges)):
+            raise ValueError(f"tree tip edge_index values must be in [0, {n_edges})")
+        self._tree_tip_edge = edge
         self._tree_tip_s = s.astype(float, copy=True)
+        self._tree_P = None
+        self._tree_v = None
+        self._tree_Q_down = None
 
     def solve_tree(self) -> None:
         """Solve independent 1-D fields on every tree edge for every env.
@@ -331,9 +345,8 @@ class FlowField:
         the current inlet pressure and distal bed resistance. Local drag is keyed
         by env×edge wall fields instead of a fabricated linear route centerline.
         """
-        import numpy as np
         if self._tree_R is None:
-            return
+            raise RuntimeError("solve_tree called before setting tree lumen")
         R = self._tree_R
         E, G, S = R.shape
         P = np.empty((E, G, S), dtype=float)
@@ -348,8 +361,8 @@ class FlowField:
                 radii = R[e, g]
                 area = math.pi * radii ** 2
                 ds = s_grid[1] - s_grid[0] if S > 1 else 1.0
-                r_mid = 0.5 * (radii[:-1] + radii[1:])
-                r_seg = self.p.visc * ds / r_mid ** 4 if S > 1 else np.zeros(0)
+                r_mid = np.maximum(0.5 * (radii[:-1] + radii[1:]), self.p.R_floor)
+                r_seg = self.p.visc * ds / (r_mid ** 4 + 1e-12) if S > 1 else np.zeros(0)
                 cum = np.concatenate([[0.0], np.cumsum(r_seg)])
                 if g == tip_edge and self._tree_tip_s is not None:
                     it = int(np.clip(round(self._tree_tip_s[e] / max(s_grid[-1], 1e-9) * (S - 1)), 0, S - 1))
@@ -373,40 +386,49 @@ class FlowField:
 
     def drag_at_tree(self, env_index, edge_index, s_query):
         """Local axial drag for tree nodes, addressed by env + projected edge + s.
-        
+
         Args:
             env_index (int or np.ndarray): Environment index.
             edge_index (int or np.ndarray): Projected edge index in the tree topology.
             s_query (float or np.ndarray): 1D local axial coordinate along the edge.
-            
+
         Expected Shapes:
             Inputs `env_index`, `edge_index`, and `s_query` must have matching shapes.
-            
+
         Interpolation:
             Retrieves the fluid velocity and area along the queried edge and linearly
             interpolates the local flow properties to compute the resulting axial drag.
         """
-        import numpy as np
         env = np.asarray(env_index, dtype=int)
         edge = np.asarray(edge_index, dtype=int)
         s = np.asarray(s_query, dtype=float)
         if env.shape != edge.shape or env.shape != s.shape:
-            raise ValueError("tree drag inputs must have matching shapes")
-        out = np.zeros_like(s, dtype=float)
+            raise ValueError(f"tree drag inputs must have matching shapes, got env={env.shape}, edge={edge.shape}, s={s.shape}")
         tree_v = self._tree_v
         tree_s_grids = self._tree_s_grids
         if tree_v is None or tree_s_grids is None:
-            return out
+            raise RuntimeError("solve_tree() must be called before drag_at_tree()")
         env_f = env.ravel()
         edge_f = edge.ravel()
         s_f = s.ravel()
-        out_f = out.ravel()
-        for ee, gg in np.unique(np.stack([env_f, edge_f], axis=1), axis=0):
-            mask = (env_f == ee) & (edge_f == gg)
-            out_f[mask] = self.p.drag_coeff * np.interp(
-                s_f[mask], tree_s_grids[int(gg)], tree_v[int(ee), int(gg)]
-            )
-        return out.reshape(s.shape)
+        n_envs, n_edges, n_s = tree_v.shape
+        if np.any((env_f < 0) | (env_f >= n_envs)):
+            raise ValueError(f"tree drag env_index values must be in [0, {n_envs})")
+        if np.any((edge_f < 0) | (edge_f >= n_edges)):
+            raise ValueError(f"tree drag edge_index values must be in [0, {n_edges})")
+        if n_s == 1:
+            out_f = tree_v[env_f, edge_f, 0]
+            return (self.p.drag_coeff * out_f).reshape(s.shape)
+        lengths = np.asarray([grid[-1] for grid in tree_s_grids], dtype=float)
+        denom = np.maximum(lengths[edge_f], 1e-12)
+        x = np.clip(s_f / denom, 0.0, 1.0) * (n_s - 1)
+        lo = np.floor(x).astype(int)
+        hi = np.minimum(lo + 1, n_s - 1)
+        w = x - lo
+        v_lo = tree_v[env_f, edge_f, lo]
+        v_hi = tree_v[env_f, edge_f, hi]
+        out_f = self.p.drag_coeff * ((1.0 - w) * v_lo + w * v_hi)
+        return out_f.reshape(s.shape)
 
     def tree_pressure_fields(self):
         return self._tree_P
@@ -433,7 +455,6 @@ class FlowField:
 
     def drag_at(self, s_query):
         """Local axial drag magnitude at arc-length(s) s_query, ∝ local velocity v(s)."""
-        import numpy as np
         if self._v is None:
             return np.zeros_like(np.asarray(s_query, dtype=float))
         v = np.interp(np.asarray(s_query, dtype=float), self.s_grid, self._v)
@@ -441,7 +462,6 @@ class FlowField:
 
     def drag_per_unit_tangent(self, t: float | None = None) -> float:
         """API-compat scalar drag (mean local velocity) for non-field callers."""
-        import numpy as np
         return float(self.p.drag_coeff * (np.mean(self._v) if self._v is not None else 0.0))
 
     def clot_mobilizing_force(self, s0: float, s1: float) -> float:
@@ -456,7 +476,6 @@ class FlowField:
         ponytail: force is ΔP·A in sim-consistent units; absolute SI calibration of
         the flow/clot force balance against thrombectomy data is the private layer (§8).
         """
-        import numpy as np
         if self._P is None:
             return 0.0
         m = (self.s_grid >= s0) & (self.s_grid <= s1)

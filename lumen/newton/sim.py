@@ -395,11 +395,15 @@ class NewtonGuidewireSim:
         """Project guidewire nodes onto tree edges for edge-aware flow drag."""
         pos = self.state_0.body_q.numpy()[self.bodies, :3].reshape(
             self.n_envs, self.n_per_env, 3)
-        tang = np.zeros_like(pos)
-        tang[:, 1:-1] = pos[:, 2:] - pos[:, :-2]
-        tang[:, 0] = pos[:, 1] - pos[:, 0]
-        tang[:, -1] = pos[:, -1] - pos[:, -2]
-        tang /= (np.linalg.norm(tang, axis=2, keepdims=True) + 1e-12)
+        if pos.shape[1] < 2:
+            tang = np.zeros_like(pos)
+            tang[..., 2] = 1.0
+        else:
+            tang = np.zeros_like(pos)
+            tang[:, 1:-1] = pos[:, 2:] - pos[:, :-2]
+            tang[:, 0] = pos[:, 1] - pos[:, 0]
+            tang[:, -1] = pos[:, -1] - pos[:, -2]
+            tang /= (np.linalg.norm(tang, axis=2, keepdims=True) + 1e-12)
         edge, s = self.tree.project_edge_s(pos)
         return edge, s, tang
 
@@ -426,10 +430,10 @@ class NewtonGuidewireSim:
         env×edge radius blocks and drag is sampled by each node's projected edge+s,
         avoiding the old single-centerline fallback that #55 rejected.
         """
+        assert self.flow is not None
         edge, s_nodes, tang = self._tree_flow_geometry()
         tip_edge = edge[:, -1]
         tip_s = s_nodes[:, -1]
-        self.flow.set_tree_tips(tip_edge, tip_s)
         for _ in range(substeps):
             self.state_0.clear_forces()
             self._actuate_base(np.asarray(insertion, np.float32) / substeps,
@@ -445,6 +449,7 @@ class NewtonGuidewireSim:
             self.flow.advance(sub_dt)
             radii = self._tree_radius_blocks(self.flow.pulse_factor())
             self.flow.set_tree_lumen(radii, self._tree_edge_lengths)
+            self.flow.set_tree_tips(tip_edge, tip_s)
             self.flow.solve_tree()
             drag = self.flow.drag_at_tree(
                 np.repeat(np.arange(self.n_envs), self.n_per_env),
