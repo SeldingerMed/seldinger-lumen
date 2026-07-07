@@ -9,13 +9,14 @@ from lumen import viz
 
 
 @pytest.fixture
-def requires_solver_backend():
-    """Skip solver-backed viz tests when warp or newton is not installed."""
+def requires_warp_and_newton_backend():
+    """Skip tests that construct Newton/Warp-backed navigation environments."""
     pytest.importorskip("warp")
     pytest.importorskip("newton")
+    yield
 
 
-def test_render_frame_shape_and_nontrivial(requires_solver_backend):
+def test_render_frame_shape_and_nontrivial(requires_warp_and_newton_backend):
     from lumen.envs.registration import make_nav_tube
     env = make_nav_tube()
     frame = viz.render_frame(env, size=128)
@@ -26,7 +27,7 @@ def test_render_frame_shape_and_nontrivial(requires_solver_backend):
 
 
 @pytest.mark.parametrize("scene", ["tube", "stenotic", "tree"])
-def test_play_reports_frames_and_finite_safety(scene, requires_solver_backend):
+def test_play_reports_frames_and_finite_safety(scene, requires_warp_and_newton_backend):
     s = viz.play(scene, steps=12, seed=0, size=96)
     assert s["frames"] == s["steps"] + 1          # one frame per state incl. reset
     assert np.isfinite(s["max_pen"]) and s["max_pen"] >= 0.0
@@ -35,7 +36,7 @@ def test_play_reports_frames_and_finite_safety(scene, requires_solver_backend):
     assert s["safe_success"] == (s["success"] and s["safe"])
 
 
-def test_play_writes_animation(tmp_path, requires_solver_backend):
+def test_play_writes_animation(tmp_path, requires_warp_and_newton_backend):
     out = tmp_path / "run"
     s = viz.play("tube", steps=8, size=96, out=str(out))
     assert (tmp_path / "run.avi").exists()
@@ -43,7 +44,7 @@ def test_play_writes_animation(tmp_path, requires_solver_backend):
     assert s["avi"].endswith("run.avi")
 
 
-def test_play_matches_bench_safety_on_tree(requires_solver_backend):
+def test_play_matches_bench_safety_on_tree(requires_warp_and_newton_backend):
     # the hard tier reaches the target but breaches the wall — the viewer must report
     # the same unsafe outcome the benchmark scores (guards the shared safety seam).
     from lumen.envs.registration import make_tree_nav
@@ -74,7 +75,7 @@ def test_play_matches_bench_safety_on_tree(requires_solver_backend):
     assert s["max_pen"] > 0.3
 
 
-def test_cli_play_smoke(tmp_path, capsys, requires_solver_backend):
+def test_cli_play_smoke(tmp_path, capsys, requires_warp_and_newton_backend):
     from lumen.cli import play_main
     play_main(["tube", "--steps", "6", "--size", "80", "--out", str(tmp_path / "p")])
     payload = json.loads(capsys.readouterr().out)
@@ -82,7 +83,7 @@ def test_cli_play_smoke(tmp_path, capsys, requires_solver_backend):
     assert payload["frames"] == payload["steps"] + 1
 
 
-def test_train_saves_policy_and_play_loads_it(tmp_path, capsys, requires_solver_backend):
+def test_train_saves_policy_and_play_loads_it(tmp_path, capsys, requires_warp_and_newton_backend):
     # train (tiny CEM) -> .npz, then play that saved policy end-to-end: visualize a
     # trained agent. Guards the train->play seam.
     from lumen.cli import train_main
