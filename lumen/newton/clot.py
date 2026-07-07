@@ -279,8 +279,13 @@ class ClotField:
         (broadcast to every env) or arrays with shape ``(n_envs,)``. Retrieval
         results and clot mutation stay per-env in ``*_env`` arrays; public
         single-env attributes mirror env 0 after the batched update.
+        
+        Returns: list[dict] - per-env retrieval results with status and retrieved fields.
         """
         self.sync_from_device()
+        for name, val in [('delta_s', delta_s), ('engagement', engagement), ('aspiration', aspiration)]:
+            if isinstance(val, np.ndarray) and val.shape != (self.n_envs,):
+                raise ValueError(f'Expected shape ({self.n_envs},), got {val.shape}')
         delta = np.broadcast_to(np.asarray(delta_s, dtype=float), (self.n_envs,))
         grip = np.broadcast_to(np.asarray(engagement, dtype=float), (self.n_envs,))
         asp = np.broadcast_to(np.asarray(aspiration, dtype=float), (self.n_envs,))

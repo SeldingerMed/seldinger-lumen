@@ -262,8 +262,7 @@ class FlowField:
         tip_s = s.max(axis=1)
         it = np.clip(np.round(tip_s / s_max * (n_s - 1)), 0, n_s - 1).astype(np.int32)
         self._tip_d.assign(it)
-        asp = np.broadcast_to(np.asarray(self.aspiration, dtype=np.float32), (self.n_envs,))
-        asp = np.clip(asp, 0.0, 1.0).astype(np.float32)
+        asp = np.clip(np.broadcast_to(np.asarray(self.aspiration, dtype=np.float32), (self.n_envs,)), 0.0, 1.0)
         self._asp_d.assign(asp)
 
     def solve_device(self, r0_field, n_s: int, n_th: int, s_max: float) -> None:
