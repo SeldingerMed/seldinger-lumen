@@ -78,7 +78,7 @@ def test_configure_backend_logging_rejects_unknown_level(monkeypatch):
 
 
 def test_detect_device_honors_cpu_preference(monkeypatch):
-    monkeypatch.setitem(sys.modules, "warp", object())
+    monkeypatch.setitem(sys.modules, "warp", _fake_warp())
 
     assert hardware.detect_device(prefer="cpu") == "cpu"
 
