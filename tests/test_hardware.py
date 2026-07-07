@@ -108,7 +108,6 @@ def test_detect_device_uses_cuda_when_warp_reports_visible_devices(monkeypatch):
 
     assert hardware.detect_device() == "cuda"
     assert calls == ["init"]
-    assert fake_wp.config.log_level == fake_wp.LOG_WARNING
 
 
 def test_detect_device_falls_back_to_cpu_when_warp_init_fails(monkeypatch):
@@ -125,6 +124,7 @@ def test_detect_device_falls_back_to_cpu_when_warp_init_fails(monkeypatch):
         get_cuda_device_count=lambda: 1,
     )
     monkeypatch.setitem(sys.modules, "warp", fake_wp)
+    monkeypatch.delenv(hardware.BACKEND_LOG_ENV, raising=False)
 
     assert hardware.detect_device(prefer="cuda") == "cpu"
 
