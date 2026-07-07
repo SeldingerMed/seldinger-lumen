@@ -266,10 +266,28 @@ class ClotField:
         self.sync_to_device()
         return {"status": "retrieve", "retrieved": self.retrieved}
 
-    def retrieve_batched(self, delta_s, engagement, aspiration=0.0,
+    def retrieve_batched(self, delta_s: float | np.ndarray,
+                         engagement: float | np.ndarray,
+                         aspiration: float | np.ndarray = 0.0,
                          dt: float = 2.5e-2) -> list[dict]:
-        """Attempt independent retrieval in each env from batched host arrays."""
+        """Attempt independent retrieval in each env from batched host arrays.
+
+        Scalar inputs will be broadcast to all environments. Array inputs must
+        have shape (n_envs,).
+
+        ``delta_s``, ``engagement``, and ``aspiration`` accept either scalars
+        (broadcast to every env) or arrays with shape ``(n_envs,)``. Retrieval
+        results and clot mutation stay per-env in ``*_env`` arrays; public
+        single-env attributes mirror env 0 after the batched update.
+
+        Returns:
+            list[dict]: per-environment results, each with "status" ("retrieve", "slip",
+            "fragment", or "none") and "retrieved" distance.
+        """
         self.sync_from_device()
+        for name, val in [("delta_s", delta_s), ("engagement", engagement), ("aspiration", aspiration)]:
+            if isinstance(val, np.ndarray) and val.shape != (self.n_envs,):
+                raise ValueError(f"Expected shape ({self.n_envs},) for {name}, got {val.shape}")
         delta = np.broadcast_to(np.asarray(delta_s, dtype=float), (self.n_envs,))
         grip = np.broadcast_to(np.asarray(engagement, dtype=float), (self.n_envs,))
         asp = np.broadcast_to(np.asarray(aspiration, dtype=float), (self.n_envs,))
