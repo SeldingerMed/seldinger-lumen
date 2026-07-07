@@ -26,8 +26,6 @@ import math
 import numpy as np
 from dataclasses import dataclass
 
-import numpy as np
-
 try:
     import warp as wp
 except Exception:  # pragma: no cover
@@ -354,6 +352,7 @@ class FlowField:
         qdown = np.empty((E, G), dtype=float)
         Pin = self.P_in()
         asp = min(max(self.aspiration, 0.0), 1.0)
+        idx = np.arange(S)
         for e in range(E):
             tip_edge = -1 if self._tree_tip_edge is None else int(self._tree_tip_edge[e])
             for g in range(G):
@@ -375,9 +374,14 @@ class FlowField:
                 P_tip = P_tip_nat - (asp * self.p.asp_gain if g == tip_edge else 0.0)
                 Q_up = (Pin - P_tip) / max(R_up, 1e-9)
                 Q_down = P_tip / max(R_down, 1e-9)
-                P[e, g, :it + 1] = Pin - Q_up * cum[:it + 1]
-                P[e, g, it:] = P_tip - Q_down * (cum[it:] - cum[it])
-                Qn = np.where(np.arange(S) < it, Q_up, Q_down)
+                if it == 0:
+                    P[e, g] = np.full(S, P_tip)
+                else:
+                    P_up_segment = Pin - Q_up * cum[:it + 1]
+                    P_down_segment = P_tip - Q_down * (cum[it:] - cum[it])
+                    P[e, g, :it + 1] = P_up_segment
+                    P[e, g, it + 1:] = P_down_segment[1:]
+                Qn = np.where(idx < it, Q_up, Q_down)
                 v[e, g] = Qn / area
                 qdown[e, g] = Q_down
         self._tree_P, self._tree_v, self._tree_Q_down = P, v, qdown

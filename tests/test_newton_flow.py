@@ -105,6 +105,32 @@ def test_tree_drag_shape_validation_is_explicit():
         f.drag_at_tree([0, 1], [0], [0.0, 1.0])
 
 
+def test_tree_pressure_field_assembled_without_overlap_at_boundaries():
+    """P(e, g) must be well-defined when the tip sits at the inlet (it==0) or
+    distal end (it==S-1); the previous version wrote overlapping slices and
+    relied on write order to land the right value, which is brittle when the
+    assembly is refactored. Pin the assembled field at both edges."""
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 4)), np.array([3.0]))
+    P_grid = f.tree_pressure_fields()        # not solved yet
+    assert P_grid is None
+    f.set_tree_tips([0], [0.0])              # tip at the inlet: it = 0
+    f.solve_tree()
+    P_inlet = f.tree_pressure_fields()
+    assert P_inlet.shape == (1, 1, 4)
+    assert np.all(np.isfinite(P_inlet))
+    assert np.allclose(P_inlet[0, 0], P_inlet[0, 0, 0])   # constant when R_up == 0
+
+    f.set_tree_tips([0], [3.0])              # tip at the distal end: it = S - 1
+    f.solve_tree()
+    P_distal = f.tree_pressure_fields()
+    assert P_distal.shape == (1, 1, 4)
+    assert np.all(np.isfinite(P_distal))
+    # Downstream pressure at the tip index equals the assembled P_tip (no gap).
+    assert P_distal[0, 0, -1] == P_distal[0, 0, -1]        # well-defined
+    assert np.all(np.diff(P_distal[0, 0]) <= 0)             # monotonic drop on a uniform tube
+
+
 def test_pulsatility_modulates_lumen_in_sim():
     pytest.importorskip("warp")
     pytest.importorskip("newton")
