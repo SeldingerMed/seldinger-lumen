@@ -359,12 +359,30 @@ class FlowField:
                 s_grid = self._tree_s_grids[g]
                 radii = R[e, g]
                 area = math.pi * radii ** 2
-                ds = s_grid[1] - s_grid[0] if S > 1 else 1.0
+                if S == 1:
+                    # Degenerate edge: no along-edge resistance to integrate.
+                    # Treat the single sample as a uniform tube with the wall
+                    # at the mean radius and R_periph at the bed.
+                    r_eff = float(np.maximum(np.mean(radii), self.p.R_floor))
+                    R_total = self.p.visc / (r_eff ** 4 + 1e-12) + self.p.R_periph
+                    Q_nat = Pin / max(R_total, 1e-9)
+                    P_tip_nat = Pin - Q_nat * self.p.visc / (r_eff ** 4 + 1e-12)
+                    P_tip = P_tip_nat - (asp * self.p.asp_gain if g == tip_edge else 0.0)
+                    P[e, g, 0] = P_tip
+                    v[e, g, 0] = P_tip / max(self.p.R_periph, 1e-9) / (math.pi * r_eff ** 2)
+                    qdown[e, g] = P_tip / max(self.p.R_periph, 1e-9)
+                    continue
+                ds = s_grid[1] - s_grid[0]
                 r_mid = np.maximum(0.5 * (radii[:-1] + radii[1:]), self.p.R_floor)
-                r_seg = self.p.visc * ds / (r_mid ** 4 + 1e-12) if S > 1 else np.zeros(0)
+                r_seg = self.p.visc * ds / (r_mid ** 4 + 1e-12)
                 cum = np.concatenate([[0.0], np.cumsum(r_seg)])
                 if g == tip_edge and self._tree_tip_s is not None:
-                    it = int(np.clip(round(self._tree_tip_s[e] / max(s_grid[-1], 1e-9) * (S - 1)), 0, S - 1))
+                    # np.rint is half-to-even, deterministic across platforms;
+                    # clip into [0, S-1] before the cast so an out-of-range
+                    # s_tip (e.g. wall overshoot) can't trip an IndexError
+                    # in the cum lookup.
+                    raw = self._tree_tip_s[e] / max(s_grid[-1], 1e-9) * (S - 1)
+                    it = int(np.clip(np.rint(raw), 0, S - 1))
                 else:
                     it = S - 1
                 R_up = cum[it]

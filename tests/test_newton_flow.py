@@ -126,9 +126,30 @@ def test_tree_pressure_field_assembled_without_overlap_at_boundaries():
     P_distal = f.tree_pressure_fields()
     assert P_distal.shape == (1, 1, 4)
     assert np.all(np.isfinite(P_distal))
-    # Downstream pressure at the tip index equals the assembled P_tip (no gap).
-    assert P_distal[0, 0, -1] == P_distal[0, 0, -1]        # well-defined
+    # Downstream pressure at the tip index must be a well-defined finite scalar
+    # and the field must be monotonically non-increasing on a uniform tube
+    # (pressure drops as the wall is crossed tip-to-inlet).
+    assert np.isfinite(float(P_distal[0, 0, -1]))
     assert np.all(np.diff(P_distal[0, 0]) <= 0)             # monotonic drop on a uniform tube
+
+
+def test_tree_solve_handles_single_sample_edges():
+    """Degenerate edge (S==1) takes the explicit degenerate branch and still
+    produces a finite pressure, velocity, and downstream Q without dividing by
+    the empty r_mid array."""
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 1)), np.array([2.0]))
+    f.set_tree_tips([0], [0.0])
+    f.solve_tree()
+    P = f.tree_pressure_fields()
+    v = f.tree_velocity_fields()
+    qdown = f.tree_downstream_Q()
+    assert P.shape == (1, 1, 1)
+    assert v.shape == (1, 1, 1)
+    assert qdown.shape == (1, 1)
+    assert np.all(np.isfinite(P))
+    assert np.all(np.isfinite(v))
+    assert np.all(np.isfinite(qdown))
 
 
 def test_pulsatility_modulates_lumen_in_sim():

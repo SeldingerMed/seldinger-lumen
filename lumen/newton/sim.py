@@ -408,14 +408,21 @@ class NewtonGuidewireSim:
         return edge, s, tang
 
     def _tree_radius_blocks(self, pulse: float):
-        """Return θ-averaged open radius blocks shaped [env, edge, s]."""
+        """Return θ-averaged open radius blocks shaped [env, edge, s].
+
+        Updates the solver-owned tree-wall ``r0_field`` in place. This is
+        the same in-place pattern the tube wall uses in ``_step_device``
+        (see sim.py:_step_device): the sim owns the wall, contact and
+        deformation read the same per-edge wall state, and pulsatility is
+        a per-step temporal modulation of the resting radius. Copying here
+        would create two divergent wall states and silently break contact,
+        so the wall is mutated intentionally and ``_step_tree_host`` is the
+        single writer for tree walls in the host substep loop.
+        """
         wall = self.solver._tree_wall
         n_edges = self.solver._tree_n_edges
         n_s, n_th = wall.n_s, wall.n_th
         base = self._tree_base_R0.astype(np.float32) * np.float32(pulse)
-        # The tree wall stores the solver's current open-radius field. Updating
-        # it here applies the pulsatile baseline before reading R0+w for flow;
-        # contact and deformation continue to share that same per-edge wall state.
         wall.r0_field.assign(base)
         r = wall.r0_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)
         w = wall.w_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)
