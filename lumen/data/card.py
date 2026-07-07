@@ -41,6 +41,22 @@ def _format_percent(summary: dict | None) -> str:
             f"max={maximum:.3%}, n={count}")
 
 
+def _format_array_payloads(payloads: object) -> str:
+    """Return a stable payload summary even when upstream metadata is partial."""
+    if not isinstance(payloads, list | tuple):
+        return "-"
+    formatted = []
+    for item in payloads:
+        if not isinstance(item, dict):
+            formatted.append("unknown unknown n=0")
+            continue
+        formatted.append(
+            f"{item.get('shape', 'unknown')} {item.get('dtype', 'unknown')} "
+            f"n={item.get('count', 0)}"
+        )
+    return ", ".join(formatted) if formatted else "-"
+
+
 def _quality_findings(summary: dict) -> list[str]:
     findings = []
     if summary.get("records", 0) == 0:
@@ -83,7 +99,7 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
     clinical = summary.get("clinical", {})
     annotations = summary.get("annotations", {})
 
-    episodes = summary.get('episodes', {})
+    episodes = summary.get("episodes", {})
     lines = [
         f"# {title}",
         "",
@@ -124,10 +140,7 @@ def build_dataset_card(index_path: str | Path, *, title: str = "Lumen Dataset Ca
     if summary.get("array_payloads"):
         lines += ["", "Array payloads:"]
         for name, payloads in summary.get("array_payloads", {}).items():
-            payload_text = ", ".join(
-                f"{item.get('shape', 'unknown')} {item.get('dtype', 'unknown')} n={item.get('count', 0)}" for item in payloads
-            )
-            lines.append(f"- {name}: {payload_text}")
+            lines.append(f"- {name}: {_format_array_payloads(payloads)}")
     if summary.get("mask_coverage"):
         lines += ["", "Mask coverage:"]
         for name, values in summary.get("mask_coverage", {}).items():
@@ -170,5 +183,8 @@ def write_dataset_card(card: dict, out_path: str | Path) -> str:
             raise ValueError(f"dataset card contains non-serializable data: {e}") from e
         out.write_text(text + "\n")
     else:
-        out.write_text(card["markdown"])
+        markdown = card.get("markdown")
+        if not isinstance(markdown, str):
+            raise ValueError("dataset card must contain a markdown string")
+        out.write_text(markdown if markdown.endswith("\n") else f"{markdown}\n")
     return str(out)

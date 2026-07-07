@@ -512,6 +512,34 @@ def test_dataset_card_cli_writes_markdown_and_json_from_index(tmp_path, capsys):
     assert "obs_path has 1 missing sidecar references" in card_path.read_text()
 
 
+def test_dataset_card_handles_partial_payload_metadata(tmp_path, monkeypatch):
+    from lumen.data.card import build_dataset_card, write_dataset_card
+
+    monkeypatch.setattr(
+        "lumen.data.card.summarize_index",
+        lambda *args, **kwargs: {
+            "index_path": "index.jsonl",
+            "records": 1,
+            "episodes": {"case": 1},
+            "array_payloads": {
+                "obs": None,
+                "mask": [{"shape": [4, 4]}, "malformed"],
+            },
+        },
+    )
+
+    card = build_dataset_card(tmp_path / "index.jsonl")
+    assert "- obs: -" in card["markdown"]
+    assert "- mask: [4, 4] unknown n=0, unknown unknown n=0" in card["markdown"]
+
+    out = tmp_path / "DATASET_CARD.md"
+    write_dataset_card(card, out)
+    assert out.read_text().endswith("\n")
+
+    with pytest.raises(ValueError, match="markdown string"):
+        write_dataset_card({"summary": {}}, tmp_path / "broken.md")
+
+
 def test_index_inspection_reports_invalid_inputs_without_traceback(tmp_path, capsys):
     from lumen.cli import inspect_index_main
 
