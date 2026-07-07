@@ -16,7 +16,8 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling | `batched stent-retriever retrieval requires the 1-D FlowField coupling path` for non-`FlowField` batched sims | — |
 | Vascular-tree contact | ✅ | ✅ | none | — |
 | Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
-| Tree + flow/clot coupling | 🚧 | 🚧 | `edge-aware tree flow/clot coupling is not wired yet` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+| Tree + `FlowField` coupling | ✅ | ✅ | `tree flow requires the 1-D FlowField edge-graph path` for non-`FlowField` flow objects | — |
+| Tree + clot coupling | 🚧 | 🚧 | `edge-aware tree clot coupling is not wired yet` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
 | Aneurysm + flow diverter | ✅ with `FlowField` | ✅ with `FlowField` | none | — |
 | Aneurysm without `FlowField` | 🚧 | 🚧 | `an aneurysm needs the 1-D FlowField` | — |
 
@@ -25,7 +26,7 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | Gap | Implementation issue | Required closure evidence |
 |---|---|---|
 
-| Tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | Edge-aware flow/clot coverage on graph edges. Batched tree contact is covered by a two-env tree contact test on a procedural tree; flow/clot stays guarded until it has graph fields instead of a single route centerline. |
+| Tree clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | Per-edge clot spans and graph-indexed clot grids. Batched tree contact is covered by a two-env tree contact test on a procedural tree, and `FlowField` drag is covered on procedural trees; clot remains guarded until it has edge-aware graph fields instead of a single route centerline. |
 
 ## Closed batched gaps
 
@@ -37,9 +38,9 @@ Batched coaxial guidewire + catheter assemblies now allocate one guidewire rod, 
 
 Batched stent-retriever capture/slip/fragmentation is supported when the sim uses the 1-D `FlowField` clot/device coupling path. The remaining guard requires `FlowField` for batched retrieval because the analytic lumped flow path is still single-env.
 
-### Tree flow/clot (#55)
+### Tree FlowField coupling (#55)
 
-Tree contact uses per-edge lumen fields and route-centered actuation, and is now safe in batched simulations by allocating independent env×edge wall deformation/load blocks over the shared procedural tree graph. Flow drag and clot grids remain intentionally blocked because they are still parameterized by one linear centerline; tree + flow/clot must first become edge-aware rather than reusing the straight/route centerline arrays.
+Tree contact uses per-edge lumen fields and route-centered actuation, and is now safe in batched simulations by allocating independent env×edge wall deformation/load blocks over the shared procedural tree graph. Tree `FlowField` coupling is edge-aware: it feeds env×edge radius blocks to the flow solve and samples drag by each guidewire node's projected edge and edge-local arc length. Tree clot grids remain intentionally blocked because clot spans are still parameterized by one linear centerline; tree clots must first become edge-aware rather than reusing the straight/route centerline arrays.
 
 ## Batched aneurysm flow-diverter support
 
