@@ -78,3 +78,80 @@ def test_configure_backend_logging_rejects_unknown_level(monkeypatch):
         assert hardware.BACKEND_LOG_ENV in str(e)
     else:
         raise AssertionError("unknown backend log level should fail")
+
+
+def test_detect_device_honors_cpu_preference_without_importing_warp(monkeypatch):
+    def fail_import(name, *args, **kwargs):
+        if name == "warp":
+            raise AssertionError("cpu preference should not import warp")
+        return original_import(name, *args, **kwargs)
+
+    original_import = __import__
+    monkeypatch.setattr("builtins.__import__", fail_import)
+
+    assert hardware.detect_device(prefer="cpu") == "cpu"
+
+
+def test_detect_device_uses_cuda_when_warp_reports_visible_devices(monkeypatch):
+    calls = []
+    fake_wp = types.SimpleNamespace(
+        LOG_DEBUG=10,
+        LOG_INFO=20,
+        LOG_WARNING=30,
+        LOG_ERROR=40,
+        config=types.SimpleNamespace(log_level=20),
+        init=lambda: calls.append("init"),
+        get_cuda_device_count=lambda: 2,
+    )
+    monkeypatch.setitem(sys.modules, "warp", fake_wp)
+    monkeypatch.delenv(hardware.BACKEND_LOG_ENV, raising=False)
+
+    assert hardware.detect_device() == "cuda"
+    assert calls == ["init"]
+    assert fake_wp.config.log_level == fake_wp.LOG_WARNING
+
+
+def test_detect_device_falls_back_to_cpu_when_warp_init_fails(monkeypatch):
+    def fail_init():
+        raise RuntimeError("backend unavailable")
+
+    fake_wp = types.SimpleNamespace(
+        LOG_DEBUG=10,
+        LOG_INFO=20,
+        LOG_WARNING=30,
+        LOG_ERROR=40,
+        config=types.SimpleNamespace(log_level=20),
+        init=fail_init,
+        get_cuda_device_count=lambda: 1,
+    )
+    monkeypatch.setitem(sys.modules, "warp", fake_wp)
+
+    assert hardware.detect_device(prefer="cuda") == "cpu"
+
+
+def test_describe_reports_validated_backend_with_fake_warp_and_newton(monkeypatch):
+    fake_wp = types.SimpleNamespace(
+        LOG_DEBUG=10,
+        LOG_INFO=20,
+        LOG_WARNING=30,
+        LOG_ERROR=40,
+        config=types.SimpleNamespace(log_level=20, version=hardware.VALIDATED_WARP_VERSION),
+        init=lambda: None,
+        get_cuda_device_count=lambda: 1,
+    )
+    fake_newton = types.SimpleNamespace(
+        __version__=hardware.VALIDATED_NEWTON_VERSION,
+        __git_commit__=hardware.VALIDATED_NEWTON_REF,
+    )
+    monkeypatch.setitem(sys.modules, "warp", fake_wp)
+    monkeypatch.setitem(sys.modules, "newton", fake_newton)
+
+    info = hardware.describe()
+
+    assert info["device"] == "cuda"
+    assert info["warp"] == hardware.VALIDATED_WARP_VERSION
+    assert info["cuda_devices"] == 1
+    assert info["newton"] == hardware.VALIDATED_NEWTON_VERSION
+    assert info["newton_ref"] == hardware.VALIDATED_NEWTON_REF
+    assert info["newton_available"] is True
+    assert info["backend_validated"] is True
