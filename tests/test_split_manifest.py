@@ -34,6 +34,8 @@ def test_read_split_manifest_roundtrips_from_directory_and_file(tmp_path):
     assert from_dir == manifest == from_file
     assert from_dir["ratios"] == {"train": pytest.approx(2 / 3), "val": pytest.approx(1 / 3), "test": 0.0}
     assert set(from_dir["assignments"].values()).issubset({"train", "val", "test"})
+    assert from_dir["splits"]["train"]["labels"]["success"] == 2
+    assert from_dir["splits"]["train"]["modalities"]["fluoro"] == 3
 
 
 def test_read_split_manifest_rejects_malformed_manifest(tmp_path):
@@ -57,3 +59,8 @@ def test_read_split_manifest_rejects_malformed_manifest(tmp_path):
     }))
     with pytest.raises(ValueError, match="ratios must contain train, val, and test"):
         read_split_manifest(manifest_path)
+
+
+def test_read_split_manifest_rejects_non_json_file_path(tmp_path):
+    with pytest.raises(ValueError, match="directory or .json file"):
+        read_split_manifest(tmp_path / "manifest.txt")

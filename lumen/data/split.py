@@ -136,6 +136,8 @@ def _assign_groups(
 
 
 def _summarize_split(rows: list[IndexRecord], group_by: str) -> SplitSummary:
+    # Labels/modalities are fixed dataloader-index conventions, independent of
+    # the optional fields used to stratify group assignment.
     return {
         "records": len(rows),
         "episodes": len({str(row.get(group_by, "<missing>")) for row in rows}),
@@ -146,7 +148,11 @@ def _summarize_split(rows: list[IndexRecord], group_by: str) -> SplitSummary:
 
 def _manifest_path(path: str | Path) -> Path:
     path = Path(path)
-    return path / "manifest.json" if path.is_dir() or path.suffix != ".json" else path
+    if path.is_dir() or path.suffix == "":
+        return path / "manifest.json"
+    if path.suffix == ".json":
+        return path
+    raise ValueError(f"split manifest path must be a directory or .json file, got {path}")
 
 
 def read_split_manifest(path: str | Path) -> SplitManifest:
