@@ -6,15 +6,40 @@ from collections import Counter, defaultdict, deque
 import json
 from pathlib import Path
 import random
-from typing import Iterable
+from typing import Iterable, Literal, TypedDict, cast
 
-SPLIT_NAMES = ("train", "val", "test")
-DEFAULT_RATIOS = (0.8, 0.1, 0.1)
+SplitName = Literal["train", "val", "test"]
+IndexRecord = dict[str, object]
+Ratios = tuple[float, float, float]
+
+
+class SplitSummary(TypedDict):
+    records: int
+    episodes: int
+    labels: dict[str, int]
+    modalities: dict[str, int]
+
+
+class SplitManifest(TypedDict):
+    source_index: str
+    out_dir: str
+    group_by: str
+    seed: int
+    ratios: dict[SplitName, float]
+    stratify: list[str]
+    records: int
+    episodes: int
+    assignments: dict[str, SplitName]
+    splits: dict[SplitName, SplitSummary]
+
+
+SPLIT_NAMES: tuple[SplitName, SplitName, SplitName] = ("train", "val", "test")
+DEFAULT_RATIOS: Ratios = (0.8, 0.1, 0.1)
 DEFAULT_STRATIFY_FIELDS = ("label", "obs_modality")
 
 
-def _read_jsonl(index_path: str | Path) -> list[dict]:
-    rows = []
+def _read_jsonl(index_path: str | Path) -> list[IndexRecord]:
+    rows: list[IndexRecord] = []
     with open(index_path, encoding="utf-8") as f:
         for line_no, line in enumerate(f, 1):
             if not line.strip():
@@ -25,13 +50,13 @@ def _read_jsonl(index_path: str | Path) -> list[dict]:
                 raise ValueError(f"line {line_no}: invalid JSON: {e.msg}") from e
             if not isinstance(row, dict):
                 raise ValueError(f"line {line_no}: expected JSON object, got {type(row).__name__}")
-            rows.append(row)
+            rows.append(cast(IndexRecord, row))
     if not rows:
         raise ValueError("index has no records")
     return rows
 
 
-def _normalized_ratios(ratios: Iterable[float]) -> tuple[float, float, float]:
+def _normalized_ratios(ratios: Iterable[float]) -> Ratios:
     values = tuple(float(value) for value in ratios)
     if len(values) != 3:
         raise ValueError("ratios must contain exactly three values: train val test")
@@ -40,10 +65,10 @@ def _normalized_ratios(ratios: Iterable[float]) -> tuple[float, float, float]:
     total = sum(values)
     if total <= 0.0:
         raise ValueError("at least one ratio must be positive")
-    return tuple(value / total for value in values)  # type: ignore[return-value]
+    return (values[0] / total, values[1] / total, values[2] / total)
 
 
-def _target_counts(n_groups: int, ratios: tuple[float, float, float]) -> dict[str, int]:
+def _target_counts(n_groups: int, ratios: Ratios) -> dict[SplitName, int]:
     raw = [n_groups * ratio for ratio in ratios]
     counts = [int(value) for value in raw]
     remaining = n_groups - sum(counts)
@@ -53,12 +78,12 @@ def _target_counts(n_groups: int, ratios: tuple[float, float, float]) -> dict[st
     return dict(zip(SPLIT_NAMES, counts, strict=True))
 
 
-def _stratum_key(record: dict, fields: tuple[str, ...]) -> tuple[str, ...]:
+def _stratum_key(record: IndexRecord, fields: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(str(record.get(field, "<missing>")) for field in fields)
 
 
-def _group_records(rows: list[dict], group_by: str) -> dict[str, list[dict]]:
-    groups: dict[str, list[dict]] = defaultdict(list)
+def _group_records(rows: list[IndexRecord], group_by: str) -> dict[str, list[IndexRecord]]:
+    groups: dict[str, list[IndexRecord]] = defaultdict(list)
     for row in rows:
         group = row.get(group_by)
         if not group:
@@ -67,7 +92,9 @@ def _group_records(rows: list[dict], group_by: str) -> dict[str, list[dict]]:
     return dict(groups)
 
 
-def _interleaved_groups(groups: dict[str, list[dict]], stratify_fields: tuple[str, ...], seed: int) -> list[str]:
+def _interleaved_groups(
+    groups: dict[str, list[IndexRecord]], stratify_fields: tuple[str, ...], seed: int
+) -> list[str]:
     rng = random.Random(seed)
     strata: dict[tuple[str, ...], list[str]] = defaultdict(list)
     for group, rows in groups.items():
@@ -93,21 +120,22 @@ def _interleaved_groups(groups: dict[str, list[dict]], stratify_fields: tuple[st
     return order
 
 
-def _assign_groups(groups: dict[str, list[dict]], ratios: tuple[float, float, float],
-                   stratify_fields: tuple[str, ...], seed: int) -> dict[str, str]:
+def _assign_groups(
+    groups: dict[str, list[IndexRecord]], ratios: Ratios, stratify_fields: tuple[str, ...], seed: int
+) -> dict[str, SplitName]:
     targets = _target_counts(len(groups), ratios)
     remaining = dict(targets)
-    assignments = {}
+    assignments: dict[str, SplitName] = {}
     for group in _interleaved_groups(groups, stratify_fields, seed):
         split = max(SPLIT_NAMES, key=lambda name: (remaining[name], -SPLIT_NAMES.index(name)))
         if remaining[split] <= 0:
-            split = next(name for name in SPLIT_NAMES if remaining[name] > 0)
+            split = cast(SplitName, next(name for name in SPLIT_NAMES if remaining[name] > 0))
         assignments[group] = split
         remaining[split] -= 1
     return assignments
 
 
-def _summarize_split(rows: list[dict], group_by: str) -> dict:
+def _summarize_split(rows: list[IndexRecord], group_by: str) -> SplitSummary:
     return {
         "records": len(rows),
         "episodes": len({str(row.get(group_by, "<missing>")) for row in rows}),
@@ -116,10 +144,44 @@ def _summarize_split(rows: list[dict], group_by: str) -> dict:
     }
 
 
+def _manifest_path(path: str | Path) -> Path:
+    path = Path(path)
+    return path / "manifest.json" if path.is_dir() or path.suffix != ".json" else path
+
+
+def read_split_manifest(path: str | Path) -> SplitManifest:
+    """Load and validate a split manifest produced by :func:`split_index_records`.
+
+    ``path`` may point directly at ``manifest.json`` or at the split output directory.
+    The validation is intentionally schema-light: it catches missing/renamed fields
+    and malformed split names before downstream training code consumes bad folds.
+    """
+    manifest_path = _manifest_path(path)
+    with open(manifest_path, encoding="utf-8") as f:
+        raw = json.load(f)
+    if not isinstance(raw, dict):
+        raise ValueError(f"split manifest {manifest_path} must contain a JSON object")
+
+    required = {
+        "source_index", "out_dir", "group_by", "seed", "ratios", "stratify",
+        "records", "episodes", "assignments", "splits",
+    }
+    missing = sorted(required.difference(raw))
+    if missing:
+        raise ValueError(f"split manifest {manifest_path} missing required fields: {missing}")
+    ratios_obj = raw.get("ratios")
+    splits_obj = raw.get("splits")
+    if not isinstance(ratios_obj, dict) or set(ratios_obj) != set(SPLIT_NAMES):
+        raise ValueError(f"split manifest {manifest_path} ratios must contain train, val, and test")
+    if not isinstance(splits_obj, dict) or set(splits_obj) != set(SPLIT_NAMES):
+        raise ValueError(f"split manifest {manifest_path} splits must contain train, val, and test")
+    return cast(SplitManifest, raw)
+
+
 def split_index_records(index_path: str | Path, out_dir: str | Path,
                         ratios: Iterable[float] = DEFAULT_RATIOS, seed: int = 0,
                         stratify_fields: Iterable[str] = DEFAULT_STRATIFY_FIELDS,
-                        group_by: str = "episode") -> dict:
+                        group_by: str = "episode") -> SplitManifest:
     """Write deterministic train/val/test JSONL splits for an existing index.
 
     Splits are assigned at episode granularity by default, so frames from one
@@ -134,7 +196,7 @@ def split_index_records(index_path: str | Path, out_dir: str | Path,
     groups = _group_records(rows, group_by)
     assignments = _assign_groups(groups, ratios, stratify_fields, int(seed))
 
-    split_rows = {name: [] for name in SPLIT_NAMES}
+    split_rows: dict[SplitName, list[IndexRecord]] = {name: [] for name in SPLIT_NAMES}
     for row in rows:
         split_rows[assignments[str(row[group_by])]].append(row)
 
@@ -145,7 +207,7 @@ def split_index_records(index_path: str | Path, out_dir: str | Path,
             for row in split_rows[split]:
                 f.write(json.dumps(row, sort_keys=True) + "\n")
 
-    manifest = {
+    manifest: SplitManifest = {
         "source_index": str(index_path),
         "out_dir": str(out_dir),
         "group_by": group_by,
