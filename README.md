@@ -30,7 +30,13 @@ There is no separate CPU fallback to maintain.
 
 ```bash
 python -m lumen.hardware     # -> {"device": "cuda"|"cpu", ...}
+lumen doctor                 # install/backend readiness plus next-step guidance
 ```
+
+`lumen doctor` is the first troubleshooting command for a new workstation or CI
+runner: it reports installed Lumen/Warp/Newton versions, whether the pinned backend
+is validated, whether CUDA is visible, and the exact install command to run when
+solver dependencies are missing.
 
 Lumen keeps Warp/Newton backend chatter quiet by default so examples print parseable
 results. Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` when you want backend diagnostics.
