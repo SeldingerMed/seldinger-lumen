@@ -74,7 +74,14 @@ def _installed_version(distribution_name: str) -> str | None:
 def doctor_report() -> dict:
     """Return a developer-friendly readiness report for a local Lumen install."""
 
-    backend = describe()
+    issues: list[str] = []
+    warnings: list[str] = []
+    next_steps: list[str] = []
+    try:
+        backend = describe()
+    except Exception as e:
+        backend = {"error": f"{type(e).__name__}: {e}", "backend_validated": False}
+        issues.append(f"backend detection failed: {type(e).__name__}: {e}")
     distributions = {
         "seldinger-lumen": _installed_version("seldinger-lumen"),
         "numpy": _installed_version("numpy"),
@@ -83,9 +90,6 @@ def doctor_report() -> dict:
         "gymnasium": _installed_version("gymnasium"),
         "SimpleITK": _installed_version("SimpleITK"),
     }
-    issues: list[str] = []
-    warnings: list[str] = []
-    next_steps: list[str] = []
     solver_install = 'Install solver dependencies with `pip install -e ".[solver]"` or `.[dev]`.'
 
     if distributions["seldinger-lumen"] is None:
@@ -105,22 +109,31 @@ def doctor_report() -> dict:
 
     if backend.get("warp") and validated_warp and backend.get("warp") != validated_warp:
         warnings.append(
-            f"warp-lang {backend['warp']} differs from validated {validated_warp}"
+            f"warp-lang {backend.get('warp')} differs from validated {validated_warp}"
         )
     if backend.get("newton") and validated_newton and backend.get("newton") != validated_newton:
         warnings.append(
-            f"newton {backend['newton']} differs from validated {validated_newton}"
+            f"newton {backend.get('newton')} differs from validated {validated_newton}"
         )
     if backend.get("newton_available") and not backend.get("backend_validated"):
         warnings.append("backend is importable but not the pinned validated Warp/Newton combination")
         next_steps.append("Reinstall the pinned backend from pyproject.toml before publishing benchmark claims.")
     if backend.get("device") == "cpu":
-        warnings.append("CUDA is not visible to Warp; CPU smoke tests are still valid")
+        warnings.append(
+            "CPU mode is valid for smoke tests; CUDA is not visible to Warp, so run GPU "
+            "benchmarks on a CUDA host"
+        )
     if not next_steps:
         next_steps.append("Run `pytest -q` for the portable regression suite.")
 
+    status = "pass"
+    if issues:
+        status = "fail"
+    elif warnings:
+        status = "warn"
+
     return {
-        "status": "fail" if issues else "warn" if warnings else "pass",
+        "status": status,
         "backend": backend,
         "distributions": distributions,
         "issues": issues,
@@ -141,11 +154,13 @@ def doctor_main(argv=None, prog=None) -> None:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         backend = report["backend"]
+        warp_version = backend.get("warp") if backend.get("warp") is not None else "missing"
+        newton_version = backend.get("newton") if backend.get("newton") is not None else "missing"
         print(f"status: {report['status']}")
         print(
             "backend: "
-            f"device={backend.get('device')} warp={backend.get('warp') or 'missing'} "
-            f"newton={backend.get('newton') or 'missing'} validated={backend.get('backend_validated')}"
+            f"device={backend.get('device')} warp={warp_version} "
+            f"newton={newton_version} validated={backend.get('backend_validated')}"
         )
         if report["issues"]:
             print("issues:")

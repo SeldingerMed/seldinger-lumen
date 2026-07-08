@@ -140,7 +140,26 @@ def test_doctor_cli_handles_backend_without_validated_key(monkeypatch):
     report = cli.doctor_report()
 
     assert report["status"] == "warn"
-    assert "pinned validated Warp/Newton" in "\n".join(report["warnings"])
+    assert any(
+        warning == "backend is importable but not the pinned validated Warp/Newton combination"
+        for warning in report["warnings"]
+    )
+
+
+def test_doctor_cli_reports_backend_detection_failures(monkeypatch):
+    from lumen import cli
+
+    def broken_describe():
+        raise RuntimeError("warp probe failed")
+
+    monkeypatch.setattr(cli, "describe", broken_describe)
+    monkeypatch.setattr(cli, "_installed_version", lambda name: "0.0.0")
+
+    report = cli.doctor_report()
+
+    assert report["status"] == "fail"
+    assert report["backend"]["error"] == "RuntimeError: warp probe failed"
+    assert report["issues"] == ["backend detection failed: RuntimeError: warp probe failed"]
 
 
 def test_cli_module_execution_prints_help():
