@@ -36,6 +36,9 @@ pip install -e ".[dev]"
 validated against. For runtime-only solver use, install `.[solver]` instead. Runs on
 **CPU and CUDA** from the same code (Warp picks the device at runtime).
 Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` to show Warp/Newton backend diagnostics.
+Run `lumen doctor` when bringing up a new workstation or CI runner; it reports the
+installed Lumen/Warp/Newton versions, pinned-backend validation status, CUDA visibility,
+and actionable reinstall guidance when optional solver dependencies are missing.
 
 ## A 20-second taste
 

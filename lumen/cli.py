@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from importlib import metadata
 from pathlib import Path
 
 from lumen.data.index import KEYPOINT_MASK_TOLERANCE_PX, device_keypoint_mask_errors
@@ -15,6 +16,7 @@ from lumen.hardware import describe
 def _command_table():
     return {
         "hardware": ("Print backend hardware/software status.", hardware_main),
+        "doctor": ("Diagnose install/backend readiness and print next steps.", doctor_main),
         "benchmark": ("Run the canonical navigation benchmark.", benchmark_main),
         "play": ("Watch a scene: roll out a policy and write an animation.", play_main),
         "train": ("Train a navigation policy (CEM) and save it for play/eval.", train_main),
@@ -60,6 +62,124 @@ def hardware_main(argv=None, prog=None) -> None:
         prog=prog, description="Print Lumen backend hardware/software status.")
     parser.parse_args(argv)
     print(json.dumps(describe(), indent=2))
+
+
+def _installed_version(distribution_name: str) -> str | None:
+    try:
+        return metadata.version(distribution_name)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def doctor_report() -> dict:
+    """Return a developer-friendly readiness report for a local Lumen install."""
+
+    issues: list[str] = []
+    warnings: list[str] = []
+    next_steps: list[str] = []
+    try:
+        backend = describe()
+        backend_detection_failed = False
+    except Exception as e:
+        backend = {"error": f"{type(e).__name__}: {e}", "backend_validated": False}
+        backend_detection_failed = True
+        issues.append(f"backend detection failed: {type(e).__name__}: {e}")
+    distributions = {
+        "seldinger-lumen": _installed_version("seldinger-lumen"),
+        "numpy": _installed_version("numpy"),
+        "warp-lang": _installed_version("warp-lang"),
+        "newton": _installed_version("newton"),
+        "gymnasium": _installed_version("gymnasium"),
+        "SimpleITK": _installed_version("SimpleITK"),
+    }
+    solver_install = 'Install solver dependencies with `pip install -e ".[solver]"` or `.[dev]`.'
+
+    def add_next_step(step: str) -> None:
+        if step not in next_steps:
+            next_steps.append(step)
+
+    if distributions["seldinger-lumen"] is None:
+        issues.append("seldinger-lumen is not installed as a distribution")
+        add_next_step('Install from the repository root with `pip install -e ".[dev]"`.')
+    if distributions["warp-lang"] is None:
+        warnings.append("warp-lang is not installed; solver workflows are unavailable")
+        add_next_step(solver_install)
+    if not backend_detection_failed and not backend.get("newton_available"):
+        warnings.append("newton is not importable; solver-backed workflows are unavailable")
+        add_next_step(solver_install)
+    raw_validated = backend.get("validated")
+    validated = raw_validated if isinstance(raw_validated, dict) else {}
+    validated_warp = validated.get("warp")
+    validated_newton = validated.get("newton")
+
+    if not backend_detection_failed and backend.get("warp") and validated_warp and backend.get("warp") != validated_warp:
+        warnings.append(
+            f"warp-lang {backend.get('warp')} differs from validated {validated_warp}"
+        )
+    if not backend_detection_failed and backend.get("newton") and validated_newton and backend.get("newton") != validated_newton:
+        warnings.append(
+            f"newton {backend.get('newton')} differs from validated {validated_newton}"
+        )
+    if not backend_detection_failed and backend.get("newton_available") and not backend.get("backend_validated"):
+        warnings.append("backend is importable but not the pinned validated Warp/Newton combination")
+        add_next_step("Reinstall the pinned backend from pyproject.toml before publishing benchmark claims.")
+    if not backend_detection_failed and backend.get("device") == "cpu":
+        warnings.append(
+            "CPU mode is valid for smoke tests; CUDA is not visible to Warp, so run GPU "
+            "benchmarks on a CUDA host"
+        )
+    if not next_steps:
+        next_steps.append("Run `pytest -q` for the portable regression suite.")
+
+    status = "pass"
+    if issues:
+        status = "fail"
+    elif warnings:
+        status = "warn"
+
+    return {
+        "status": status,
+        "backend": backend,
+        "distributions": distributions,
+        "issues": issues,
+        "warnings": warnings,
+        "next_steps": next_steps,
+    }
+
+
+def doctor_main(argv=None, prog=None) -> None:
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Diagnose local Lumen install and backend readiness.")
+    parser.add_argument("--json", action="store_true", help="print the full report as JSON")
+    parser.add_argument("--strict", action="store_true",
+                        help="exit non-zero on warnings as well as hard failures")
+    args = parser.parse_args(argv)
+    report = doctor_report()
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        backend = report["backend"]
+        warp_version = backend.get("warp") or "missing"
+        newton_version = backend.get("newton") or "missing"
+        print(f"status: {report['status']}")
+        print(
+            "backend: "
+            f"device={backend.get('device')} warp={warp_version} "
+            f"newton={newton_version} validated={backend.get('backend_validated')}"
+        )
+        if report["issues"]:
+            print("issues:")
+            for item in report["issues"]:
+                print(f"  - {item}")
+        if report["warnings"]:
+            print("warnings:")
+            for item in report["warnings"]:
+                print(f"  - {item}")
+        print("next steps:")
+        for item in report["next_steps"]:
+            print(f"  - {item}")
+    if report["issues"] or (args.strict and report["warnings"]):
+        raise SystemExit(1)
 
 
 def benchmark_main(argv=None, prog=None) -> None:

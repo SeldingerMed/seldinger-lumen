@@ -17,6 +17,7 @@ from lumen.sensors.carm import CArm
 EXPECTED_CONSOLE_SCRIPTS = {
     "lumen": "lumen.cli:main",
     "lumen-hardware": "lumen.cli:hardware_main",
+    "lumen-doctor": "lumen.cli:doctor_main",
     "lumen-benchmark": "lumen.cli:benchmark_main",
     "lumen-play": "lumen.cli:play_main",
     "lumen-train": "lumen.cli:train_main",
@@ -85,6 +86,81 @@ def test_umbrella_cli_dispatches_workflows(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert "newton_available" in payload
     assert "backend_validated" in payload
+
+
+def test_doctor_cli_reports_actionable_backend_guidance(monkeypatch, capsys):
+    from lumen import cli
+
+    monkeypatch.setattr(cli, "describe", lambda: {
+        "device": "cpu",
+        "warp": None,
+        "cuda_devices": 0,
+        "newton": None,
+        "newton_available": False,
+        "validated": {"warp": "1.14.0", "newton": "1.4.0.dev0", "newton_ref": "abc"},
+        "backend_validated": False,
+    })
+    monkeypatch.setattr(
+        cli,
+        "_installed_version",
+        lambda name: {"seldinger-lumen": "0.0.0", "numpy": "2.0.0"}.get(name),
+    )
+
+    cli.main(["doctor"])
+    out = capsys.readouterr().out
+
+    assert "status: warn" in out
+    assert "newton is not importable" in out
+    assert "pip install -e" in out
+
+    cli.main(["doctor", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "warn"
+    assert payload["backend"]["device"] == "cpu"
+    assert "warnings" in payload
+
+    with pytest.raises(SystemExit) as seen:
+        cli.main(["doctor", "--strict"])
+    assert seen.value.code == 1
+
+
+def test_doctor_cli_handles_backend_without_validated_key(monkeypatch):
+    from lumen import cli
+
+    monkeypatch.setattr(cli, "describe", lambda: {
+        "device": "cuda",
+        "warp": "1.14.0",
+        "cuda_devices": 1,
+        "newton": "1.4.0.dev0",
+        "newton_available": True,
+        "backend_validated": False,
+    })
+    monkeypatch.setattr(cli, "_installed_version", lambda name: "0.0.0")
+
+    report = cli.doctor_report()
+
+    assert report["status"] == "warn"
+    assert any(
+        warning == "backend is importable but not the pinned validated Warp/Newton combination"
+        for warning in report["warnings"]
+    )
+
+
+def test_doctor_cli_reports_backend_detection_failures(monkeypatch):
+    from lumen import cli
+
+    def broken_describe():
+        raise RuntimeError("warp probe failed")
+
+    monkeypatch.setattr(cli, "describe", broken_describe)
+    monkeypatch.setattr(cli, "_installed_version", lambda name: "0.0.0")
+
+    report = cli.doctor_report()
+
+    assert report["status"] == "fail"
+    assert report["backend"]["error"] == "RuntimeError: warp probe failed"
+    assert report["issues"] == ["backend detection failed: RuntimeError: warp probe failed"]
+    assert not any("newton is not importable" in warning for warning in report["warnings"])
 
 
 def test_cli_module_execution_prints_help():
