@@ -148,19 +148,35 @@ def _summarize_split(rows: list[IndexRecord], group_by: str) -> SplitSummary:
 
 def _manifest_path(path: str | Path) -> Path:
     path = Path(path)
-    if path.is_dir() or path.suffix == "":
+    if path.is_dir():
         return path / "manifest.json"
     if path.suffix == ".json":
         return path
     raise ValueError(f"split manifest path must be a directory or .json file, got {path}")
 
 
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_int_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_count_map(value: object, field: str, manifest_path: Path) -> None:
+    if not isinstance(value, dict):
+        raise ValueError(f"split manifest {manifest_path} {field} must be an object")
+    bad_items = [key for key, count in value.items() if not isinstance(key, str) or not _is_int_count(count)]
+    if bad_items:
+        raise ValueError(f"split manifest {manifest_path} {field} must map strings to integer counts")
+
+
 def read_split_manifest(path: str | Path) -> SplitManifest:
     """Load and validate a split manifest produced by :func:`split_index_records`.
 
     ``path`` may point directly at ``manifest.json`` or at the split output directory.
-    The validation is intentionally schema-light: it catches missing/renamed fields
-    and malformed split names before downstream training code consumes bad folds.
+    The validation catches missing/renamed fields, malformed split names, and
+    non-numeric summary counts before downstream training code consumes bad folds.
     """
     manifest_path = _manifest_path(path)
     with open(manifest_path, encoding="utf-8") as f:
@@ -179,8 +195,19 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
     splits_obj = raw.get("splits")
     if not isinstance(ratios_obj, dict) or set(ratios_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} ratios must contain train, val, and test")
+    if any(not _is_number(ratios_obj[name]) for name in SPLIT_NAMES):
+        raise ValueError(f"split manifest {manifest_path} ratios must be numeric")
     if not isinstance(splits_obj, dict) or set(splits_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} splits must contain train, val, and test")
+    for split in SPLIT_NAMES:
+        summary = splits_obj[split]
+        if not isinstance(summary, dict):
+            raise ValueError(f"split manifest {manifest_path} split {split!r} summary must be an object")
+        for field in ("records", "episodes"):
+            if not _is_int_count(summary.get(field)):
+                raise ValueError(f"split manifest {manifest_path} split {split!r} {field} must be an integer")
+        _validate_count_map(summary.get("labels"), f"split {split!r} labels", manifest_path)
+        _validate_count_map(summary.get("modalities"), f"split {split!r} modalities", manifest_path)
     return cast(SplitManifest, raw)
 
 

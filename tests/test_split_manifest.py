@@ -16,6 +16,30 @@ def _write_index(path):
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
+def _valid_manifest():
+    return {
+        "source_index": "index.jsonl",
+        "out_dir": "splits",
+        "group_by": "episode",
+        "seed": 0,
+        "ratios": {"train": 1.0, "val": 0.0, "test": 0.0},
+        "stratify": ["label"],
+        "records": 1,
+        "episodes": 1,
+        "assignments": {"case_a": "train"},
+        "splits": {
+            "train": {
+                "records": 1,
+                "episodes": 1,
+                "labels": {"success": 1},
+                "modalities": {"fluoro": 1},
+            },
+            "val": {"records": 0, "episodes": 0, "labels": {}, "modalities": {}},
+            "test": {"records": 0, "episodes": 0, "labels": {}, "modalities": {}},
+        },
+    }
+
+
 def test_split_manifest_public_types_are_importable():
     assert SplitName is not None
     assert SplitSummary is not None
@@ -60,7 +84,39 @@ def test_read_split_manifest_rejects_malformed_manifest(tmp_path):
     with pytest.raises(ValueError, match="ratios must contain train, val, and test"):
         read_split_manifest(manifest_path)
 
+    invalid = _valid_manifest()
+    invalid["ratios"]["train"] = "1.0"
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="ratios must be numeric"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["ratios"]["train"] = True
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="ratios must be numeric"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["records"] = True
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="records must be an integer"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["labels"] = {"success": "one"}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="labels must map strings to integer counts"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["labels"] = {"success": True}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="labels must map strings to integer counts"):
+        read_split_manifest(manifest_path)
+
 
 def test_read_split_manifest_rejects_non_json_file_path(tmp_path):
     with pytest.raises(ValueError, match="directory or .json file"):
         read_split_manifest(tmp_path / "manifest.txt")
+    with pytest.raises(ValueError, match="directory or .json file"):
+        read_split_manifest(tmp_path / "manifest")
