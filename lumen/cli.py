@@ -98,13 +98,18 @@ def doctor_report() -> dict:
         warnings.append("newton is not importable; solver-backed workflows are unavailable")
         if solver_install not in next_steps:
             next_steps.append(solver_install)
-    if backend.get("warp") and backend.get("warp") != backend["validated"]["warp"]:
+    raw_validated = backend.get("validated")
+    validated = raw_validated if isinstance(raw_validated, dict) else {}
+    validated_warp = validated.get("warp")
+    validated_newton = validated.get("newton")
+
+    if backend.get("warp") and validated_warp and backend.get("warp") != validated_warp:
         warnings.append(
-            f"warp-lang {backend['warp']} differs from validated {backend['validated']['warp']}"
+            f"warp-lang {backend['warp']} differs from validated {validated_warp}"
         )
-    if backend.get("newton") and backend.get("newton") != backend["validated"]["newton"]:
+    if backend.get("newton") and validated_newton and backend.get("newton") != validated_newton:
         warnings.append(
-            f"newton {backend['newton']} differs from validated {backend['validated']['newton']}"
+            f"newton {backend['newton']} differs from validated {validated_newton}"
         )
     if backend.get("newton_available") and not backend.get("backend_validated"):
         warnings.append("backend is importable but not the pinned validated Warp/Newton combination")

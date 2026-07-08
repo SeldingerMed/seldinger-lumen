@@ -124,6 +124,25 @@ def test_doctor_cli_reports_actionable_backend_guidance(monkeypatch, capsys):
     assert seen.value.code == 1
 
 
+def test_doctor_cli_handles_backend_without_validated_key(monkeypatch):
+    from lumen import cli
+
+    monkeypatch.setattr(cli, "describe", lambda: {
+        "device": "cuda",
+        "warp": "1.14.0",
+        "cuda_devices": 1,
+        "newton": "1.4.0.dev0",
+        "newton_available": True,
+        "backend_validated": False,
+    })
+    monkeypatch.setattr(cli, "_installed_version", lambda name: "0.0.0")
+
+    report = cli.doctor_report()
+
+    assert report["status"] == "warn"
+    assert "pinned validated Warp/Newton" in "\n".join(report["warnings"])
+
+
 def test_cli_module_execution_prints_help():
     result = subprocess.run(
         [sys.executable, "-m", "lumen.cli", "--help"],
