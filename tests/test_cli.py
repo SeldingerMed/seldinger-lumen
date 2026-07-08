@@ -160,6 +160,7 @@ def test_doctor_cli_reports_backend_detection_failures(monkeypatch):
     assert report["status"] == "fail"
     assert report["backend"]["error"] == "RuntimeError: warp probe failed"
     assert report["issues"] == ["backend detection failed: RuntimeError: warp probe failed"]
+    assert not any("newton is not importable" in warning for warning in report["warnings"])
 
 
 def test_cli_module_execution_prints_help():

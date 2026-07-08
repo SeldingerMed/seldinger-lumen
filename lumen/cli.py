@@ -79,8 +79,10 @@ def doctor_report() -> dict:
     next_steps: list[str] = []
     try:
         backend = describe()
+        backend_detection_failed = False
     except Exception as e:
         backend = {"error": f"{type(e).__name__}: {e}", "backend_validated": False}
+        backend_detection_failed = True
         issues.append(f"backend detection failed: {type(e).__name__}: {e}")
     distributions = {
         "seldinger-lumen": _installed_version("seldinger-lumen"),
@@ -92,33 +94,36 @@ def doctor_report() -> dict:
     }
     solver_install = 'Install solver dependencies with `pip install -e ".[solver]"` or `.[dev]`.'
 
+    def add_next_step(step: str) -> None:
+        if step not in next_steps:
+            next_steps.append(step)
+
     if distributions["seldinger-lumen"] is None:
         issues.append("seldinger-lumen is not installed as a distribution")
-        next_steps.append('Install from the repository root with `pip install -e ".[dev]"`.')
+        add_next_step('Install from the repository root with `pip install -e ".[dev]"`.')
     if distributions["warp-lang"] is None:
         warnings.append("warp-lang is not installed; solver workflows are unavailable")
-        next_steps.append(solver_install)
-    if not backend.get("newton_available"):
+        add_next_step(solver_install)
+    if not backend_detection_failed and not backend.get("newton_available"):
         warnings.append("newton is not importable; solver-backed workflows are unavailable")
-        if solver_install not in next_steps:
-            next_steps.append(solver_install)
+        add_next_step(solver_install)
     raw_validated = backend.get("validated")
     validated = raw_validated if isinstance(raw_validated, dict) else {}
     validated_warp = validated.get("warp")
     validated_newton = validated.get("newton")
 
-    if backend.get("warp") and validated_warp and backend.get("warp") != validated_warp:
+    if not backend_detection_failed and backend.get("warp") and validated_warp and backend.get("warp") != validated_warp:
         warnings.append(
             f"warp-lang {backend.get('warp')} differs from validated {validated_warp}"
         )
-    if backend.get("newton") and validated_newton and backend.get("newton") != validated_newton:
+    if not backend_detection_failed and backend.get("newton") and validated_newton and backend.get("newton") != validated_newton:
         warnings.append(
             f"newton {backend.get('newton')} differs from validated {validated_newton}"
         )
-    if backend.get("newton_available") and not backend.get("backend_validated"):
+    if not backend_detection_failed and backend.get("newton_available") and not backend.get("backend_validated"):
         warnings.append("backend is importable but not the pinned validated Warp/Newton combination")
-        next_steps.append("Reinstall the pinned backend from pyproject.toml before publishing benchmark claims.")
-    if backend.get("device") == "cpu":
+        add_next_step("Reinstall the pinned backend from pyproject.toml before publishing benchmark claims.")
+    if not backend_detection_failed and backend.get("device") == "cpu":
         warnings.append(
             "CPU mode is valid for smoke tests; CUDA is not visible to Warp, so run GPU "
             "benchmarks on a CUDA host"
@@ -154,8 +159,8 @@ def doctor_main(argv=None, prog=None) -> None:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         backend = report["backend"]
-        warp_version = backend.get("warp") if backend.get("warp") is not None else "missing"
-        newton_version = backend.get("newton") if backend.get("newton") is not None else "missing"
+        warp_version = backend.get("warp") or "missing"
+        newton_version = backend.get("newton") or "missing"
         print(f"status: {report['status']}")
         print(
             "backend: "
