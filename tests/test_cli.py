@@ -31,6 +31,7 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "lumen-split-index": "lumen.cli:split_index_main",
     "lumen-dataset-card": "lumen.cli:dataset_card_main",
     "lumen-calibrate": "lumen.cli:calibrate_main",
+    "lumen-import-mask": "lumen.cli:import_mask_main",
 }
 
 

@@ -185,8 +185,9 @@ The same tolerance option is available on `lumen validate` and `lumen index`
 when `--require-cv-labels` is enabled, so bad device labels can be stopped before
 writing an index.
 
-The standalone scripts (`lumen-hardware`, `lumen-validate`, `lumen-index`, and the other
-`lumen-*` commands) are also installed for shell pipelines.
+The standalone scripts (`lumen-hardware`, `lumen-validate`, `lumen-index`,
+`lumen-import-mask`, and the other `lumen-*` commands) are also installed for
+shell pipelines.
 
 The benchmark intentionally separates raw target reach from clinically safe reach:
 
