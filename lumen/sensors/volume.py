@@ -46,12 +46,12 @@ def grid_for(points, margin=8.0, res=64):
     return Grid(lo=lo, hi=hi, res=r)
 
 
-def _segment_projection_t(P, a, b):
+def _project_points_to_segment_t(P, a, b):
     """Projection parameter onto [a, b], stable for degenerate/overflowing segments."""
     ab = b - a
     with np.errstate(over="ignore", invalid="ignore"):
         denom = float(ab @ ab)
-    if not np.isfinite(denom) or denom <= 1e-24:
+    if not np.isfinite(denom) or denom <= 1e-12:
         return np.zeros(P.shape[:-1], dtype=float)
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
         t = ((P - a) @ ab) / denom
@@ -61,7 +61,7 @@ def _segment_projection_t(P, a, b):
 def _point_segment_dist2(P, a, b):
     """Squared distance from points P (...,3) to segment [a,b]. Vectorized."""
     ab = b - a
-    t = _segment_projection_t(P, a, b)
+    t = _project_points_to_segment_t(P, a, b)
     foot = a + t[..., None] * ab
     d = P - foot
     return np.einsum("...j,...j->...", d, d)
@@ -93,7 +93,7 @@ def voxelize_device(nodes, radius, grid: Grid, mu_device=1.0, eps=0.6):
 
 def _segment_dist_and_t(P, a, b):
     ab = b - a
-    t = _segment_projection_t(P, a, b)
+    t = _project_points_to_segment_t(P, a, b)
     foot = a + t[..., None] * ab
     d = P - foot
     return np.einsum("...j,...j->...", d, d), t
