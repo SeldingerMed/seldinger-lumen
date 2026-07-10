@@ -1,6 +1,7 @@
 """Layer 1 L1.0 — forward DRR fluoroscopy renderer (doc §4.1). Pure numpy."""
 
 import numpy as np
+import pytest
 
 from lumen.sensors import CArm, FluoroSensor
 
@@ -37,11 +38,28 @@ def test_single_node_device_renders_a_sphere_not_blank():
     A, _ = FluoroSensor(mu_device=1.0, res=48, n_samples=120).render(
         np.array([[0.0, 0.0, 0.0]]), radius=2.0)
     assert A.max() > 0.1
-    import pytest
     with pytest.raises(ValueError):                     # but zero nodes is an error
         from lumen.sensors.volume import grid_for, voxelize_device
         g = grid_for(np.zeros((2, 3)), res=16)
         voxelize_device(np.zeros((0, 3)), 1.0, g)
+
+
+def test_degenerate_segments_render_without_runtime_warnings(recwarn):
+    from lumen.sensors.volume import grid_for, voxelize_device, voxelize_polyline
+
+    nodes = np.array([
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [1.0e308, 0.0, 0.0],
+    ])
+    grid = grid_for(np.array([[0.0, 0.0, 0.0], [2.0, 2.0, 2.0]]), res=8)
+
+    device = voxelize_device(nodes, radius=0.4, grid=grid)
+    vessel = voxelize_polyline(nodes, radii=np.array([0.4, 0.4, 0.5]), grid=grid)
+
+    assert np.isfinite(device).all()
+    assert np.isfinite(vessel).all()
+    assert not [warning for warning in recwarn if issubclass(warning.category, RuntimeWarning)]
 
 
 def test_carm_up_parallel_to_view_falls_back_to_valid_axes():
