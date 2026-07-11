@@ -20,7 +20,9 @@ from lumen.data.metrics import compute_clinical_metrics
 from lumen.data.replay import EpisodeDataset, annotation_coverage, replay, summarize
 from lumen.data.schema import (SCHEMA_VERSION, Episode, EpisodeMeta, Outcome, Step,
                                validate)
-from lumen.data.split import DEFAULT_RATIOS, DEFAULT_STRATIFY_FIELDS, split_index_records
+from lumen.data.split import (DEFAULT_RATIOS, DEFAULT_STRATIFY_FIELDS, SplitManifest,
+                              SplitName, SplitSummary, read_split_manifest,
+                              split_index_records)
 
 __all__ = ["Episode", "EpisodeMeta", "Step", "Outcome", "validate", "SCHEMA_VERSION",
            "CaseBundle", "validate_case_bundle",
@@ -32,5 +34,6 @@ __all__ = ["Episode", "EpisodeMeta", "Step", "Outcome", "validate", "SCHEMA_VERS
            "device_keypoint_mask_distances",
            "materialize_index_batch",
            "DEFAULT_RATIOS", "DEFAULT_STRATIFY_FIELDS", "split_index_records",
+           "read_split_manifest", "SplitManifest", "SplitName", "SplitSummary",
            "build_dataset_card", "write_dataset_card",
            "probe_episode", "joint_probe_episode", "calibrate_from_episode"]
