@@ -2,7 +2,7 @@
 
 This matrix is the contract for `lumen.newton.sim.NewtonGuidewireSim`: what works in a single simulation environment, what is vectorized across `n_envs > 1`, and which combinations intentionally fail fast. It tracks the explicit `NotImplementedError` paths in `lumen/newton/sim.py` so users do not discover solver limits only at runtime.
 
-Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally blocked / follow-up filed. Follow-up links point at the implementation issues that own each remaining batched feature gap.
+Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally blocked / follow-up filed. A 🚧 row with no follow-up is an intentional model boundary rather than an untracked implementation gap. Follow-up links point at the implementation issues that own each remaining batched feature gap.
 
 | Solver path | Single env (`n_envs=1`) | Batched envs (`n_envs>1`) | Runtime guard | Follow-up |
 |---|---:|---:|---|---|
@@ -12,39 +12,39 @@ Legend: ✅ supported, ⚠️ supported with stated limits, 🚧 intentionally b
 | 1-D `FlowField` coupling | ✅ | ✅ | none | — |
 | Lumped `NewtonFlow` analytic fallback | ✅ | 🚧 | `batched flow requires the 1-D FlowField` | — |
 | Finite clot deformation/damage | ✅ | ✅ with `FlowField`/device coupling | none for batched clot alone | — |
-| Coaxial guidewire + catheter assembly | ✅ | 🚧 | `coaxial assemblies are single-env` | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) |
+| Coaxial guidewire + catheter assembly | ✅ | ✅ | none | — |
 | Stent-retriever capture/slip/fragmentation | ✅ | ✅ with `FlowField`/clot coupling | `batched stent-retriever retrieval requires the 1-D FlowField coupling path` for non-`FlowField` batched sims | — |
 | Vascular-tree contact | ✅ | ✅ | none | — |
 | Tree + sim-level `lumen_field` | 🚧 | 🚧 | `tree contact takes R0 from each edge's lumen field` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
-| Tree + flow/clot coupling | 🚧 | 🚧 | `edge-aware tree flow/clot coupling is not wired yet` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
+| Tree + `FlowField` coupling | ✅ | ✅ | `tree flow requires the 1-D FlowField edge-graph path` for non-`FlowField` flow objects | — |
+| Tree + clot coupling | 🚧 | 🚧 | `edge-aware tree clot coupling is not wired yet` | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) |
 | Aneurysm + flow diverter | ✅ with `FlowField` | ✅ with `FlowField` | none | — |
-| Aneurysm without `FlowField` | 🚧 | 🚧 | `an aneurysm needs the 1-D FlowField` | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) |
+| Aneurysm without `FlowField` | 🚧 | 🚧 | `an aneurysm needs the 1-D FlowField` | — |
 
 ## Follow-up implementation tracker
 
 | Gap | Implementation issue | Required closure evidence |
 |---|---|---|
-| Batched coaxial guidewire + catheter assemblies | [#53](https://github.com/SeldingerMed/seldinger-lumen/issues/53) | A two-env coaxial construction/step test with independent guidewire and catheter bases, plus unchanged single-env coaxial coverage. |
-| Tree flow/clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | Edge-aware flow/clot coverage on graph edges. Batched tree contact is covered by a two-env tree contact test on a procedural tree; flow/clot stays guarded until it has graph fields instead of a single route centerline. |
-| Batched aneurysm flow-diverter simulations | [#56](https://github.com/SeldingerMed/seldinger-lumen/issues/56) | A two-env aneurysm test with per-env sac state and neck-pressure reads from the matching batched `FlowField`. |
 
-## Why the remaining gaps exist
+| Tree clot coupling | [#55](https://github.com/SeldingerMed/seldinger-lumen/issues/55) | Per-edge clot spans and graph-indexed clot grids. Batched tree contact is covered by a two-env tree contact test on a procedural tree, and `FlowField` drag is covered on procedural trees; clot remains guarded until it has edge-aware graph fields instead of a single route centerline. |
+
+## Closed batched gaps
 
 ### Coaxial batching (#53)
 
-The single-env coaxial path adds one catheter rod, one catheter base, and one set of catheter insertion/twist arrays. Batched support must allocate one catheter assembly per env and preserve the body-to-env mapping for both tube contact and coaxial guidewire-catheter coupling. Until then, `n_envs > 1` would mix bodies across envs, so the constructor fails fast.
+Batched coaxial guidewire + catheter assemblies now allocate one guidewire rod, one catheter rod, one guidewire base, and one catheter base per env. Bodies are created as contiguous per-env assemblies so tube/tree wall contact can map body ids to the correct env wall block, while the coaxial coupling kernel restricts each guidewire to its own env's catheter centerline. Closure evidence: a two-env coaxial construction/step test drives independent guidewire and catheter base arrays and preserves the existing single-env coaxial coverage.
 
 ### Stent-retriever batching (#54)
 
-Stent-retriever capture/slip/fragmentation is batched when paired with the 1-D `FlowField` and clot device-coupling path. Each env keeps separate clot occlusion, damage, live-mask, retrieved distance, engagement, aspiration, and retrieval result arrays; the single-env attributes mirror env 0 for backward compatibility. Batched sims still reject lumped `NewtonFlow` because the analytic model has only one aspiration/occlusion state.
+Batched stent-retriever capture/slip/fragmentation is supported when the sim uses the 1-D `FlowField` clot/device coupling path. The remaining guard requires `FlowField` for batched retrieval because the analytic lumped flow path is still single-env.
 
-### Tree flow/clot (#55)
+### Tree FlowField coupling (#55)
 
-Tree contact uses per-edge lumen fields and route-centered actuation, and is now safe in batched simulations by allocating independent env×edge wall deformation/load blocks over the shared procedural tree graph. Flow drag and clot grids remain intentionally blocked because they are still parameterized by one linear centerline; tree + flow/clot must first become edge-aware rather than reusing the straight/route centerline arrays.
+Tree contact uses per-edge lumen fields and route-centered actuation, and is now safe in batched simulations by allocating independent env×edge wall deformation/load blocks over the shared procedural tree graph. Tree `FlowField` coupling is edge-aware: it feeds env×edge radius blocks to the flow solve and samples drag by each guidewire node's projected edge and edge-local arc length. Tree clot grids remain intentionally blocked because clot spans are still parameterized by one linear centerline; tree clots must first become edge-aware rather than reusing the straight/route centerline arrays.
 
-### Aneurysm batching (#56)
+## Batched aneurysm flow-diverter support
 
-Aneurysm flow diversion is now batched when the sim uses the 1-D `FlowField`: each env owns an independent `AneurysmSac`, can use distinct aneurysm/diverter parameters, and reads the corresponding env block from the batched pressure field. The physics limit remains the same as the single-env path: sac→parent back-reaction is not fed into the 1-D parent-flow solve, so the model captures diverter-induced sac stasis but not a neck draw that perturbs parent-vessel through-flow.
+Aneurysm flow diversion is batched when the sim uses the 1-D `FlowField`: each env owns an independent `AneurysmSac`, can use distinct aneurysm/diverter parameters, and reads the corresponding env block from the batched pressure field. The remaining physics limit is the same as the single-env path: sac→parent back-reaction is not fed into the 1-D parent-flow solve, so the model captures diverter-induced sac stasis but not a neck draw that perturbs parent-vessel through-flow. Aneurysm simulations without `FlowField` remain guarded because the sac requires live neck pressure `P(s_neck)`.
 
 ## Development rule
 

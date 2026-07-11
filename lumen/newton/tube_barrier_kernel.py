@@ -27,8 +27,10 @@ def accumulate_coaxial_coupling(
     color_group: wp.array(dtype=wp.int32),
     gw_mask: wp.array(dtype=wp.int32),         # 1 for guidewire bodies (the ones constrained)
     body_q: wp.array(dtype=wp.transform),
-    cath_ids: wp.array(dtype=wp.int32),        # catheter body indices, ordered along the rod
+    cath_ids: wp.array(dtype=wp.int32),        # catheter body indices, grouped per env, ordered along each rod
     n_cath: int,
+    n_cath_per_env: int,
+    n_assembly_per_env: int,
     r_inner: float,                            # catheter inner-lumen radius the gw rides within
     kappa: float, d_hat: float, two_way: int,
     body_forces: wp.array(dtype=wp.vec3),
@@ -52,7 +54,12 @@ def accumulate_coaxial_coupling(
     best = float(1.0e30)
     bk = int(0)
     bu = float(0.0)
-    for k in range(n_cath - 1):
+    env = bid // n_assembly_per_env
+    cath0 = env * n_cath_per_env
+    cathN = cath0 + n_cath_per_env
+    if cath0 < 0 or cathN > n_cath or n_cath_per_env < 2:
+        return
+    for k in range(cath0, cathN - 1):
         a = wp.transform_get_translation(body_q[cath_ids[k]])
         ab = wp.transform_get_translation(body_q[cath_ids[k + 1]]) - a
         L2 = wp.dot(ab, ab)
@@ -65,10 +72,10 @@ def accumulate_coaxial_coupling(
             bu = u
     # a guidewire node axially BEYOND either catheter opening has telescoped out — it's
     # free there, not riding inside, so no coupling (CodeRabbit #22).
-    c0 = wp.transform_get_translation(body_q[cath_ids[0]])
-    c1 = wp.transform_get_translation(body_q[cath_ids[1]])
-    cn = wp.transform_get_translation(body_q[cath_ids[n_cath - 1]])
-    cm = wp.transform_get_translation(body_q[cath_ids[n_cath - 2]])
+    c0 = wp.transform_get_translation(body_q[cath_ids[cath0]])
+    c1 = wp.transform_get_translation(body_q[cath_ids[cath0 + 1]])
+    cn = wp.transform_get_translation(body_q[cath_ids[cathN - 1]])
+    cm = wp.transform_get_translation(body_q[cath_ids[cathN - 2]])
     if wp.dot(p - c0, c1 - c0) < 0.0 or wp.dot(p - cn, cn - cm) > 0.0:
         return
     a = wp.transform_get_translation(body_q[cath_ids[bk]])

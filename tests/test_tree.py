@@ -70,6 +70,26 @@ def test_straight_tube_is_a_degenerate_tree():
     assert pr.edge_id == "e0" and abs(pr.R - 2.0) < 1e-6 and pr.gap > 0
 
 
+def test_project_edge_s_batches_flow_geometry_without_per_node_project_loop():
+    asset = procedural.bifurcation(angle_deg=35.0)
+    tree = VascularTree(asset)
+    apex = _apex(asset)
+    points = np.stack([
+        apex - np.array([0.0, 0.0, 10.0]),
+        apex + 12.0 * _branch_dir(sign=-1),
+        apex + 12.0 * _branch_dir(sign=+1),
+    ])
+
+    edge, s = tree.project_edge_s(points)
+
+    expected_edge = np.array([tree.project(p).edge_index for p in points])
+    expected_s = np.array([tree.project(p).s for p in points])
+    assert edge.shape == (3,)
+    assert s.shape == (3,)
+    assert np.array_equal(edge, expected_edge)
+    assert np.allclose(s, expected_s)
+
+
 def test_empty_asset_rejected():
     asset = procedural.straight_tube(10.0, 1.0)
     asset.edges = []

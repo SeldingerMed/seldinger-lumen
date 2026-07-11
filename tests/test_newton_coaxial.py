@@ -65,10 +65,33 @@ def test_both_rods_held_in_lumen():
     assert sim.catheter_node_radii().max() <= R + 0.3 + 0.1    # catheter held
 
 
-def test_coaxial_rejects_batched():
-    with pytest.raises(NotImplementedError, match="single-env"):
-        NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), catheter_points=_rod(9, 0.0),
-                           n_envs=2, device="cpu")
+def test_batched_coaxial_envs_are_independent_under_per_env_actions():
+    sim = NewtonGuidewireSim(_vessel(), 2.0, _rod(10, 18.0), radius=0.2,
+                             catheter_points=_rod(9, 0.0), catheter_radius=0.65,
+                             catheter_inner_radius=0.5, n_envs=2,
+                             vbd_iterations=10, device="cpu")
+    assert sim.coaxial
+    assert sim.n_per_env == 9
+    assert sim.n_cath_per_env == 8
+    assert sim.n_per_env_contact == 17
+    assert sim.bases == [0, 17]
+    assert sim.cath_bases == [9, 26]
+
+    gw0 = sim.env_positions()[:, -1, 2].copy()
+    cath0 = sim.catheter_positions().reshape(2, sim.n_cath_per_env, 3)[:, -1, 2].copy()
+    for _ in range(8):
+        sim.step(dt=2.5e-2, substeps=4,
+                 insertion=np.array([0.0, 1.5], dtype=np.float32),
+                 insertion_cath=np.array([1.25, 0.0], dtype=np.float32))
+
+    gw_tip = sim.env_positions()[:, -1, 2]
+    cath_tip = sim.catheter_positions().reshape(2, sim.n_cath_per_env, 3)[:, -1, 2]
+    assert np.isfinite(sim.env_positions()).all()
+    assert np.isfinite(sim.catheter_positions()).all()
+    assert gw_tip[1] > gw0[1] + 2.0
+    assert abs(gw_tip[0] - gw0[0]) < 1.5
+    assert cath_tip[0] > cath0[0] + 2.0
+    assert abs(cath_tip[1] - cath0[1]) < 1.5
 
 
 def test_coaxial_wires_thrombectomy_flow_clot_and_stentriever():

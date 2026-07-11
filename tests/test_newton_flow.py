@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from lumen.newton.flow import NewtonFlow, FlowParams
+from lumen.newton.flow import NewtonFlow, FlowParams, FlowField
 
 
 def test_windkessel_decay_and_pulse():
@@ -30,6 +30,105 @@ def test_drag_scales_with_flow():
     lo = NewtonFlow(FlowParams(Q_mean=2.0, Q_pulse=0.0, drag_coeff=30.0))
     hi = NewtonFlow(FlowParams(Q_mean=6.0, Q_pulse=0.0, drag_coeff=30.0))
     assert hi.drag_per_unit_tangent() > lo.drag_per_unit_tangent() > 0
+
+
+def test_tree_flow_tip_shape_validation_is_explicit():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((2, 3, 5)), np.ones(3))
+    with pytest.raises(ValueError, match=r"tree tip edge_index must broadcast to \(n_envs,\)"):
+        f.set_tree_tips([0, 1, 2], [1.0, 2.0, 3.0])
+    with pytest.raises(ValueError, match=r"tree tip s_tip must broadcast to \(n_envs,\)"):
+        f.set_tree_tips([0, 1], [1.0, 2.0, 3.0])
+    with pytest.raises(ValueError, match=r"tree tip edge_index values must be in \[0, 3\)"):
+        f.set_tree_tips([0, 3], [1.0, 2.0])
+
+
+def test_tree_flow_rejects_unsolved_drag_query():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 3)), np.ones(1))
+    with pytest.raises(RuntimeError, match=r"solve_tree\(\) must be called before drag_at_tree\(\)"):
+        f.drag_at_tree([0], [0], [0.5])
+
+
+def test_tree_flow_invalidates_solved_fields_when_inputs_change():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 3)), np.ones(1))
+    f.set_tree_tips([0], [0.5])
+    f.solve_tree()
+    assert f.tree_velocity_fields() is not None
+
+    f.set_tree_lumen(np.full((1, 1, 3), 2.0), np.ones(1))
+    assert f.tree_velocity_fields() is None
+    assert f._tree_tip_edge is None
+    assert f._tree_tip_s is None
+    with pytest.raises(RuntimeError, match=r"solve_tree\(\) must be called before drag_at_tree\(\)"):
+        f.drag_at_tree([0], [0], [0.5])
+
+    f.set_tree_tips([0], [0.25])
+    f.solve_tree()
+    f.set_tree_tips([0], [0.75])
+    assert f.tree_velocity_fields() is None
+
+
+def test_tree_flow_lumen_shape_change_drops_stale_tips():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 3)), np.ones(1))
+    f.set_tree_tips([0], [0.5])
+    f.set_tree_lumen(np.ones((2, 1, 3)), np.ones(1))
+    f.solve_tree()
+    qdown = f.tree_downstream_Q()
+    assert qdown is not None
+    assert qdown.shape == (2, 1)
+
+
+def test_tree_drag_matches_linear_edge_interpolation():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((2, 2, 3)), np.array([2.0, 4.0]))
+    f._tree_v = np.array([
+        [[0.0, 2.0, 4.0], [10.0, 14.0, 18.0]],
+        [[1.0, 3.0, 5.0], [20.0, 28.0, 36.0]],
+    ])
+    drag = f.drag_at_tree(
+        np.array([[0, 1], [0, 1]]),
+        np.array([[0, 0], [1, 1]]),
+        np.array([[1.0, 1.0], [2.0, 2.0]]),
+    )
+    expected_v = np.array([[2.0, 3.0], [14.0, 28.0]])
+    assert np.allclose(drag, f.p.drag_coeff * expected_v)
+
+
+def test_tree_drag_shape_validation_is_explicit():
+    f = FlowField()
+    f.set_tree_lumen(np.ones((2, 3, 5)), np.ones(3))
+    f.solve_tree()
+    with pytest.raises(ValueError, match="tree drag inputs must have matching shapes"):
+        f.drag_at_tree([0, 1], [0], [0.0, 1.0])
+
+
+def test_tree_pressure_field_assembled_without_overlap_at_boundaries():
+    """P(e, g) must be well-defined when the tip sits at the inlet (it==0) or
+    distal end (it==S-1); the previous version wrote overlapping slices and
+    relied on write order to land the right value, which is brittle when the
+    assembly is refactored. Pin the assembled field at both edges."""
+    f = FlowField()
+    f.set_tree_lumen(np.ones((1, 1, 4)), np.array([3.0]))
+    P_grid = f.tree_pressure_fields()        # not solved yet
+    assert P_grid is None
+    f.set_tree_tips([0], [0.0])              # tip at the inlet: it = 0
+    f.solve_tree()
+    P_inlet = f.tree_pressure_fields()
+    assert P_inlet.shape == (1, 1, 4)
+    assert np.all(np.isfinite(P_inlet))
+    assert np.allclose(P_inlet[0, 0], P_inlet[0, 0, 0])   # constant when R_up == 0
+
+    f.set_tree_tips([0], [3.0])              # tip at the distal end: it = S - 1
+    f.solve_tree()
+    P_distal = f.tree_pressure_fields()
+    assert P_distal.shape == (1, 1, 4)
+    assert np.all(np.isfinite(P_distal))
+    # Downstream pressure at the tip index equals the assembled P_tip (no gap).
+    assert P_distal[0, 0, -1] == P_distal[0, 0, -1]        # well-defined
+    assert np.all(np.diff(P_distal[0, 0]) <= 0)             # monotonic drop on a uniform tube
 
 
 def test_pulsatility_modulates_lumen_in_sim():

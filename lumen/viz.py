@@ -197,6 +197,8 @@ def play(scene: str = "tube", policy="forward", steps: int = 60, seed: int = 0,
     scene: 'tube' | 'stenotic' | 'tree'  (ignored if `env` is passed).
     policy: name ('forward'|'zero'|'random') or a callable obs->action.
     """
+    pol = policy if callable(policy) else _policy(policy)
+
     if env is None:
         from lumen.envs import registration as reg
         factory = {"tube": reg.make_nav_tube, "stenotic": reg.make_nav_stenotic,
@@ -204,7 +206,6 @@ def play(scene: str = "tube", policy="forward", steps: int = 60, seed: int = 0,
         if factory is None:
             raise ValueError(f"unknown scene {scene!r} (tube|stenotic|tree)")
         env = factory()
-    pol = policy if callable(policy) else _policy(policy)
 
     obs, _ = env.reset(seed=seed)
     frames = [render_frame(env, size=size)]

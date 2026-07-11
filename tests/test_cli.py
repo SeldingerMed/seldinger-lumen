@@ -17,6 +17,7 @@ from lumen.sensors.carm import CArm
 EXPECTED_CONSOLE_SCRIPTS = {
     "lumen": "lumen.cli:main",
     "lumen-hardware": "lumen.cli:hardware_main",
+    "lumen-doctor": "lumen.cli:doctor_main",
     "lumen-benchmark": "lumen.cli:benchmark_main",
     "lumen-play": "lumen.cli:play_main",
     "lumen-train": "lumen.cli:train_main",
@@ -28,6 +29,7 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "lumen-inspect-index": "lumen.cli:inspect_index_main",
     "lumen-materialize-batch": "lumen.cli:materialize_batch_main",
     "lumen-split-index": "lumen.cli:split_index_main",
+    "lumen-dataset-card": "lumen.cli:dataset_card_main",
     "lumen-calibrate": "lumen.cli:calibrate_main",
 }
 
@@ -84,6 +86,81 @@ def test_umbrella_cli_dispatches_workflows(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert "newton_available" in payload
     assert "backend_validated" in payload
+
+
+def test_doctor_cli_reports_actionable_backend_guidance(monkeypatch, capsys):
+    from lumen import cli
+
+    monkeypatch.setattr(cli, "describe", lambda: {
+        "device": "cpu",
+        "warp": None,
+        "cuda_devices": 0,
+        "newton": None,
+        "newton_available": False,
+        "validated": {"warp": "1.14.0", "newton": "1.4.0.dev0", "newton_ref": "abc"},
+        "backend_validated": False,
+    })
+    monkeypatch.setattr(
+        cli,
+        "_installed_version",
+        lambda name: {"seldinger-lumen": "0.0.0", "numpy": "2.0.0"}.get(name),
+    )
+
+    cli.main(["doctor"])
+    out = capsys.readouterr().out
+
+    assert "status: warn" in out
+    assert "newton is not importable" in out
+    assert "pip install -e" in out
+
+    cli.main(["doctor", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "warn"
+    assert payload["backend"]["device"] == "cpu"
+    assert "warnings" in payload
+
+    with pytest.raises(SystemExit) as seen:
+        cli.main(["doctor", "--strict"])
+    assert seen.value.code == 1
+
+
+def test_doctor_cli_handles_backend_without_validated_key(monkeypatch):
+    from lumen import cli
+
+    monkeypatch.setattr(cli, "describe", lambda: {
+        "device": "cuda",
+        "warp": "1.14.0",
+        "cuda_devices": 1,
+        "newton": "1.4.0.dev0",
+        "newton_available": True,
+        "backend_validated": False,
+    })
+    monkeypatch.setattr(cli, "_installed_version", lambda name: "0.0.0")
+
+    report = cli.doctor_report()
+
+    assert report["status"] == "warn"
+    assert any(
+        warning == "backend is importable but not the pinned validated Warp/Newton combination"
+        for warning in report["warnings"]
+    )
+
+
+def test_doctor_cli_reports_backend_detection_failures(monkeypatch):
+    from lumen import cli
+
+    def broken_describe():
+        raise RuntimeError("warp probe failed")
+
+    monkeypatch.setattr(cli, "describe", broken_describe)
+    monkeypatch.setattr(cli, "_installed_version", lambda name: "0.0.0")
+
+    report = cli.doctor_report()
+
+    assert report["status"] == "fail"
+    assert report["backend"]["error"] == "RuntimeError: warp probe failed"
+    assert report["issues"] == ["backend detection failed: RuntimeError: warp probe failed"]
+    assert not any("newton is not importable" in warning for warning in report["warnings"])
 
 
 def test_cli_module_execution_prints_help():
@@ -439,6 +516,104 @@ def test_index_inspection_summarizes_and_path_checks_jsonl(tmp_path, capsys):
     broken = json.loads(capsys.readouterr().out)
     assert broken["missing_paths"]["obs_path"] == 1
     assert broken["missing_path_examples"][0]["field"] == "obs_path"
+
+
+def test_dataset_card_cli_writes_markdown_and_json_from_index(tmp_path, capsys):
+    from lumen.cli import dataset_card_main, main
+    from lumen.data import build_dataset_card
+
+    obs_dir = tmp_path / "case" / "obs"
+    obs_dir.mkdir(parents=True)
+    np.save(obs_dir / "000.npy", np.ones((4, 4), dtype=np.float32))
+    np.save(obs_dir / "000_device_mask.npy", np.eye(4, dtype=np.uint8))
+    np.save(obs_dir / "000_vessel_mask.npy", np.ones((4, 4), dtype=np.uint8))
+    row = {
+        "episode": "case",
+        "episode_dir": "case",
+        "label": "dataset_card_case",
+        "step_index": 0,
+        "t": 0.0,
+        "obs_modality": "fluoro",
+        "obs_path": "case/obs/000.npy",
+        "device_mask_path": "case/obs/000_device_mask.npy",
+        "vessel_mask_path": "case/obs/000_vessel_mask.npy",
+        "node_positions_path": None,
+        "keypoints": {
+            "base": {"uv": [0.0, 0.0], "present": True},
+            "tip": {"uv": [3.0, 3.0], "present": True},
+        },
+        "action": {"insertion": 1.0},
+        "kinematics": {},
+        "labels": {"outcome": "dataset_card_case"},
+        "outcome": {"success": True, "final_dist": 0.25, "steps": 1, "label": "dataset_card_case"},
+        "clinical_metrics": {
+            "tip_target": {"success": True, "final_dist": 0.25},
+            "wall_safety": {"perforation_risk": False},
+        },
+        "calibration_type": "carm",
+        "provenance": "procedural",
+        "version": "lumen-episode/0",
+    }
+    index_path = tmp_path / "index.jsonl"
+    index_path.write_text(json.dumps(row) + "\n")
+
+    card_path = tmp_path / "DATASET_CARD.md"
+    main(["dataset-card", str(index_path), "--out", str(card_path), "--check-arrays",
+          "--require-cv-labels", "--title", "Smoke Dataset"])
+    out = capsys.readouterr().out
+    assert "wrote dataset card" in out
+    assert "quality_gate: pass" in out
+    card = card_path.read_text()
+    assert "# Smoke Dataset" in card
+    assert "Records: 1" in card
+    assert "Modalities: fluoro=1" in card
+    assert "Status: pass" in card
+    assert "Provenance policy" in card
+
+    json_path = tmp_path / "card.json"
+    dataset_card_main([str(index_path), "--out", str(json_path), "--check-paths"])
+    payload = json.loads(json_path.read_text())
+    assert payload["summary"]["records"] == 1
+    assert payload["summary"]["paths_checked"] is True
+    assert payload["findings"] == []
+
+    direct = build_dataset_card(index_path, check_arrays=True, require_cv_labels=True)
+    assert "obs" in direct["summary"]["array_payloads"]
+    assert direct["summary"]["array_payloads"]["obs"][0]["shape"] == [4, 4]
+
+    (obs_dir / "000.npy").unlink()
+    dataset_card_main([str(index_path), "--out", str(card_path), "--check-paths"])
+    warn_out = capsys.readouterr().out
+    assert "quality_gate: needs attention" in warn_out
+    assert "obs_path has 1 missing sidecar references" in card_path.read_text()
+
+
+def test_dataset_card_handles_partial_payload_metadata(tmp_path, monkeypatch):
+    from lumen.data.card import build_dataset_card, write_dataset_card
+
+    monkeypatch.setattr(
+        "lumen.data.card.summarize_index",
+        lambda *args, **kwargs: {
+            "index_path": "index.jsonl",
+            "records": 1,
+            "episodes": {"case": 1},
+            "array_payloads": {
+                "obs": None,
+                "mask": [{"shape": [4, 4]}, "malformed"],
+            },
+        },
+    )
+
+    card = build_dataset_card(tmp_path / "index.jsonl")
+    assert "- obs: -" in card["markdown"]
+    assert "- mask: [4, 4] unknown n=0, unknown unknown n=0" in card["markdown"]
+
+    out = tmp_path / "DATASET_CARD.md"
+    write_dataset_card(card, out)
+    assert out.read_text().endswith("\n")
+
+    with pytest.raises(ValueError, match="markdown string"):
+        write_dataset_card({"summary": {}}, tmp_path / "broken.md")
 
 
 def test_index_inspection_reports_invalid_inputs_without_traceback(tmp_path, capsys):
@@ -1078,3 +1253,40 @@ def test_index_cli_filters_by_observation_modality(tmp_path, capsys):
     assert "indexed 0 step records from 0/2 valid case bundles" in out
     assert "no index records emitted" in out
     assert not none_index.exists()
+
+def test_dataset_card_cli_reports_array_and_keypoint_errors(tmp_path, capsys):
+    from lumen.cli import dataset_card_main
+    
+    obs_dir = tmp_path / "case" / "obs"
+    obs_dir.mkdir(parents=True)
+    np.save(obs_dir / "000.npy", np.ones((4, 4), dtype=np.float32))
+    np.save(obs_dir / "001.npy", np.ones((5, 5), dtype=np.float32))
+    
+    row1 = {
+        "episode": "case", "episode_dir": "case", "label": "c", "step_index": 0, "t": 0.0,
+        "obs_modality": "fluoro", "obs_path": "case/obs/000.npy",
+        "keypoints": {"tip": {"uv": [10.0, 10.0], "present": True}},
+        "action": {}, "kinematics": {}, "labels": {},
+        "calibration_type": "carm", "provenance": "procedural", "version": "lumen-episode/0",
+    }
+    row2 = {
+        **row1, "step_index": 1, "t": 1.0, "obs_path": "case/obs/001.npy",
+        "keypoints": {"tip": {"uv": [2.0, 2.0], "present": True}},
+    }
+    
+    index_path = tmp_path / "index.jsonl"
+    index_path.write_text(json.dumps(row1) + "\n" + json.dumps(row2) + "\n")
+    
+    card_path = tmp_path / "DATASET_CARD.md"
+    dataset_card_main([
+        str(index_path), "--out", str(card_path),
+        "--check-arrays", "--require-uniform-arrays",
+        "--keypoint-mask-tolerance", "1.0",
+    ])
+    out = capsys.readouterr().out
+    assert "quality_gate: needs attention" in out
+    
+    card = card_path.read_text()
+    assert "Status: needs attention" in card
+    assert "array payloads are not uniform for fixed-shape batching" in card
+    assert "keypoint QA found invalid or off-device keypoints" in card
