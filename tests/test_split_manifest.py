@@ -126,6 +126,12 @@ def test_read_split_manifest_rejects_malformed_manifest(tmp_path):
     with pytest.raises(ValueError, match="labels must map strings to integer counts"):
         read_split_manifest(manifest_path)
 
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["labels"] = {"success": -1}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="labels must map strings to integer counts"):
+        read_split_manifest(manifest_path)
+
 
 def test_read_split_manifest_rejects_malformed_field_types(tmp_path):
     manifest_path = tmp_path / "manifest.json"
@@ -149,10 +155,16 @@ def test_read_split_manifest_rejects_malformed_field_types(tmp_path):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()
-    invalid["seed"] = -1
+    invalid["seed"] = True
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="seed must be a non-negative integer"):
+    with pytest.raises(ValueError, match="seed must be an integer"):
         read_split_manifest(manifest_path)
+
+    # Negative seeds are valid (random.Random accepts them) and must round-trip.
+    ok = _valid_manifest()
+    ok["seed"] = -7
+    manifest_path.write_text(json.dumps(ok))
+    assert read_split_manifest(manifest_path)["seed"] == -7
 
 
 def test_read_split_manifest_rejects_non_json_file_path(tmp_path):

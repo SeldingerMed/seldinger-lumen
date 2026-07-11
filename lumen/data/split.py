@@ -159,6 +159,7 @@ def _manifest_path(path: str | Path) -> Path:
 
 
 def _is_number(value: object) -> bool:
+    # bool is a subclass of int in Python; exclude it so True/False aren't ratios.
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
@@ -169,6 +170,12 @@ def _is_int_count(value: object) -> bool:
 def _validate_string(value: object, field: str, manifest_path: Path) -> None:
     if not isinstance(value, str):
         raise ValueError(f"split manifest {manifest_path} {field} must be a string")
+
+
+def _validate_int(value: object, field: str, manifest_path: Path) -> None:
+    # Seeds may be negative (random.Random accepts them); only exclude bool/non-int.
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"split manifest {manifest_path} {field} must be an integer")
 
 
 def _validate_split_count(value: object, field: str, manifest_path: Path) -> None:
@@ -206,7 +213,7 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
         raise ValueError(f"split manifest {manifest_path} missing required fields: {missing}")
     for field in ("source_index", "out_dir", "group_by"):
         _validate_string(raw.get(field), field, manifest_path)
-    _validate_split_count(raw.get("seed"), "seed", manifest_path)
+    _validate_int(raw.get("seed"), "seed", manifest_path)
     _validate_split_count(raw.get("records"), "records", manifest_path)
     _validate_split_count(raw.get("episodes"), "episodes", manifest_path)
 
