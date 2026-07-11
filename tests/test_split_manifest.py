@@ -87,19 +87,31 @@ def test_read_split_manifest_rejects_malformed_manifest(tmp_path):
     invalid = _valid_manifest()
     invalid["ratios"]["train"] = "1.0"
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="ratios must be numeric"):
+    with pytest.raises(ValueError, match="ratios must be non-negative numbers"):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()
     invalid["ratios"]["train"] = True
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="ratios must be numeric"):
+    with pytest.raises(ValueError, match="ratios must be non-negative numbers"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["ratios"]["train"] = -0.5
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="ratios must be non-negative numbers"):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()
     invalid["splits"]["train"]["records"] = True
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="records must be an integer"):
+    with pytest.raises(ValueError, match="records must be a non-negative integer"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["records"] = -1
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="records must be a non-negative integer"):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()
@@ -112,6 +124,34 @@ def test_read_split_manifest_rejects_malformed_manifest(tmp_path):
     invalid["splits"]["train"]["labels"] = {"success": True}
     manifest_path.write_text(json.dumps(invalid))
     with pytest.raises(ValueError, match="labels must map strings to integer counts"):
+        read_split_manifest(manifest_path)
+
+
+def test_read_split_manifest_rejects_malformed_field_types(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+
+    invalid = _valid_manifest()
+    invalid["source_index"] = 123
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="source_index must be a string"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["stratify"] = ["label", 7]
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="stratify must be a list of strings"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["assignments"] = {"case_a": "holdout"}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="assignments must map strings to train, val, or test"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["seed"] = -1
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="seed must be a non-negative integer"):
         read_split_manifest(manifest_path)
 
 

@@ -129,7 +129,10 @@ def _assign_groups(
     for group in _interleaved_groups(groups, stratify_fields, seed):
         split = max(SPLIT_NAMES, key=lambda name: (remaining[name], -SPLIT_NAMES.index(name)))
         if remaining[split] <= 0:
-            split = cast(SplitName, next(name for name in SPLIT_NAMES if remaining[name] > 0))
+            fallback = next((name for name in SPLIT_NAMES if remaining[name] > 0), None)
+            if fallback is None:
+                raise ValueError("no split capacity remaining for group assignment")
+            split = fallback
         assignments[group] = split
         remaining[split] -= 1
     return assignments
@@ -160,7 +163,17 @@ def _is_number(value: object) -> bool:
 
 
 def _is_int_count(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _validate_string(value: object, field: str, manifest_path: Path) -> None:
+    if not isinstance(value, str):
+        raise ValueError(f"split manifest {manifest_path} {field} must be a string")
+
+
+def _validate_split_count(value: object, field: str, manifest_path: Path) -> None:
+    if not _is_int_count(value):
+        raise ValueError(f"split manifest {manifest_path} {field} must be a non-negative integer")
 
 
 def _validate_count_map(value: object, field: str, manifest_path: Path) -> None:
@@ -191,12 +204,31 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
     missing = sorted(required.difference(raw))
     if missing:
         raise ValueError(f"split manifest {manifest_path} missing required fields: {missing}")
+    for field in ("source_index", "out_dir", "group_by"):
+        _validate_string(raw.get(field), field, manifest_path)
+    _validate_split_count(raw.get("seed"), "seed", manifest_path)
+    _validate_split_count(raw.get("records"), "records", manifest_path)
+    _validate_split_count(raw.get("episodes"), "episodes", manifest_path)
+
+    stratify_obj = raw.get("stratify")
+    if not isinstance(stratify_obj, list) or any(not isinstance(field, str) for field in stratify_obj):
+        raise ValueError(f"split manifest {manifest_path} stratify must be a list of strings")
+    assignments_obj = raw.get("assignments")
+    if not isinstance(assignments_obj, dict):
+        raise ValueError(f"split manifest {manifest_path} assignments must be an object")
+    bad_assignments = [
+        group for group, split in assignments_obj.items()
+        if not isinstance(group, str) or split not in SPLIT_NAMES
+    ]
+    if bad_assignments:
+        raise ValueError(f"split manifest {manifest_path} assignments must map strings to train, val, or test")
+
     ratios_obj = raw.get("ratios")
     splits_obj = raw.get("splits")
     if not isinstance(ratios_obj, dict) or set(ratios_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} ratios must contain train, val, and test")
-    if any(not _is_number(ratios_obj[name]) for name in SPLIT_NAMES):
-        raise ValueError(f"split manifest {manifest_path} ratios must be numeric")
+    if any(not _is_number(ratios_obj[name]) or ratios_obj[name] < 0.0 for name in SPLIT_NAMES):
+        raise ValueError(f"split manifest {manifest_path} ratios must be non-negative numbers")
     if not isinstance(splits_obj, dict) or set(splits_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} splits must contain train, val, and test")
     for split in SPLIT_NAMES:
@@ -205,7 +237,7 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
             raise ValueError(f"split manifest {manifest_path} split {split!r} summary must be an object")
         for field in ("records", "episodes"):
             if not _is_int_count(summary.get(field)):
-                raise ValueError(f"split manifest {manifest_path} split {split!r} {field} must be an integer")
+                raise ValueError(f"split manifest {manifest_path} split {split!r} {field} must be a non-negative integer")
         _validate_count_map(summary.get("labels"), f"split {split!r} labels", manifest_path)
         _validate_count_map(summary.get("modalities"), f"split {split!r} modalities", manifest_path)
     return cast(SplitManifest, raw)
