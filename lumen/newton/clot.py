@@ -286,7 +286,8 @@ class ClotField:
         """
         self.sync_from_device()
         for name, val in [("delta_s", delta_s), ("engagement", engagement), ("aspiration", aspiration)]:
-            if isinstance(val, np.ndarray) and val.shape != (self.n_envs,):
+            # 0-d arrays count as scalars and broadcast like Python floats.
+            if isinstance(val, np.ndarray) and val.ndim > 0 and val.shape != (self.n_envs,):
                 raise ValueError(f"Expected shape ({self.n_envs},) for {name}, got {val.shape}")
         delta = np.broadcast_to(np.asarray(delta_s, dtype=float), (self.n_envs,))
         grip = np.broadcast_to(np.asarray(engagement, dtype=float), (self.n_envs,))
