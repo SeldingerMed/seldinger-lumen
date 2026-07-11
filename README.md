@@ -28,6 +28,10 @@ The geometry core needs only NumPy. The solver needs Warp + Newton, which run on
 **both CPU (Warp's LLVM backend) and CUDA** — same code, device picked at runtime.
 There is no separate CPU fallback to maintain.
 
+The package ships a PEP 561 `py.typed` marker, so downstream users get Lumen's
+public type annotations in mypy, pyright, and editor language servers without a
+separate stubs package.
+
 ```bash
 python -m lumen.hardware     # -> {"device": "cuda"|"cpu", ...}
 lumen doctor                 # install/backend readiness plus next-step guidance

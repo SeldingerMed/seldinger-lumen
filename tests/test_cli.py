@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import sys
+from importlib import resources
 from importlib.metadata import distribution, metadata
 
 import numpy as np
@@ -51,6 +52,12 @@ def _installed_console_scripts_for_distribution(distribution_name: str) -> dict[
 
 def test_distribution_metadata_matches_public_project_name():
     assert metadata("seldinger-lumen")["Name"] == "seldinger-lumen"
+
+
+def test_package_declares_pep561_typed_interface():
+    marker = resources.files("lumen").joinpath("py.typed")
+
+    assert marker.is_file()
 
 
 def test_pyproject_exposes_first_run_console_scripts():
