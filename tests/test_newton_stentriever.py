@@ -57,6 +57,18 @@ def test_batched_retrieve_keeps_fragmentation_independent():
     assert c.D_env[1].max() > 0.0
 
 
+def test_batched_retrieve_accepts_0d_arrays_and_rejects_bad_shapes():
+    c = ClotField(80.0, 40, 8, 2.0, 35, 45, 1.6,
+                  ClotParams(grip_coeff=0.15), n_envs=2, device="cpu")
+    st = Stentriever(deployed_center=40, radial_force=0.2, n_struts=6)
+    engagement = np.array([st.engagement_strength_for_mask(c.s_grid, c.mask_env[e])
+                           for e in range(2)])
+    r = c.retrieve_batched(np.array(2.0), engagement, aspiration=np.array(0.0))
+    assert [x["status"] for x in r] == ["retrieve", "retrieve"]
+    with pytest.raises(ValueError, match="delta_s"):
+        c.retrieve_batched(np.array([1.0, 1.0, 1.0]), engagement)
+
+
 def test_stentriever_retrieves_clot_in_full_sim():
     pytest.importorskip("warp")
     pytest.importorskip("newton")
