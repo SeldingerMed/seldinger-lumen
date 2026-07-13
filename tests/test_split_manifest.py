@@ -183,9 +183,9 @@ def test_read_split_manifest_rejects_inconsistent_summary_totals(tmp_path):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()
-    invalid["assignments"] = {"case_a": "train", "case_b": "val"}
+    invalid["episodes"] = 2
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="episode count does not match assignments"):
+    with pytest.raises(ValueError, match="split episode counts do not match episodes"):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()

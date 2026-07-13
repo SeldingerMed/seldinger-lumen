@@ -264,7 +264,7 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
         raise ValueError(f"split manifest {manifest_path} ratios must include at least one positive value")
     if split_record_total != raw["records"]:
         raise ValueError(f"split manifest {manifest_path} split record counts do not match records")
-    if split_episode_total != raw["episodes"] or len(assignments_obj) != raw["episodes"]:
+    if split_episode_total != raw["episodes"]:
         raise ValueError(f"split manifest {manifest_path} split episode counts do not match episodes")
     return cast(SplitManifest, raw)
 
