@@ -260,7 +260,9 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
                 f"split manifest {manifest_path} split {split!r} episode count does not match assignments"
             )
 
-    if sum(cast(float, ratios_obj[name]) for name in SPLIT_NAMES) <= 0.0:
+    ratio_total = sum(cast(float, ratios_obj[name]) for name in SPLIT_NAMES)
+    # ``set(ratios_obj)`` was validated above, so every split name is present here.
+    if ratio_total == 0.0:
         raise ValueError(f"split manifest {manifest_path} ratios must include at least one positive value")
     if split_record_total != raw["records"]:
         raise ValueError(f"split manifest {manifest_path} split record counts do not match records")
