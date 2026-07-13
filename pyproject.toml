@@ -60,6 +60,9 @@ lumen-import-mask = "lumen.cli:import_mask_main"
 [tool.setuptools.packages.find]
 include = ["lumen*"]
 
+[tool.setuptools.package-data]
+lumen = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
