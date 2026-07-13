@@ -167,6 +167,34 @@ def test_read_split_manifest_rejects_malformed_field_types(tmp_path):
     assert read_split_manifest(manifest_path)["seed"] == -7
 
 
+def test_read_split_manifest_rejects_inconsistent_summary_totals(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["records"] = 2
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="split record counts do not match records"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["episodes"] = 0
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="episode count does not match assignments"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["assignments"] = {"case_a": "train", "case_b": "val"}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="episode count does not match assignments"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["ratios"] = {"train": 0.0, "val": 0.0, "test": 0.0}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="at least one positive"):
+        read_split_manifest(manifest_path)
+
+
 def test_read_split_manifest_rejects_non_json_file_path(tmp_path):
     with pytest.raises(ValueError, match="directory or .json file"):
         read_split_manifest(tmp_path / "manifest.txt")
