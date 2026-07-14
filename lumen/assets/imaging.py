@@ -194,7 +194,9 @@ def load_planar_array(path, frame_index: int | None = None) -> PlanarImage:
     suffix = path.suffix.lower()
     if suffix == ".png":
         if frame_index is not None:
-            raise ValueError("PNG planar import is single-frame; do not pass frame_index")
+            raise ValueError(
+                "PNG planar import supports only one frame; frame_index is not applicable"
+            )
         return PlanarImage(_read_png_planar(path))
     if suffix == ".npy":
         arr = _select_planar_frame(np.load(path, allow_pickle=False), frame_index, "NPY")
@@ -220,6 +222,8 @@ def load_planar_array(path, frame_index: int | None = None) -> PlanarImage:
 
 
 def _read_png_planar(path: Path) -> np.ndarray:
+    # Keep PNG previews dependency-free for the core package; users that already
+    # depend on Pillow can decode upstream and pass arrays into the planar APIs.
     data = path.read_bytes()
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise ValueError(f"{path}: not a PNG file")
@@ -397,7 +401,13 @@ def load_dicom_frame(path, frame_index: int | None = None) -> PlanarImage:
         raise ValueError(f"DICOM frame import expects one 2-D frame, got array shape {arr.shape}")
     spacing = _spacing2(image.GetSpacing())
     origin_raw = np.asarray(image.GetOrigin(), dtype=float).reshape(-1)
-    origin = tuple(float(origin_raw[i]) if i < len(origin_raw) else 0.0 for i in range(3))
+    origin_values = []
+    for axis_index in range(3):
+        if axis_index < len(origin_raw):
+            origin_values.append(float(origin_raw[axis_index]))
+        else:
+            origin_values.append(0.0)
+    origin = tuple(origin_values)
     return PlanarImage(arr, pixel_spacing_mm=spacing, origin_mm=origin,
                        direction=tuple(float(x) for x in direction.reshape(-1)))
 
@@ -1095,7 +1105,19 @@ def _thin_skeleton(mask2d) -> np.ndarray:
     Large segmentation masks should be downsampled before import or thinned with
     a compiled imaging stack upstream.
     """
-    skel = np.asarray(mask2d, dtype=bool).copy()
+    mask = np.asarray(mask2d, dtype=bool)
+    try:  # pragma: no cover - optional dependency path
+        from skimage.morphology import skeletonize
+    except ImportError:
+        skeletonize = None
+    if skeletonize is not None:
+        return np.asarray(skeletonize(mask), dtype=bool)
+    if mask.size > 262_144:
+        raise ImportError(
+            "large planar mask skeletonization requires scikit-image; install the optional "
+            "imaging stack or downsample before import"
+        )
+    skel = mask.copy()
     changed = True
     while changed:
         changed = False
@@ -1137,9 +1159,10 @@ def _distance_to_background_mm(mask2d, spacing_xy) -> np.ndarray:
     """Distance from foreground pixels to background, in millimeters.
 
     SciPy is intentionally optional for this package; use its exact Euclidean
-    distance transform when installed, otherwise fall back to a NumPy chamfer
-    pass suitable for small/medium QA masks.
+    distance transform when installed, otherwise fall back to a bounded exact
+    separable transform suitable for small/medium QA masks.
     """
+    mask = np.asarray(mask2d, dtype=bool)
     try:  # pragma: no cover - optional dependency path
         from scipy import ndimage
     except ImportError:
@@ -1147,49 +1170,62 @@ def _distance_to_background_mm(mask2d, spacing_xy) -> np.ndarray:
     if ndimage is not None:
         # SciPy arrays use (row, col) spacing, while Lumen planar spacing is (x, y).
         return ndimage.distance_transform_edt(
-            np.asarray(mask2d, dtype=bool),
+            mask,
             sampling=(float(spacing_xy[1]), float(spacing_xy[0])),
         )
-    if np.asarray(mask2d).size > 262_144:
+    if mask.size > 262_144:
         raise ImportError(
             "large planar mask distance transforms require scipy; install the optional "
             "imaging stack or downsample before import"
         )
-    inf = float(mask2d.size + 1) * max(float(spacing_xy[0]), float(spacing_xy[1]))
-    dist = np.where(mask2d, inf, 0.0).astype(float)
-    weights = [
-        (-1, -1, float(np.hypot(spacing_xy[1], spacing_xy[0]))),
-        (-1, 0, float(spacing_xy[1])),
-        (-1, 1, float(np.hypot(spacing_xy[1], spacing_xy[0]))),
-        (0, -1, float(spacing_xy[0])),
-    ]
-    for r in range(dist.shape[0]):
-        for c in range(dist.shape[1]):
-            if not mask2d[r, c]:
-                continue
-            best = dist[r, c]
-            for dr, dc, w in weights:
-                rr, cc = r + dr, c + dc
-                if 0 <= rr < dist.shape[0] and 0 <= cc < dist.shape[1]:
-                    best = min(best, dist[rr, cc] + w)
-            dist[r, c] = best
-    weights = [
-        (1, 1, float(np.hypot(spacing_xy[1], spacing_xy[0]))),
-        (1, 0, float(spacing_xy[1])),
-        (1, -1, float(np.hypot(spacing_xy[1], spacing_xy[0]))),
-        (0, 1, float(spacing_xy[0])),
-    ]
-    for r in range(dist.shape[0] - 1, -1, -1):
-        for c in range(dist.shape[1] - 1, -1, -1):
-            if not mask2d[r, c]:
-                continue
-            best = dist[r, c]
-            for dr, dc, w in weights:
-                rr, cc = r + dr, c + dc
-                if 0 <= rr < dist.shape[0] and 0 <= cc < dist.shape[1]:
-                    best = min(best, dist[rr, cc] + w)
-            dist[r, c] = best
-    return dist
+    max_spacing = max(float(spacing_xy[0]), float(spacing_xy[1]))
+    high = (float(sum(mask.shape) + 1) * max_spacing) ** 2
+    foreground_cost = np.where(mask, high, 0.0).astype(float)
+    row_pass = np.column_stack([
+        _edt_1d_squared(foreground_cost[:, col], float(spacing_xy[1]))
+        for col in range(foreground_cost.shape[1])
+    ])
+    dist2 = np.vstack([
+        _edt_1d_squared(row_pass[row], float(spacing_xy[0]))
+        for row in range(row_pass.shape[0])
+    ])
+    return np.sqrt(np.maximum(dist2, 0.0))
+
+
+def _edt_1d_squared(values, spacing: float) -> np.ndarray:
+    """Squared 1-D lower-envelope distance transform for finite costs."""
+    costs = np.asarray(values, dtype=float)
+    n = len(costs)
+    if n == 0:
+        return costs.copy()
+    spacing2 = float(spacing) ** 2
+    sites = np.zeros(n, dtype=int)
+    breaks = np.empty(n + 1, dtype=float)
+    out = np.empty(n, dtype=float)
+    k = 0
+    sites[0] = 0
+    breaks[0] = -np.inf
+    breaks[1] = np.inf
+    for q in range(1, n):
+        while True:
+            p = sites[k]
+            numerator = costs[q] + spacing2 * q * q - costs[p] - spacing2 * p * p
+            denominator = 2.0 * spacing2 * (q - p)
+            split = numerator / denominator
+            if split > breaks[k]:
+                break
+            k -= 1
+        k += 1
+        sites[k] = q
+        breaks[k] = split
+        breaks[k + 1] = np.inf
+    k = 0
+    for q in range(n):
+        while breaks[k + 1] < q:
+            k += 1
+        p = sites[k]
+        out[q] = spacing2 * (q - p) ** 2 + costs[p]
+    return out
 
 
 def _neighbors8(pixel, shape):
