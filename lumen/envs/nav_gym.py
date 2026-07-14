@@ -64,7 +64,7 @@ class NavEnv:
         return pr.s, pr.r, pr.theta, float(self.sim.node_radii().max())
 
     def _contact_features(self):
-        if not (hasattr(self.sim, "body_positions") and hasattr(self, "frame") and hasattr(self, "lumen")):
+        if not hasattr(self.sim, "body_positions"):
             _, _, _, rmax = self._tip()
             return float(rmax), max(0.0, float(rmax) - self.R)
         projs = [self.frame.project(p) for p in self.sim.body_positions()]
@@ -116,11 +116,11 @@ class NavEnv:
         self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
                       insertion=a * self.max_insertion, twist=twist * self.max_twist)
         self.steps += 1
-        s, r, th, rmax = self._tip()
+        s, r, _, _ = self._tip()
         obs = self._obs()
         # #14 — NaN guard: a diverged sim must not emit NaN obs/reward (invalid JSON,
         # broken comparisons). End the episode with a finite penalty instead.
-        if not (np.isfinite(obs).all() and np.isfinite([s, rmax]).all()):
+        if not (np.isfinite(obs).all() and np.isfinite([s, r]).all()):
             zeros = np.zeros(5, dtype=np.float32)
             return zeros, -100.0, True, False, {
                 "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,        # L1: finite (JSON-safe)
