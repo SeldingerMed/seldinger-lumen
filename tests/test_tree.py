@@ -154,6 +154,13 @@ def test_tortuous_tube_has_curvature_taper_and_focal_narrowing():
     assert np.all(radii > 0.0)
 
 
+def test_tortuous_demo_assets_reject_invalid_parameters():
+    with pytest.raises(ValueError, match="radius must be positive"):
+        procedural.tortuous_tree(radius=0.0)
+    with pytest.raises(ValueError, match="n must be >= 8"):
+        procedural.tortuous_tube(n=7.8)
+
+
 def test_empty_asset_rejected():
     asset = procedural.straight_tube(10.0, 1.0)
     asset.edges = []

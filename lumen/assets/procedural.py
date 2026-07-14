@@ -18,6 +18,8 @@ from lumen.assets.schema import Asset, DeviceSpawn, Edge, Frame, Node
 
 def _arclength(pts: np.ndarray) -> np.ndarray:
     pts = np.asarray(pts, dtype=float)
+    if len(pts) == 0:
+        return np.array([])
     seg = np.linalg.norm(np.diff(pts, axis=0), axis=1) if len(pts) > 1 else np.array([])
     return np.concatenate([[0.0], np.cumsum(seg)])
 
@@ -83,6 +85,7 @@ def tortuous_tube(length: float = 100.0, radius: float = 2.4,
                   severity: float = 0.35, n: int = 96,
                   dilation: float = 0.16) -> Asset:
     """Curved, tapered single-vessel demo tube with focal dilation and narrowing."""
+    n = int(n)
     if n < 8:
         raise ValueError("n must be >= 8")
     if length <= 0.0 or radius <= 0.0:
@@ -156,6 +159,8 @@ def tortuous_tree(radius: float = 4.0, n: int = 44,
     n = int(n)
     if n < 8:
         raise ValueError("n must be >= 8")
+    if radius <= 0.0:
+        raise ValueError("radius must be positive")
     if not (0.0 <= stenosis_severity < 0.9):
         raise ValueError("stenosis_severity must be in [0, 0.9)")
     if side_dilation < 0.0:
