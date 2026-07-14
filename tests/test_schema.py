@@ -17,6 +17,8 @@ def test_make_demo_assets_writes_to_requested_directory(tmp_path):
         "bifurcation.json",
         "stenotic_tube.json",
         "straight_tube.json",
+        "tortuous_tree.json",
+        "tortuous_tube.json",
     ]
     for path in out.iterdir():
         assert Asset.load(str(path)).provenance == "procedural"
@@ -44,7 +46,8 @@ def test_stenosis_narrows():
 def test_emitted_asset_is_procedural():
     # the firewall depends on this invariant
     for a in (procedural.straight_tube(), procedural.stenotic_tube(),
-              procedural.bifurcation()):
+              procedural.tortuous_tube(), procedural.bifurcation(),
+              procedural.tortuous_tree()):
         assert a.provenance == "procedural"
 
 

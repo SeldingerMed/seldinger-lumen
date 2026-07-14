@@ -27,6 +27,15 @@ def make_nav_stenotic(severity=0.5, **kw):
     return NavEnv(asset=procedural.stenotic_tube(length=80.0, radius=2.0, severity=severity), **kw)
 
 
+def make_nav_tortuous(severity=0.25, **kw):
+    """Demo navigation through a curved, tapered vessel with a focal narrowing."""
+    from lumen.assets import procedural
+    from lumen.envs.nav_gym import NavEnv
+    kw.setdefault("max_insertion", 1.2)
+    kw.setdefault("substeps", 8)
+    return NavEnv(asset=procedural.tortuous_tube(length=90.0, radius=3.0, severity=severity), **kw)
+
+
 def make_tree_nav(target_node="left_out", angle_deg=45.0, **kw):
     """Branch navigation on a bifurcation tree (the hard tier)."""
     from lumen.assets import procedural
@@ -36,12 +45,22 @@ def make_tree_nav(target_node="left_out", angle_deg=45.0, **kw):
     return TreeNavEnv(asset, target_node=target_node, **kw)
 
 
+def make_tortuous_tree_nav(target_node="right_out", **kw):
+    """Demo navigation on a curved, asymmetric multi-branch vessel tree."""
+    from lumen.assets import procedural
+    from lumen.envs.tree_nav import TreeNavEnv
+    kw.setdefault("max_steps", 90)
+    return TreeNavEnv(procedural.tortuous_tree(), target_node=target_node, **kw)
+
+
 # id -> factory. The benchmark suite (lumen.bench) reuses these so a make() env and a
 # bench task are the same scene.
 LUMEN_ENVS = {
     "Lumen/NavTube-v0": make_nav_tube,
     "Lumen/NavStenotic-v0": make_nav_stenotic,
+    "Lumen/NavTortuous-v0": make_nav_tortuous,
     "Lumen/NavTreeBranch-v0": make_tree_nav,
+    "Lumen/NavTortuousTree-v0": make_tortuous_tree_nav,
 }
 
 
