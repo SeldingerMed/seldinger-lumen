@@ -45,8 +45,8 @@ def test_play_writes_animation(tmp_path, requires_warp_and_newton_backend):
 
 
 def test_play_matches_bench_safety_on_tree(requires_warp_and_newton_backend):
-    # the hard tier reaches the target but breaches the wall — the viewer must report
-    # the same unsafe outcome the benchmark scores (guards the shared safety seam).
+    # The hard tier now reaches the target safely in suite v2; the viewer must report
+    # the same wall-penetration maximum the benchmark scene produces.
     from lumen.envs.registration import make_tree_nav
 
     env = make_tree_nav(max_steps=60)
@@ -70,9 +70,9 @@ def test_play_matches_bench_safety_on_tree(requires_warp_and_newton_backend):
 
     s = viz.play("tree", steps=60, seed=200, size=96)
     assert s["success"] is True
-    assert s["safe"] is False
+    assert s["safe"] is True
     assert s["max_pen"] == round(expected_max_pen, 4)
-    assert s["max_pen"] > 0.3
+    assert s["max_pen"] <= 0.3
 
 
 def test_cli_play_smoke(tmp_path, capsys, requires_warp_and_newton_backend):

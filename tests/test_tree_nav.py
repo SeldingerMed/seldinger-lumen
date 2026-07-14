@@ -64,6 +64,7 @@ def test_tree_nav_success_boundary_is_inclusive_when_on_route():
     env.sim = Sim()
     env.substeps = 1
     env.max_insertion = 1.0
+    env.max_twist = 1.0
     env.steps = 0
     env.target_s = 10.0
     env._prev = 5.0
@@ -73,12 +74,47 @@ def test_tree_nav_success_boundary_is_inclusive_when_on_route():
                              "max_r": 2.0, "max_pen": 0.0, "on_route": True,
                              "edge": "left"}
     env._obs = lambda _: np.zeros(5, dtype=np.float32)
+    env._tip_roll = lambda: 0.0
 
-    _, _, terminated, _, info = env.step([0.0])
+    _, _, terminated, _, info = env.step([0.0, 0.0])
 
     assert terminated is True
     assert info["success"] is True
     assert info["dist"] == pytest.approx(2.5)
+    assert info["max_pen"] == pytest.approx(0.0)
+
+
+def test_tree_nav_reports_unsafe_target_reach_as_unsafe_success():
+    class Sim:
+        def step(self, **_):
+            pass
+
+    env = object.__new__(TreeNavEnv)
+    env.sim = Sim()
+    env.substeps = 1
+    env.max_insertion = 1.0
+    env.max_twist = 1.0
+    env.steps = 0
+    env.target_s = 10.0
+    env._prev = 2.0
+    env.success_tol = 2.5
+    env.max_steps = 5
+    env.safety_max_pen = 0.3
+    env._features = lambda: {"s": 10.0, "r": 3.0, "theta": 0.0, "R_loc": 2.0,
+                             "max_r": 3.0, "max_pen": 0.6, "on_route": True,
+                             "edge": "left"}
+    env._obs = lambda _: np.zeros(5, dtype=np.float32)
+    env._tip_roll = lambda: 0.0
+
+    _, reward, terminated, truncated, info = env.step([0.0, 0.0])
+
+    assert terminated is True
+    assert truncated is False
+    assert info["success"] is True
+    assert info["safe_success"] is False
+    assert info["unsafe"] is True
+    assert info["max_pen"] == pytest.approx(0.6)
+    assert reward < 10.0
 
 
 # ---- the env (needs the Layer-0 tree sim) ------------------------------------
@@ -92,7 +128,7 @@ def test_tree_nav_env_builds_steps_and_progresses():
     obs, _ = env.reset()
     assert obs.shape == (5,) and np.isfinite(obs).all()
     if _HAS_GYM:
-        assert env.action_space.shape == (1,) and env.observation_space.shape == (5,)
+        assert env.action_space.shape == (2,) and env.observation_space.shape == (5,)
     last = None
     for _ in range(35):
         obs, r, term, trunc, info = env.step(1.0)           # push forward along the route

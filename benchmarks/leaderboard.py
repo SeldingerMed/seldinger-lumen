@@ -20,7 +20,8 @@ from lumen.bench import evaluate_policy, validate_scorecard
 def proportional_policy(obs):
     """Reference baseline: push proportional to remaining signed distance."""
     remaining = obs[4]                      # (target - tip_s)/L
-    return np.array([np.clip(4.0 * remaining, -1.0, 1.0)], dtype=np.float32)
+    insertion = np.clip(4.0 * remaining, -1.0, 1.0)
+    return np.array([insertion, 0.0], dtype=np.float32)
 
 
 def run_leaderboard(policy=proportional_policy, policy_name="proportional-baseline"):

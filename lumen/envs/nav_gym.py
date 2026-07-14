@@ -5,7 +5,7 @@ Drives the guidewire tip to a target arc-length in a procedural tube, backed by
 ``lumen.hardware.detect_device``). Follows the Gym/Gymnasium reset/step
 convention without hard-depending on gymnasium.
 
-Action  (1-D): insertion rate in [-1, 1] (advance/retract the proximal end).
+Action  (2-D): insertion + twist in [-1, 1]; legacy scalar actions mean zero twist.
 Obs     (5-D): [tip_s/L, tip_r/R, sin(theta), cos(theta), (target - tip_s)/L].
 Reward       : progress toward the target − wall-contact penalty − time penalty.
 
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from lumen.envs._actions import parse_nav_action
 from lumen.hardware import detect_device
 
 try:
@@ -27,7 +28,8 @@ except Exception:                       # pragma: no cover - gym optional
 
 class NavEnv:
     def __init__(self, asset=None, target_frac=0.7, max_insertion=2.0,
-                 substeps=4, max_steps=40, success_tol=2.5, device=None):
+                 max_twist=1.0, substeps=4, max_steps=40, success_tol=2.5,
+                 safety_max_pen=0.3, terminate_on_unsafe: bool = False, device=None):
         from lumen.assets import procedural
         from lumen.core.frame import CenterlineFrame
         self.asset = asset or procedural.straight_tube(length=80.0, radius=2.0)
@@ -40,11 +42,14 @@ class NavEnv:
         self.target_frac = target_frac
         self.target_s = target_frac * self.L
         self.rng = np.random.default_rng()
-        self.max_insertion, self.substeps, self.max_steps = max_insertion, substeps, max_steps
+        self.max_insertion, self.max_twist = max_insertion, max_twist
+        self.substeps, self.max_steps = substeps, max_steps
         self.success_tol = success_tol
+        self.safety_max_pen = float(safety_max_pen)
+        self.terminate_on_unsafe = bool(terminate_on_unsafe)
         self.device = device or detect_device()
         if _HAS_GYM:
-            self.action_space = spaces.Box(-1.0, 1.0, (1,), np.float32)
+            self.action_space = spaces.Box(-1.0, 1.0, (2,), np.float32)
             self.observation_space = spaces.Box(-np.inf, np.inf, (5,), np.float32)
         self.reset()
 
@@ -58,6 +63,35 @@ class NavEnv:
         pos = self.sim.body_positions()[-1]
         pr = self.frame.project(pos)
         return pr.s, pr.r, pr.theta, float(self.sim.node_radii().max())
+
+    def _lumen_radius(self, s, theta):
+        lumen = getattr(self, "lumen", None)
+        return float(lumen.eval(s, theta)) if lumen is not None else self.R
+
+    def _contact_features(self):
+        if not hasattr(self.sim, "body_positions"):
+            # Legacy/object-level tests may provide only _tip(); initialized Newton sims use
+            # the body_positions path below for local-R-aware contact.
+            s, _, th, rmax = self._tip()
+            return float(rmax), max(0.0, float(rmax) - self._lumen_radius(s, th))
+        projs = [self.frame.project(p) for p in self.sim.body_positions()]
+        max_r = max((float(pr.r) for pr in projs), default=0.0)
+        max_pen = max(
+            (max(0.0, float(pr.r) - self._lumen_radius(pr.s, pr.theta)) for pr in projs),
+            default=0.0,
+        )
+        return max_r, max_pen
+
+    def _tip_roll(self):
+        # Newton rods store twist around the cable-local z axis; this matches the torsion test helper.
+        quats = self.sim.body_quaternions()
+        if len(quats) < 1:
+            raise ValueError("body_quaternions must contain at least one guidewire body")
+        x, y, z, w = quats[-1]
+        return float(2.0 * np.arctan2(z, w))
+
+    def _parse_action(self, action):
+        return parse_nav_action(action)
 
     def _obs(self):
         s, r, th, _ = self._tip()
@@ -84,10 +118,11 @@ class NavEnv:
         return self._obs(), {}
 
     def step(self, action):
-        a = float(np.clip(np.asarray(action).reshape(-1)[0], -1.0, 1.0))
-        self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps, insertion=a * self.max_insertion)
+        a, twist = self._parse_action(action)
+        self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
+                      insertion=a * self.max_insertion, twist=twist * self.max_twist)
         self.steps += 1
-        s, r, th, rmax = self._tip()
+        s, _, _, rmax = self._tip()
         obs = self._obs()
         # #14 — NaN guard: a diverged sim must not emit NaN obs/reward (invalid JSON,
         # broken comparisons). End the episode with a finite penalty instead.
@@ -95,14 +130,27 @@ class NavEnv:
             zeros = np.zeros(5, dtype=np.float32)
             return zeros, -100.0, True, False, {
                 "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,        # L1: finite (JSON-safe)
-                "success": False, "diverged": True}
+                "max_pen": 0.0, "success": False, "diverged": True}
         dist = abs(s - self.target_s)
-        contact_pen = max(0.0, rmax - self.R)
+        max_r, max_pen = self._contact_features()
+        if not np.isfinite([max_r, max_pen]).all():
+            zeros = np.zeros(5, dtype=np.float32)
+            return zeros, -100.0, True, False, {
+                "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,
+                "max_pen": 0.0, "success": False, "diverged": True}
+        contact_pen = max_pen
         reward = (self._prev_dist - dist) - 0.5 * contact_pen - 0.01
         self._prev_dist = dist
-        terminated = bool(dist <= self.success_tol)
+        unsafe = bool(max_pen > getattr(self, "safety_max_pen", 0.3))
+        success = bool(dist <= self.success_tol)
+        safe_success = bool(success and not unsafe)
+        terminated = bool(success or (unsafe and getattr(self, "terminate_on_unsafe", False)))
         truncated = self.steps >= self.max_steps
-        if terminated:
+        if success:
             reward += 10.0
-        info = {"tip_s": s, "dist": dist, "max_r": rmax, "success": terminated}
+        if unsafe:
+            reward -= 10.0
+        info = {"tip_s": s, "dist": dist, "max_r": max_r, "max_pen": max_pen,
+                "success": success, "safe_success": safe_success, "unsafe": unsafe,
+                "twist": twist, "tip_roll": self._tip_roll()}
         return obs, float(reward), terminated, truncated, info

@@ -2,6 +2,8 @@
 drives the Newton sim, so it pytest.importorskips warp/newton (the scorecard/leaderboard
 plumbing is pure)."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -156,7 +158,8 @@ def test_scorecard_rejections_explain_why_submissions_are_skipped(tmp_path):
 
 def test_scorecard_rejections_handle_malformed_nested_payloads(tmp_path):
     (tmp_path / "bad_overall.json").write_text(
-        '{"name":"bad","suite_version":"lumen-bench/1","per_task":[],"overall":null}'
+        json.dumps({"name": "bad", "suite_version": SUITE_VERSION,
+                    "per_task": [], "overall": None})
     )
     Scorecard(name="bad-task", suite_version=SUITE_VERSION, per_task=[0],
               overall={"success_rate": 0.0, "safe_success_rate": 0.0,
@@ -274,7 +277,8 @@ def test_submit_policy_reports_skipped_scorecards(tmp_path, capsys):
     from examples.submit_policy import main
 
     (tmp_path / "bad.json").write_text(
-        '{"name":"bad","suite_version":"lumen-bench/1","per_task":[],"overall":null}'
+        json.dumps({"name": "bad", "suite_version": SUITE_VERSION,
+                    "per_task": [], "overall": None})
     )
 
     main(str(tmp_path), name="example-policy")

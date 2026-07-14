@@ -30,10 +30,13 @@ def test_cem_learns_to_navigate():
     env = NavEnv(asset=procedural.straight_tube(80.0, 2.0), target_frac=0.7, max_steps=40)
     obs, _ = env.reset(seed=0)
     policy = make_policy(theta)
+    first_action = policy(obs)
+    assert first_action.shape == (2,) and first_action[1] == pytest.approx(0.0)
     done = False
     info = {}
     while not done:
-        obs, _, term, trunc, info = env.step(policy(obs))
+        obs, _, term, trunc, info = env.step(first_action)
+        first_action = policy(obs)
         done = term or trunc
     assert info["success"]
 
