@@ -25,6 +25,10 @@ import numpy as np
 from lumen.assets.schema import Asset, DeviceSpawn, Edge, Frame, Node
 
 
+_MAX_PLANAR_FALLBACK_PIXELS = 262_144
+_WARN_PLANAR_FALLBACK_PIXELS = 65_536
+
+
 @dataclass
 class Volume:
     data: np.ndarray
@@ -547,24 +551,24 @@ def asset_planar_import_report(asset: Asset, source: str | None = None,
     all_points = []
     all_radii = []
     total_length = 0.0
-    warnings = []
+    report_warnings = []
     for edge in asset.edges:
         degree[edge.node_a] = degree.get(edge.node_a, 0) + 1
         degree[edge.node_b] = degree.get(edge.node_b, 0) + 1
         pts = np.asarray(edge.centerline_mm, dtype=float)
         if pts.ndim != 2 or pts.shape[1] != 3 or len(pts) == 0:
-            warnings.append(f"{edge.id}: empty or invalid centerline")
+            report_warnings.append(f"{edge.id}: empty or invalid centerline")
             continue
         if not np.isfinite(pts).all():
-            warnings.append(f"{edge.id}: non-finite centerline coordinate")
+            report_warnings.append(f"{edge.id}: non-finite centerline coordinate")
         all_points.append(pts)
         if len(pts) > 1:
             total_length += float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
         radii = np.asarray(edge.R, dtype=float).reshape(-1)
         if radii.size == 0:
-            warnings.append(f"{edge.id}: missing radius samples")
+            report_warnings.append(f"{edge.id}: missing radius samples")
         elif np.any(radii <= 0.0) or not np.isfinite(radii).all():
-            warnings.append(f"{edge.id}: non-positive or non-finite radius sample")
+            report_warnings.append(f"{edge.id}: non-positive or non-finite radius sample")
         if radii.size:
             all_radii.append(radii)
 
@@ -588,7 +592,7 @@ def asset_planar_import_report(asset: Asset, source: str | None = None,
                 | (py > shape[0] - 0.5)
             )
             if np.any(outside):
-                warnings.append("centerline: points fall outside supplied image_shape_px")
+                report_warnings.append("centerline: points fall outside supplied image_shape_px")
     direction = None
     if image_direction is not None:
         direction_arr = np.asarray(image_direction, dtype=float).reshape(-1)
@@ -617,7 +621,7 @@ def asset_planar_import_report(asset: Asset, source: str | None = None,
         radius_summary = {"min": 0.0, "max": 0.0, "mean": 0.0}
 
     report = {
-        "ok": not warnings,
+        "ok": not report_warnings,
         "source": str(source) if source is not None else None,
         "preview_image": str(preview_image) if preview_image is not None else None,
         "image_shape_px": shape,
@@ -636,7 +640,7 @@ def asset_planar_import_report(asset: Asset, source: str | None = None,
         "total_centerline_mm": round(float(total_length), 4),
         "bounds_mm": bounds,
         "radius_mm": radius_summary,
-        "warnings": warnings,
+        "warnings": report_warnings,
     }
     return report
 
@@ -902,10 +906,13 @@ def asset_from_planar_mask(mask2d, pixel_spacing_mm=(1.0, 1.0),
                     radii = np.asarray(radii, dtype=float)[::-1]
                 add_edge(node_a, node_b, pts, radii)
             first_node = node_map[first_cluster]
-        first_pos = np.asarray(next(n.position_mm for n in nodes if n.id == first_node), float)
-        if spawn_node is None or tuple(first_pos[:2]) < tuple(
-            np.asarray(next(n.position_mm for n in nodes if n.id == spawn_node), float)[:2]
-        ):
+        node_positions = {node.id: node.position_mm for node in nodes}
+        first_pos = np.asarray(node_positions[first_node], float)
+        if spawn_node is None:
+            spawn_node = first_node
+            continue
+        spawn_pos = np.asarray(node_positions[spawn_node], float)
+        if tuple(first_pos[:2]) < tuple(spawn_pos[:2]):
             spawn_node = first_node
 
     if not edges:
@@ -1116,12 +1123,12 @@ def _thin_skeleton(mask2d) -> np.ndarray:
         skeletonize = None
     if skeletonize is not None:
         return np.asarray(skeletonize(mask), dtype=bool)
-    if mask.size > 262_144:
+    if mask.size > _MAX_PLANAR_FALLBACK_PIXELS:
         raise ImportError(
             "large planar mask skeletonization requires scikit-image; install the optional "
             "imaging stack or downsample before import"
         )
-    if mask.size > 65_536:
+    if mask.size > _WARN_PLANAR_FALLBACK_PIXELS:
         warnings.warn(
             "using NumPy Zhang-Suen thinning fallback for a large planar mask; "
             "install scikit-image for compiled skeletonization",
@@ -1154,9 +1161,9 @@ def _thin_skeleton(mask2d) -> np.ndarray:
                 if transitions != 1:
                     continue
                 if step == 0:
-                    keep = p2 and p4 and p6 or p4 and p6 and p8
+                    keep = (p2 and p4 and p6) or (p4 and p6 and p8)
                 else:
-                    keep = p2 and p4 and p8 or p2 and p6 and p8
+                    keep = (p2 and p4 and p8) or (p2 and p6 and p8)
                 if not keep:
                     remove.append((r, c))
             if remove:
@@ -1184,7 +1191,7 @@ def _distance_to_background_mm(mask2d, spacing_xy) -> np.ndarray:
             mask,
             sampling=(float(spacing_xy[1]), float(spacing_xy[0])),
         )
-    if mask.size > 262_144:
+    if mask.size > _MAX_PLANAR_FALLBACK_PIXELS:
         raise ImportError(
             "large planar mask distance transforms require scipy; install the optional "
             "imaging stack or downsample before import"
