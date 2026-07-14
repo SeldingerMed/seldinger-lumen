@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from lumen.envs._actions import parse_nav_action
 from lumen.hardware import detect_device
 
 try:
@@ -65,8 +66,11 @@ class NavEnv:
 
     def _contact_features(self):
         if not hasattr(self.sim, "body_positions"):
-            _, _, _, rmax = self._tip()
-            return float(rmax), max(0.0, float(rmax) - self.R)
+            # Legacy/object-level tests may provide only _tip(); initialized Newton sims use
+            # the body_positions path below for local-R-aware contact.
+            s, _, th, rmax = self._tip()
+            R_loc = float(self.lumen.eval(s, th)) if hasattr(self, "lumen") else self.R
+            return float(rmax), max(0.0, float(rmax) - R_loc)
         projs = [self.frame.project(p) for p in self.sim.body_positions()]
         max_r = max((float(pr.r) for pr in projs), default=0.0)
         max_pen = max(
@@ -81,13 +85,7 @@ class NavEnv:
         return float(2.0 * np.arctan2(z, w))
 
     def _parse_action(self, action):
-        act = np.asarray(action, dtype=float).reshape(-1)
-        if len(act) < 1:
-            raise ValueError("action must contain at least an insertion command")
-        insertion = float(np.clip(act[0], -1.0, 1.0))
-        # Backward compatibility: scalar actions from old policies mean no commanded twist.
-        twist = float(np.clip(act[1] if len(act) > 1 else 0.0, -1.0, 1.0))
-        return insertion, twist
+        return parse_nav_action(action)
 
     def _obs(self):
         s, r, th, _ = self._tip()
@@ -118,11 +116,11 @@ class NavEnv:
         self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
                       insertion=a * self.max_insertion, twist=twist * self.max_twist)
         self.steps += 1
-        s, r, _, _ = self._tip()
+        s, _, _, rmax = self._tip()
         obs = self._obs()
         # #14 — NaN guard: a diverged sim must not emit NaN obs/reward (invalid JSON,
         # broken comparisons). End the episode with a finite penalty instead.
-        if not (np.isfinite(obs).all() and np.isfinite([s, r]).all()):
+        if not (np.isfinite(obs).all() and np.isfinite([s, rmax]).all()):
             zeros = np.zeros(5, dtype=np.float32)
             return zeros, -100.0, True, False, {
                 "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,        # L1: finite (JSON-safe)

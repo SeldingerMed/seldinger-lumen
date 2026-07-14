@@ -20,6 +20,7 @@ import numpy as np
 
 from lumen.core.frame import CenterlineFrame
 from lumen.core.tree import VascularTree
+from lumen.envs._actions import parse_nav_action
 from lumen.hardware import detect_device
 
 try:
@@ -180,13 +181,7 @@ class TreeNavEnv:
         return float(2.0 * np.arctan2(z, w))
 
     def _parse_action(self, action):
-        act = np.asarray(action, dtype=float).reshape(-1)
-        if len(act) < 1:
-            raise ValueError("action must contain at least an insertion command")
-        insertion = float(np.clip(act[0], -1.0, 1.0))
-        # Backward compatibility: scalar actions from old policies mean no commanded twist.
-        twist = float(np.clip(act[1] if len(act) > 1 else 0.0, -1.0, 1.0))
-        return insertion, twist
+        return parse_nav_action(action)
 
     def reset(self, *, seed=None, options=None):           # seed accepted for the Gym contract
         from lumen.newton.sim import NewtonGuidewireSim

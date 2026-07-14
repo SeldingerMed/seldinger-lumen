@@ -7,7 +7,15 @@ pytest.importorskip("warp")
 pytest.importorskip("newton")
 
 from lumen.envs import NavEnv
+from lumen.envs._actions import parse_nav_action
 from benchmarks.leaderboard import proportional_policy
+
+
+def test_nav_action_parser_supports_legacy_scalar_and_twist():
+    assert parse_nav_action([2.0]) == (1.0, 0.0)
+    assert parse_nav_action([0.25, -2.0]) == (0.25, -1.0)
+    with pytest.raises(ValueError, match="at least an insertion"):
+        parse_nav_action([])
 
 
 def test_nav_env_reset_step_contract():
