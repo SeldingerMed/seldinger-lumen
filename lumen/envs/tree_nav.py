@@ -177,7 +177,10 @@ class TreeNavEnv:
 
     def _tip_roll(self):
         # Newton rods store twist around the cable-local z axis; this matches the torsion test helper.
-        x, y, z, w = self.sim.body_quaternions()[-1]
+        quats = self.sim.body_quaternions()
+        if len(quats) < 1:
+            raise ValueError("body_quaternions must contain at least one guidewire body")
+        x, y, z, w = quats[-1]
         return float(2.0 * np.arctan2(z, w))
 
     def _parse_action(self, action):

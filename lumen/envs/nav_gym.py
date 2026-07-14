@@ -64,24 +64,30 @@ class NavEnv:
         pr = self.frame.project(pos)
         return pr.s, pr.r, pr.theta, float(self.sim.node_radii().max())
 
+    def _lumen_radius(self, s, theta):
+        lumen = getattr(self, "lumen", None)
+        return float(lumen.eval(s, theta)) if lumen is not None else self.R
+
     def _contact_features(self):
         if not hasattr(self.sim, "body_positions"):
             # Legacy/object-level tests may provide only _tip(); initialized Newton sims use
             # the body_positions path below for local-R-aware contact.
             s, _, th, rmax = self._tip()
-            R_loc = float(self.lumen.eval(s, th)) if hasattr(self, "lumen") else self.R
-            return float(rmax), max(0.0, float(rmax) - R_loc)
+            return float(rmax), max(0.0, float(rmax) - self._lumen_radius(s, th))
         projs = [self.frame.project(p) for p in self.sim.body_positions()]
         max_r = max((float(pr.r) for pr in projs), default=0.0)
         max_pen = max(
-            (max(0.0, float(pr.r) - float(self.lumen.eval(pr.s, pr.theta))) for pr in projs),
+            (max(0.0, float(pr.r) - self._lumen_radius(pr.s, pr.theta)) for pr in projs),
             default=0.0,
         )
         return max_r, max_pen
 
     def _tip_roll(self):
         # Newton rods store twist around the cable-local z axis; this matches the torsion test helper.
-        x, y, z, w = self.sim.body_quaternions()[-1]
+        quats = self.sim.body_quaternions()
+        if len(quats) < 1:
+            raise ValueError("body_quaternions must contain at least one guidewire body")
+        x, y, z, w = quats[-1]
         return float(2.0 * np.arctan2(z, w))
 
     def _parse_action(self, action):
