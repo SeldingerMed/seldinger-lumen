@@ -16,6 +16,8 @@ def test_nav_action_parser_supports_legacy_scalar_and_twist():
     assert parse_nav_action([0.25, -2.0]) == (0.25, -1.0)
     with pytest.raises(ValueError, match="at least an insertion"):
         parse_nav_action([])
+    with pytest.raises(ValueError, match="optional twist only"):
+        parse_nav_action([0.0, 0.0, 0.0])
 
 
 def test_nav_env_reset_step_contract():
