@@ -185,9 +185,10 @@ def load_planar_array(path, frame_index: int | None = None) -> PlanarImage:
     """Load a 2-D `.png`, `.npy`, `.npz`, or DICOM image/mask frame with metadata.
 
     `.npz` inputs may contain `pixel_spacing_mm` or `spacing_mm` plus optional
-    `origin_mm`. PNG previews are dependency-free 1/2/4/8/16-bit grayscale,
-    8/16-bit RGB/RGBA reads,
-    and indexed-color label maps.
+    `origin_mm`. PNG previews are dependency-free 1/2/4/8/16-bit grayscale and
+    8/16-bit RGB/RGBA reads. Indexed-color PNGs are interpreted as label maps
+    where raw palette indices are meaningful; use Pillow upstream for large PNGs
+    or regular palette-image color conversion.
     Multi-frame DICOM cine inputs require an explicit ``frame_index``. DICOM loading
     uses SimpleITK when the optional imaging extra is installed.
     """
@@ -741,6 +742,8 @@ def asset_from_box_annotations(boxes, pixel_spacing_mm=(1.0, 1.0),
     boxes traces each visible vessel segment, the box centers become the edge
     centerline, and the short box side estimates the local lumen radius. Grouped
     segments whose endpoints fall within ``merge_tolerance_mm`` share a branch node.
+    Groups smaller than ``min_boxes_per_edge`` raise instead of being skipped so
+    incomplete annotation exports fail visibly.
     """
     annotations = [_coerce_box(b) for b in boxes]
     if not annotations:
