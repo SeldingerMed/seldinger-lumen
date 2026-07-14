@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import json
 import struct
+import warnings
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -1117,6 +1118,13 @@ def _thin_skeleton(mask2d) -> np.ndarray:
             "large planar mask skeletonization requires scikit-image; install the optional "
             "imaging stack or downsample before import"
         )
+    if mask.size > 65_536:
+        warnings.warn(
+            "using NumPy Zhang-Suen thinning fallback for a large planar mask; "
+            "install scikit-image for compiled skeletonization",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     skel = mask.copy()
     changed = True
     while changed:
@@ -1209,8 +1217,11 @@ def _edt_1d_squared(values, spacing: float) -> np.ndarray:
     for q in range(1, n):
         while True:
             p = sites[k]
-            numerator = costs[q] + spacing2 * q * q - costs[p] - spacing2 * p * p
-            denominator = 2.0 * spacing2 * (q - p)
+            q_cost = costs[q] + spacing2 * q * q
+            p_cost = costs[p] + spacing2 * p * p
+            numerator = q_cost - p_cost
+            site_gap = q - p
+            denominator = 2.0 * spacing2 * site_gap
             split = numerator / denominator
             if split > breaks[k]:
                 break
