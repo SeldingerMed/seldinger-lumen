@@ -16,7 +16,9 @@ def main(out_dir=None):
     out.mkdir(parents=True, exist_ok=True)
     procedural.straight_tube().save(str(out / "straight_tube.json"))
     procedural.stenotic_tube().save(str(out / "stenotic_tube.json"))
+    procedural.tortuous_tube().save(str(out / "tortuous_tube.json"))
     procedural.bifurcation().save(str(out / "bifurcation.json"))
+    procedural.tortuous_tree().save(str(out / "tortuous_tree.json"))
     print(f"wrote demo assets to {out}")
     return out
 

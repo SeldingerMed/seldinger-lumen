@@ -90,6 +90,70 @@ def test_project_edge_s_batches_flow_geometry_without_per_node_project_loop():
     assert np.allclose(s, expected_s)
 
 
+def test_tortuous_tree_has_asymmetric_curved_tapered_vessels():
+    asset = procedural.tortuous_tree(radius=2.3, n=32, stenosis_severity=0.45)
+    tree = VascularTree(asset)
+
+    assert asset.provenance == "procedural"
+    assert asset.device_spawn.node_id == "inlet"
+    assert len(asset.edges) == 5
+    assert tree.is_junction("side_junction")
+    assert tree.is_junction("apex")
+
+    right = next(edge for edge in asset.edges if edge.id == "right_stenotic")
+    right_pts = np.asarray(right.centerline_mm, float)
+    right_r = np.asarray(right.R, float)[:, 0]
+    assert np.ptp(right_pts[:, 0]) > 20.0
+    assert np.ptp(right_pts[:, 2]) > 20.0
+    assert right_r.min() < 0.75 * right_r[0]       # focal narrowing, not just taper
+    assert right_r[-1] < right_r[0]                # distal taper
+    side = next(edge for edge in asset.edges if edge.id == "side")
+    side_r = np.asarray(side.R, float)[:, 0]
+    side_peak = int(np.argmax(side_r))
+    assert 4 < side_peak < len(side_r) - 5
+    assert side_r[side_peak] > 1.08 * max(side_r[0], side_r[-1])
+
+    route = tree.route("right_out", "inlet")
+    assert [tree.edges[i].id for i in route] == ["trunk_in", "trunk_mid", "right_stenotic"]
+    assert tree.route_length(route) > 120.0
+
+
+def test_aortic_arch_tree_has_cathsim_like_branch_complexity():
+    asset = procedural.aortic_arch_tree()
+    tree = VascularTree(asset)
+
+    assert len(asset.edges) >= 6
+    assert asset.device_spawn.node_id == "inlet"
+    assert {node.id for node in asset.nodes} >= {
+        "inlet",
+        "descending_out",
+        "brachio_out",
+        "carotid_out",
+        "subclavian_out",
+    }
+    assert tree.is_junction("arch_prox")
+    assert tree.is_junction("arch_mid")
+    assert tree.route_length(tree.route("descending_out", "inlet")) > 120.0
+
+
+def test_tortuous_tube_has_curvature_taper_and_focal_narrowing():
+    asset = procedural.tortuous_tube(length=90.0, radius=3.0, severity=0.25, n=48)
+    pts, lumen = asset.edge_arrays(asset.edges[0])
+    pts = np.asarray(pts, float)
+    radii = np.asarray(lumen.R, float)[:, 0]
+
+    assert len(asset.edges) == 1
+    assert np.ptp(pts[:, 0]) > 8.0
+    assert np.ptp(pts[:, 1]) > 1.0
+    assert np.ptp(pts[:, 2]) > 85.0
+    assert radii[-1] < radii[0]
+    assert radii.min() < 0.85 * radii[0]
+    dilation_peak = int(np.argmax(radii))
+    assert 4 < dilation_peak < len(radii) - 8
+    assert radii[dilation_peak] > 1.05 * max(radii[0], radii[-1])
+    assert np.all(radii > 0.0)
+
+
 def test_empty_asset_rejected():
     asset = procedural.straight_tube(10.0, 1.0)
     asset.edges = []
