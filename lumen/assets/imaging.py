@@ -647,7 +647,8 @@ def _draw_disk(img: np.ndarray, x: float, y: float, radius: int, color) -> None:
 
 def _draw_line(img: np.ndarray, x0: float, y0: float, x1: float, y1: float,
                color, width: int = 1) -> None:
-    steps = max(2, int(np.ceil(max(abs(float(x1) - float(x0)), abs(float(y1) - float(y0))) * 1.5)))
+    span_px = max(abs(float(x1) - float(x0)), abs(float(y1) - float(y0)))
+    steps = max(2, int(np.ceil(span_px * 1.5)))
     for t in np.linspace(0.0, 1.0, steps):
         _draw_disk(img, (1.0 - t) * x0 + t * x1, (1.0 - t) * y0 + t * y1,
                    radius=width, color=color)
@@ -1121,6 +1122,21 @@ def _thin_skeleton(mask2d) -> np.ndarray:
 
 
 def _distance_to_background_mm(mask2d, spacing_xy) -> np.ndarray:
+    """Distance from foreground pixels to background, in millimeters.
+
+    SciPy is intentionally optional for this package; use its exact Euclidean
+    distance transform when installed, otherwise fall back to a NumPy chamfer
+    pass suitable for small/medium QA masks.
+    """
+    try:  # pragma: no cover - optional dependency path
+        from scipy import ndimage
+    except ImportError:
+        ndimage = None
+    if ndimage is not None:
+        return ndimage.distance_transform_edt(
+            np.asarray(mask2d, dtype=bool),
+            sampling=(float(spacing_xy[1]), float(spacing_xy[0])),
+        )
     inf = float(mask2d.size + 1) * max(float(spacing_xy[0]), float(spacing_xy[1]))
     dist = np.where(mask2d, inf, 0.0).astype(float)
     weights = [
@@ -1212,7 +1228,7 @@ def _component_planar_centerline(pixels, spacing_xy, origin, z_mm: float, sample
         raise ValueError("planar mask component has no measurable length")
 
     bins = np.linspace(t_min, t_max, int(samples) + 1)
-    centers, radii = [], []
+    sample_centers, radii = [], []
     min_radius = 0.5 * float(min(spacing_xy))
     for lo, hi in zip(bins[:-1], bins[1:]):
         sel = (t >= lo) & (t <= hi if hi == bins[-1] else t < hi)
@@ -1220,17 +1236,17 @@ def _component_planar_centerline(pixels, spacing_xy, origin, z_mm: float, sample
             continue
         local_xy = xy_mm[sel].mean(axis=0)
         width = float(u[sel].max() - u[sel].min()) + float(min(spacing_xy))
-        centers.append([float(local_xy[0]), float(local_xy[1]), float(origin[2] + z_mm)])
+        sample_centers.append([float(local_xy[0]), float(local_xy[1]), float(origin[2] + z_mm)])
         radii.append(max(0.5 * width, min_radius))
 
-    if len(centers) < 2:
+    if len(sample_centers) < 2:
         # Fallback for tiny but valid components: line between principal extrema.
         order = np.argsort(t)
         endpoints = xy_mm[[order[0], order[-1]]]
         width = float(u.max() - u.min()) + float(min(spacing_xy))
-        centers = [[float(x), float(y), float(origin[2] + z_mm)] for x, y in endpoints]
+        sample_centers = [[float(x), float(y), float(origin[2] + z_mm)] for x, y in endpoints]
         radii = [max(0.5 * width, min_radius), max(0.5 * width, min_radius)]
-    return np.asarray(centers, dtype=float), np.asarray(radii, dtype=float)
+    return np.asarray(sample_centers, dtype=float), np.asarray(radii, dtype=float)
 
 
 def _box_rows_from_json(payload, group_key: str = "group", image_size_px=None,
