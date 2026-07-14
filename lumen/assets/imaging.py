@@ -1210,14 +1210,14 @@ def _connected_special_clusters(special_pixels: set[tuple[int, int]], shape) -> 
         seed = min(remaining)
         remaining.remove(seed)
         cluster = {seed}
-        stack = [seed]
-        while stack:
-            p = stack.pop()
-            for q in _neighbors8(p, shape):
-                if q in remaining:
-                    remaining.remove(q)
-                    cluster.add(q)
-                    stack.append(q)
+        frontier = [seed]
+        while frontier:
+            pixel = frontier.pop()
+            for neighbor in _neighbors8(pixel, shape):
+                if neighbor in remaining:
+                    remaining.remove(neighbor)
+                    cluster.add(neighbor)
+                    frontier.append(neighbor)
         clusters.append(cluster)
     return clusters
 
