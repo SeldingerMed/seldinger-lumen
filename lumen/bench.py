@@ -35,14 +35,14 @@ import numpy as np
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, compute_clinical_metrics
 from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_nav
 
-SUITE_VERSION = "lumen-bench/1"
+SUITE_VERSION = "lumen-bench/2"
 SAFETY_MAX_PEN = 0.3
 
 
 def forward_policy(obs):
     """Baseline: advance the proximal end at full rate. Solves the suite but inefficiently
     (more steps / more contact on the harder tiers) — the bar a trained policy must beat."""
-    return np.array([1.0], dtype=np.float32)
+    return np.array([1.0, 0.0], dtype=np.float32)
 
 
 @dataclass

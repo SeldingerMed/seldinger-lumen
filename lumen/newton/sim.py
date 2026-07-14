@@ -658,6 +658,10 @@ class NewtonGuidewireSim:
     def body_positions(self) -> np.ndarray:
         return self.state_0.body_q.numpy()[self.bodies, :3]      # the GUIDEWIRE (backward-compat)
 
+    def body_quaternions(self) -> np.ndarray:
+        """Guidewire body orientations as ``(x, y, z, w)`` quaternions."""
+        return self.state_0.body_q.numpy()[self.bodies, 3:7]
+
     def catheter_positions(self) -> np.ndarray:
         """Microcatheter node positions (empty if no coaxial catheter)."""
         return self.state_0.body_q.numpy()[self.cath_bodies, :3]

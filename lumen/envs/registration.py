@@ -27,10 +27,11 @@ def make_nav_stenotic(severity=0.5, **kw):
     return NavEnv(asset=procedural.stenotic_tube(length=80.0, radius=2.0, severity=severity), **kw)
 
 
-def make_tree_nav(target_node="left_out", angle_deg=25.0, **kw):
+def make_tree_nav(target_node="left_out", angle_deg=45.0, **kw):
     """Branch navigation on a bifurcation tree (the hard tier)."""
     from lumen.assets import procedural
     from lumen.envs.tree_nav import TreeNavEnv
+    kw.setdefault("max_insertion", 1.8)
     asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0, angle_deg=angle_deg)
     return TreeNavEnv(asset, target_node=target_node, **kw)
 
@@ -58,7 +59,7 @@ def _gym_entry_point(lumen_factory):
         def __init__(self, **kw):
             self._env = lumen_factory(**kw)
             self.action_space = getattr(self._env, "action_space",
-                                        spaces.Box(-1.0, 1.0, (1,), np.float32))
+                                        spaces.Box(-1.0, 1.0, (2,), np.float32))
             self.observation_space = getattr(self._env, "observation_space",
                                              spaces.Box(-np.inf, np.inf, (5,), np.float32))
 

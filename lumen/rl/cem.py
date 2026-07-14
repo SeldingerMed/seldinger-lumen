@@ -6,10 +6,11 @@ candidate e — so policy search rides the same parallelism that makes the fast 
 fast. Gradient-free, pure numpy (no torch): right-sized for a small policy and a
 natural fit for the non-differentiable fast tier.
 
-Policy: linear, action = clip(W·obs + b, -1, 1). With the 5-D state NavEnv obs it can
-represent the proportional baseline (W=[0,0,0,0,4]) and improve on it via the tip-radius
-feature; with the 4-D image obs (FluoroBatchedNav, L1.3) it acts on image-space features
-instead. The policy is obs-dim-agnostic (width inferred from the obs).
+Policy: linear, insertion = clip(W·obs + b, -1, 1). With the 5-D state NavEnv obs it
+can represent the proportional baseline (W=[0,0,0,0,4]) and improve on it via the
+tip-radius feature; with the 4-D image obs (FluoroBatchedNav, L1.3) it acts on
+image-space features instead. The policy is obs-dim-agnostic (width inferred from
+the obs). Exported policies use the public 2-D navigation action and set twist to 0.
 """
 
 from __future__ import annotations
@@ -159,9 +160,10 @@ def train_cem(vessel=None, R=None, lumen_field=None, anatomies=None, pop=64,
 
 
 def make_policy(theta):
-    """Wrap trained params as a NavEnv-compatible policy(obs)->action(1,)."""
+    """Wrap trained params as a NavEnv-compatible policy(obs)->action(2,)."""
     th = np.asarray(theta, np.float32)[None, :]
     def policy(obs):
-        return np.array([linear_action(np.asarray(obs, np.float32)[None, :], th)[0]],
+        insertion = linear_action(np.asarray(obs, np.float32)[None, :], th)[0]
+        return np.array([insertion, 0.0],
                         dtype=np.float32)
     return policy
