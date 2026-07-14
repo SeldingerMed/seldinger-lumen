@@ -16,10 +16,11 @@ import numpy as np
 from lumen.assets.schema import Asset, DeviceSpawn, Edge, Frame, Node
 
 
-MAX_STENOSIS_SEVERITY = 0.9
+MAX_STENOSIS_SEVERITY_EXCLUSIVE = 0.9
 
 
 def _arclength(pts: np.ndarray) -> np.ndarray:
+    """Compute cumulative arclength along a polyline."""
     pts = np.asarray(pts, dtype=float)
     if len(pts) == 0:
         return np.array([])
@@ -55,8 +56,10 @@ def _validate_demo_geometry(n: int, radius: float, *,
         raise ValueError("n must be >= 8")
     if radius <= 0.0:
         raise ValueError("radius must be positive")
-    if severity is not None and not (0.0 <= severity < MAX_STENOSIS_SEVERITY):
-        raise ValueError(f"{severity_name} must be in [0, {MAX_STENOSIS_SEVERITY})")
+    if severity is not None and not (0.0 <= severity < MAX_STENOSIS_SEVERITY_EXCLUSIVE):
+        raise ValueError(
+            f"{severity_name} must be in [0, {MAX_STENOSIS_SEVERITY_EXCLUSIVE})"
+        )
     return n
 
 

@@ -165,6 +165,14 @@ def test_tortuous_demo_assets_reject_invalid_parameters():
         procedural.tortuous_tube(dilation=1.1)
     with pytest.raises(ValueError, match="side_dilation must be in"):
         procedural.tortuous_tree(side_dilation=1.1)
+    with pytest.raises(ValueError, match="severity must be in"):
+        procedural.tortuous_tube(severity=-0.1)
+    with pytest.raises(ValueError, match="severity must be in"):
+        procedural.tortuous_tube(severity=0.9)
+    with pytest.raises(ValueError, match="stenosis_severity must be in"):
+        procedural.tortuous_tree(stenosis_severity=-0.1)
+    with pytest.raises(ValueError, match="stenosis_severity must be in"):
+        procedural.tortuous_tree(stenosis_severity=0.9)
 
 
 def test_empty_asset_rejected():
