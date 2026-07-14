@@ -105,6 +105,35 @@ def test_nav_env_reports_unsafe_target_reach_as_unsafe_success():
     assert reward < 10.0
 
 
+def test_nav_env_diverges_on_nonfinite_contact_metrics():
+    class Sim:
+        def step(self, **_):
+            pass
+
+    env = object.__new__(NavEnv)
+    env.sim = Sim()
+    env.substeps = 1
+    env.max_insertion = 1.0
+    env.max_twist = 1.0
+    env.steps = 0
+    env.target_s = 10.0
+    env.R = 2.0
+    env._prev_dist = 2.0
+    env.success_tol = 2.5
+    env.max_steps = 5
+    env._tip = lambda: (9.0, 1.0, 0.0, 1.0)
+    env._contact_features = lambda: (np.nan, 0.0)
+    env._obs = lambda: np.zeros(5, dtype=np.float32)
+
+    obs, reward, terminated, truncated, info = env.step([0.0, 0.0])
+
+    assert np.all(obs == 0.0)
+    assert reward == -100.0
+    assert terminated is True
+    assert truncated is False
+    assert info["diverged"] is True
+
+
 def test_nav_env_penalizes_against_local_lumen_radius_not_mean_radius():
     class Projection:
         def __init__(self, s, theta, r):

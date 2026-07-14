@@ -98,7 +98,8 @@ class TreeNavEnv:
         Curved/tree routes should not start with a node already beyond the wall; that
         reports as a physics failure before navigation begins. Clamping only adjusts the
         initial rest pose into the visible lumen, leaving subsequent contact dynamics to
-        the Newton solver.
+        the Newton solver. ``tree.project`` returns the local lumen radius (``R``) and
+        radial unit vector (``e_r``), used here to move only the excess radial distance.
         """
         out = np.asarray(pts, float).copy()
         for i, p in enumerate(out):
@@ -174,6 +175,7 @@ class TreeNavEnv:
                          (self.target_s - f["s"]) / self.L], dtype=np.float32)
 
     def _tip_roll(self):
+        # Newton rods store twist around the cable-local z axis; this matches the torsion test helper.
         x, y, z, w = self.sim.body_quaternions()[-1]
         return float(2.0 * np.arctan2(z, w))
 
@@ -182,6 +184,7 @@ class TreeNavEnv:
         if len(act) < 1:
             raise ValueError("action must contain at least an insertion command")
         insertion = float(np.clip(act[0], -1.0, 1.0))
+        # Backward compatibility: scalar actions from old policies mean no commanded twist.
         twist = float(np.clip(act[1] if len(act) > 1 else 0.0, -1.0, 1.0))
         return insertion, twist
 

@@ -76,6 +76,7 @@ class NavEnv:
         return max_r, max_pen
 
     def _tip_roll(self):
+        # Newton rods store twist around the cable-local z axis; this matches the torsion test helper.
         x, y, z, w = self.sim.body_quaternions()[-1]
         return float(2.0 * np.arctan2(z, w))
 
@@ -84,6 +85,7 @@ class NavEnv:
         if len(act) < 1:
             raise ValueError("action must contain at least an insertion command")
         insertion = float(np.clip(act[0], -1.0, 1.0))
+        # Backward compatibility: scalar actions from old policies mean no commanded twist.
         twist = float(np.clip(act[1] if len(act) > 1 else 0.0, -1.0, 1.0))
         return insertion, twist
 
@@ -127,6 +129,11 @@ class NavEnv:
                 "max_pen": 0.0, "success": False, "diverged": True}
         dist = abs(s - self.target_s)
         max_r, max_pen = self._contact_features()
+        if not np.isfinite([max_r, max_pen]).all():
+            zeros = np.zeros(5, dtype=np.float32)
+            return zeros, -100.0, True, False, {
+                "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,
+                "max_pen": 0.0, "success": False, "diverged": True}
         contact_pen = max_pen
         reward = (self._prev_dist - dist) - 0.5 * contact_pen - 0.01
         self._prev_dist = dist
