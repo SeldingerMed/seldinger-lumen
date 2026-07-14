@@ -44,6 +44,19 @@ def _bezier(p0, p1, p2, p3, n: int) -> np.ndarray:
             + t ** 3 * p3)
 
 
+def _validate_demo_geometry(n: int, radius: float, *,
+                            severity: float | None = None,
+                            severity_name: str = "severity") -> int:
+    n = int(n)
+    if n < 8:
+        raise ValueError("n must be >= 8")
+    if radius <= 0.0:
+        raise ValueError("radius must be positive")
+    if severity is not None and not (0.0 <= severity < 0.9):
+        raise ValueError(f"{severity_name} must be in [0, 0.9)")
+    return n
+
+
 def _edge_from_polyline(edge_id, a, b, pts, lf) -> Edge:
     return Edge(
         id=edge_id, node_a=a, node_b=b,
@@ -85,13 +98,9 @@ def tortuous_tube(length: float = 100.0, radius: float = 2.4,
                   severity: float = 0.35, n: int = 96,
                   dilation: float = 0.16) -> Asset:
     """Curved, tapered single-vessel demo tube with focal dilation and narrowing."""
-    n = int(n)
-    if n < 8:
-        raise ValueError("n must be >= 8")
-    if length <= 0.0 or radius <= 0.0:
-        raise ValueError("length and radius must be positive")
-    if not (0.0 <= severity < 0.9):
-        raise ValueError("severity must be in [0, 0.9)")
+    n = _validate_demo_geometry(n, radius, severity=severity)
+    if length <= 0.0:
+        raise ValueError("length must be positive")
     if dilation < 0.0:
         raise ValueError("dilation must be >= 0")
     pts = _bezier([0.0, 0.0, 0.0],
@@ -156,13 +165,9 @@ def tortuous_tree(radius: float = 4.0, n: int = 44,
     demos and CV/rendering smoke tests; benchmark scenes remain the small canonical
     tube/stenosis/Y tasks.
     """
-    n = int(n)
-    if n < 8:
-        raise ValueError("n must be >= 8")
-    if radius <= 0.0:
-        raise ValueError("radius must be positive")
-    if not (0.0 <= stenosis_severity < 0.9):
-        raise ValueError("stenosis_severity must be in [0, 0.9)")
+    n = _validate_demo_geometry(
+        n, radius, severity=stenosis_severity, severity_name="stenosis_severity",
+    )
     if side_dilation < 0.0:
         raise ValueError("side_dilation must be >= 0")
 
@@ -219,11 +224,7 @@ def tortuous_tree(radius: float = 4.0, n: int = 44,
 
 def aortic_arch_tree(radius: float = 5.0, n: int = 48) -> Asset:
     """Open procedural arch with supra-aortic branches."""
-    n = int(n)
-    if n < 8:
-        raise ValueError("n must be >= 8")
-    if radius <= 0.0:
-        raise ValueError("radius must be positive")
+    n = _validate_demo_geometry(n, radius)
 
     inlet = np.array([0.0, 0.0, 0.0])
     arch_prox = np.array([20.0, -2.0, 34.0])
