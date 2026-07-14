@@ -76,7 +76,7 @@ def test_tree_nav_success_boundary_is_inclusive_when_on_route():
     env._obs = lambda _: np.zeros(5, dtype=np.float32)
     env._tip_roll = lambda: 0.0
 
-    _, _, terminated, _, info = env.step([0.0])
+    _, _, terminated, _, info = env.step([0.0, 0.0])
 
     assert terminated is True
     assert info["success"] is True
@@ -106,7 +106,7 @@ def test_tree_nav_reports_unsafe_target_reach_as_unsafe_success():
     env._obs = lambda _: np.zeros(5, dtype=np.float32)
     env._tip_roll = lambda: 0.0
 
-    _, reward, terminated, truncated, info = env.step([0.0])
+    _, reward, terminated, truncated, info = env.step([0.0, 0.0])
 
     assert terminated is True
     assert truncated is False

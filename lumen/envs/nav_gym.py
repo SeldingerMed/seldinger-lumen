@@ -79,6 +79,14 @@ class NavEnv:
         x, y, z, w = self.sim.body_quaternions()[-1]
         return float(2.0 * np.arctan2(z, w))
 
+    def _parse_action(self, action):
+        act = np.asarray(action, dtype=float).reshape(-1)
+        if len(act) < 1:
+            raise ValueError("action must contain at least an insertion command")
+        insertion = float(np.clip(act[0], -1.0, 1.0))
+        twist = float(np.clip(act[1] if len(act) > 1 else 0.0, -1.0, 1.0))
+        return insertion, twist
+
     def _obs(self):
         s, r, th, _ = self._tip()
         return np.array([s / self.L, r / self.R, np.sin(th), np.cos(th),
@@ -104,9 +112,7 @@ class NavEnv:
         return self._obs(), {}
 
     def step(self, action):
-        act = np.asarray(action, dtype=float).reshape(-1)
-        a = float(np.clip(act[0], -1.0, 1.0))
-        twist = float(np.clip(act[1] if len(act) > 1 else 0.0, -1.0, 1.0))
+        a, twist = self._parse_action(action)
         self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
                       insertion=a * self.max_insertion, twist=twist * self.max_twist)
         self.steps += 1

@@ -65,7 +65,7 @@ def test_nav_env_success_boundary_is_inclusive():
     env._tip_roll = lambda: 0.0
     env._obs = lambda: np.zeros(5, dtype=np.float32)
 
-    _, _, terminated, _, info = env.step([0.0])
+    _, _, terminated, _, info = env.step([0.0, 0.0])
 
     assert terminated is True
     assert info["success"] is True
@@ -94,7 +94,7 @@ def test_nav_env_reports_unsafe_target_reach_as_unsafe_success():
     env._tip_roll = lambda: 0.0
     env._obs = lambda: np.zeros(5, dtype=np.float32)
 
-    _, reward, terminated, truncated, info = env.step([0.0])
+    _, reward, terminated, truncated, info = env.step([0.0, 0.0])
 
     assert terminated is True
     assert truncated is False
@@ -145,7 +145,7 @@ def test_nav_env_penalizes_against_local_lumen_radius_not_mean_radius():
     env._obs = lambda: np.zeros(5, dtype=np.float32)
     env.safety_max_pen = 1.0
 
-    _, reward, terminated, _, info = env.step([0.0])
+    _, reward, terminated, _, info = env.step([0.0, 0.0])
 
     assert terminated is False
     assert info["max_pen"] == pytest.approx(0.6)
