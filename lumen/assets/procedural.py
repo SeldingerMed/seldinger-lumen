@@ -57,6 +57,11 @@ def _validate_demo_geometry(n: int, radius: float, *,
     return n
 
 
+def _validate_fraction(name: str, value: float) -> None:
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(f"{name} must be in [0, 1]")
+
+
 def _edge_from_polyline(edge_id, a, b, pts, lf) -> Edge:
     return Edge(
         id=edge_id, node_a=a, node_b=b,
@@ -101,8 +106,7 @@ def tortuous_tube(length: float = 100.0, radius: float = 2.4,
     n = _validate_demo_geometry(n, radius, severity=severity)
     if length <= 0.0:
         raise ValueError("length must be positive")
-    if dilation < 0.0:
-        raise ValueError("dilation must be >= 0")
+    _validate_fraction("dilation", dilation)
     pts = _bezier([0.0, 0.0, 0.0],
                   [-12.0, 2.0, 0.30 * length],
                   [16.0, -3.0, 0.68 * length],
@@ -168,8 +172,7 @@ def tortuous_tree(radius: float = 4.0, n: int = 44,
     n = _validate_demo_geometry(
         n, radius, severity=stenosis_severity, severity_name="stenosis_severity",
     )
-    if side_dilation < 0.0:
-        raise ValueError("side_dilation must be >= 0")
+    _validate_fraction("side_dilation", side_dilation)
 
     inlet = np.array([0.0, 0.0, 0.0])
     side = np.array([5.0, 2.0, 42.0])

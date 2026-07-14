@@ -158,7 +158,13 @@ def test_tortuous_demo_assets_reject_invalid_parameters():
     with pytest.raises(ValueError, match="radius must be positive"):
         procedural.tortuous_tree(radius=0.0)
     with pytest.raises(ValueError, match="n must be >= 8"):
+        procedural.tortuous_tree(n=7)
+    with pytest.raises(ValueError, match="n must be >= 8"):
         procedural.tortuous_tube(n=7.8)
+    with pytest.raises(ValueError, match="dilation must be in"):
+        procedural.tortuous_tube(dilation=1.1)
+    with pytest.raises(ValueError, match="side_dilation must be in"):
+        procedural.tortuous_tree(side_dilation=1.1)
 
 
 def test_empty_asset_rejected():
