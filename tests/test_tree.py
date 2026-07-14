@@ -118,7 +118,7 @@ def test_tortuous_tree_has_asymmetric_curved_tapered_vessels():
     assert tree.route_length(route) > 120.0
 
 
-def test_aortic_arch_tree_has_cathsim_like_branch_complexity():
+def test_aortic_arch_tree_has_supra_aortic_branch_complexity():
     asset = procedural.aortic_arch_tree()
     tree = VascularTree(asset)
 

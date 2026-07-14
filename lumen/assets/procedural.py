@@ -213,7 +213,7 @@ def tortuous_tree(radius: float = 4.0, n: int = 44,
 
 
 def aortic_arch_tree(radius: float = 5.0, n: int = 48) -> Asset:
-    """CathSim-like open procedural arch with supra-aortic branches."""
+    """Open procedural arch with supra-aortic branches."""
     n = int(n)
     if n < 8:
         raise ValueError("n must be >= 8")
