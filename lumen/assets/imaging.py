@@ -226,6 +226,7 @@ def _read_png_planar(path: Path) -> np.ndarray:
     pos = 8
     width = height = bit_depth = color_type = interlace = None
     payload = b""
+    # Minimal PNG chunk walk: IHDR defines layout; IDAT chunks form one zlib stream.
     while pos < len(data):
         if pos + 8 > len(data):
             raise ValueError(f"{path}: truncated PNG chunk header")
@@ -253,7 +254,11 @@ def _read_png_planar(path: Path) -> np.ndarray:
     channels = channels_by_type.get(int(color_type))
     if channels is None:
         raise ValueError(f"{path}: unsupported PNG color type {color_type}")
-    raw = zlib.decompress(payload)
+    try:
+        raw = zlib.decompress(payload)
+    except zlib.error as e:
+        raise ValueError(f"{path}: PNG decompression failed: {e}") from e
+    # PNG scanlines carry a leading filter byte; undo filters before sample unpacking.
     rows = _png_unfilter(raw, int(width), int(height), int(channels), int(bit_depth))
     if bit_depth < 8:
         samples = _png_unpack_subbyte_samples(rows, int(width), int(height),
@@ -419,7 +424,10 @@ def load_box_annotations(path, group_key: str = "group",
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix == ".json":
-        payload = json.loads(path.read_text())
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError as e:
+            raise ValueError(f"invalid JSON in {path}: {e}") from e
         rows = _box_rows_from_json(payload, group_key=group_key,
                                    image_size_px=image_size_px,
                                    image_id=image_id,
@@ -466,9 +474,9 @@ def box_annotation_preview(image, boxes) -> np.ndarray:
     the ordered centerline implied by each group is green, giving import users a
     quick visual check before they trust the generated asset graph.
     """
-    frame = image.data if isinstance(image, PlanarImage) else np.asarray(image)
-    if np.asarray(frame).ndim != 2:
-        raise ValueError(f"box preview expects a 2-D image, got shape {np.asarray(frame).shape}")
+    frame = np.asarray(image.data if isinstance(image, PlanarImage) else image)
+    if frame.ndim != 2:
+        raise ValueError(f"box preview expects a 2-D image, got shape {frame.shape}")
     gray = _display01(frame)
     rgb = np.repeat((0.55 * gray)[..., None], 3, axis=2)
     annotations = [_coerce_box(b) for b in boxes]
@@ -490,12 +498,12 @@ def box_annotation_preview(image, boxes) -> np.ndarray:
 
 def planar_mask_asset_preview(image, mask, asset: Asset) -> np.ndarray:
     """Return an RGB QA overlay for a 2-D mask import and extracted asset graph."""
-    frame = image.data if isinstance(image, PlanarImage) else np.asarray(image)
-    if np.asarray(frame).ndim != 2:
-        raise ValueError(f"mask preview expects a 2-D image, got shape {np.asarray(frame).shape}")
+    frame = np.asarray(image.data if isinstance(image, PlanarImage) else image)
+    if frame.ndim != 2:
+        raise ValueError(f"mask preview expects a 2-D image, got shape {frame.shape}")
     mask = np.asarray(mask, dtype=bool)
-    if mask.shape != np.asarray(frame).shape:
-        raise ValueError(f"mask preview shape {mask.shape} does not match image shape {np.asarray(frame).shape}")
+    if mask.shape != frame.shape:
+        raise ValueError(f"mask preview shape {mask.shape} does not match image shape {frame.shape}")
     gray = _display01(frame)
     rgb = np.repeat((0.55 * gray)[..., None], 3, axis=2)
     rgb[mask, 1] = np.maximum(rgb[mask, 1], 0.85)
@@ -1082,7 +1090,11 @@ def _compress_skeleton_graph(graph_nodes: dict, segments: list[dict]) -> tuple[d
 
 
 def _thin_skeleton(mask2d) -> np.ndarray:
-    """Zhang-Suen thinning for small/medium binary masks, implemented in NumPy loops."""
+    """Zhang-Suen thinning for small/medium binary masks, implemented in NumPy loops.
+
+    Large segmentation masks should be downsampled before import or thinned with
+    a compiled imaging stack upstream.
+    """
     skel = np.asarray(mask2d, dtype=bool).copy()
     changed = True
     while changed:
@@ -1133,9 +1145,15 @@ def _distance_to_background_mm(mask2d, spacing_xy) -> np.ndarray:
     except ImportError:
         ndimage = None
     if ndimage is not None:
+        # SciPy arrays use (row, col) spacing, while Lumen planar spacing is (x, y).
         return ndimage.distance_transform_edt(
             np.asarray(mask2d, dtype=bool),
             sampling=(float(spacing_xy[1]), float(spacing_xy[0])),
+        )
+    if np.asarray(mask2d).size > 262_144:
+        raise ImportError(
+            "large planar mask distance transforms require scipy; install the optional "
+            "imaging stack or downsample before import"
         )
     inf = float(mask2d.size + 1) * max(float(spacing_xy[0]), float(spacing_xy[1]))
     dist = np.where(mask2d, inf, 0.0).astype(float)
@@ -1213,7 +1231,8 @@ def _component_planar_centerline(pixels, spacing_xy, origin, z_mm: float, sample
     if np.ndim(cov) == 0 or not np.isfinite(cov).all():
         raise ValueError("planar mask component is degenerate")
     vals, vecs = np.linalg.eigh(cov)
-    axis = vecs[:, int(np.argmax(vals))]
+    principal_idx = int(np.argmax(vals))
+    axis = np.asarray(vecs[:, principal_idx], dtype=float)
     axis = axis / max(float(np.linalg.norm(axis)), 1e-12)
     # deterministic start/end: left-to-right unless the principal direction is mostly vertical.
     if (abs(axis[0]) >= abs(axis[1]) and axis[0] < 0) or (
