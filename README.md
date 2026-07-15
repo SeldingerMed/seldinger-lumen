@@ -25,6 +25,8 @@ hard to see. Lumen treats the clinically relevant pieces as first-class:
 - replayable case bundles and dataloader indexes;
 - benchmark rankings that prefer safe success over raw success.
 
+Solver feature coverage is tracked in `docs/SOLVER_SUPPORT.md`.
+
 ## Install
 
 ```bash
