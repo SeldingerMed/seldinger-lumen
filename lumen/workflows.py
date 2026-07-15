@@ -60,7 +60,7 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
         "navigation_poster": out / "navigation.png",
         "fluoro_ap": out / "fluoro.png",
     }
-    checks = {name: path.is_file() and path.stat().st_size > 0 for name, path in files.items()}
+    checks = {name: _file_exists_nonempty(path) for name, path in files.items()}
     manifest = {
         "ok": bool(all(checks.values()) and nav["safe"]),
         "scene": scene,
@@ -82,7 +82,7 @@ def _file_exists_nonempty(path: Path) -> bool:
         return False
 
 
-def _manifest_media_path(root: Path, rel) -> Path | None:
+def _manifest_media_path(root: Path, rel: str | Path) -> Path | None:
     rel_path = Path(str(rel))
     if rel_path.is_absolute() or ".." in rel_path.parts:
         return None
@@ -111,6 +111,9 @@ def verify_demo_package(demo_dir="lumen_demo") -> dict:
             "manifest": str(manifest_path),
         }
     media = manifest.get("media", {})
+    if not isinstance(media, dict):
+        problems.append("manifest media is not an object")
+        media = {}
     checks = {}
     for name, rel in sorted(media.items()):
         path = _manifest_media_path(root, rel)

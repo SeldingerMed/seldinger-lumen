@@ -267,6 +267,26 @@ def test_verify_demo_cli_reports_invalid_manifest_json(tmp_path, capsys):
     assert "invalid JSON" in report["problems"][0]
 
 
+def test_verify_demo_cli_rejects_non_object_manifest_media(tmp_path, capsys):
+    from lumen.cli import main
+
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    (demo / "manifest.json").write_text(json.dumps({
+        "ok": True,
+        "navigation": {"safe": True},
+        "media": ["fluoro.png"],
+    }))
+
+    with pytest.raises(SystemExit) as seen:
+        main(["verify-demo", str(demo)])
+
+    assert seen.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ok"]
+    assert "manifest media is not an object" in report["problems"]
+
+
 def test_verify_demo_cli_rejects_manifest_media_path_escape(tmp_path, capsys):
     from lumen.cli import main
 
