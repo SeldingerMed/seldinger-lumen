@@ -1,4 +1,4 @@
-title: lumen
-description: A differentiable, GPU-parallel solver for a continuum instrument in a deformable lumen.
+title: Lumen
+description: Open, differentiable, GPU-parallel simulation for endovascular AI.
 theme: jekyll-theme-cayman
 show_downloads: false

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071012"/>
+      <stop offset="1" stop-color="#17231f"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <text x="70" y="78" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="800" fill="#f4d35e" letter-spacing="5">SAME ROLLOUT</text>
+  <text x="366" y="82" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="800" fill="#ffffff">control state and clinical image, side by side</text>
+  <rect x="68" y="118" width="544" height="544" rx="20" fill="#020606" stroke="#ffffff" stroke-opacity="0.15"/>
+  <rect x="668" y="118" width="544" height="544" rx="20" fill="#020606" stroke="#ffffff" stroke-opacity="0.15"/>
+  <text x="82" y="696" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="800" fill="#ffffff">schematic navigation</text>
+  <text x="682" y="696" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="800" fill="#ffffff">synthetic fluoroscopy</text>
+</svg>

@@ -1,274 +1,86 @@
-# lumen
+# Lumen
 
-**A differentiable, GPU-parallel physics simulator for AI in a deformable tube.**
+**Open, differentiable, GPU-parallel simulation for endovascular AI.**
 
-A guidewire in a blood vessel, a scope in an airway, an endoscope in a bowel — all
-the same physics problem: *a slender device threading a soft, moving tube.* `lumen`
-solves that one problem well and stays modality-agnostic, so the same core serves any
-of them.
+Lumen is an Apache-2.0 research environment for training and evaluating agents that
+navigate slender devices through deformable vascular anatomy. It combines a
+Newton/Warp physics backend, tube-intrinsic contact, an anisotropic deformable wall,
+synthetic fluoroscopy, CV labels, Gymnasium environments, and a safety-scored RL
+benchmark in one public stack.
 
-It's built to be a better base for learning endovascular/intraluminal control than
-existing options like [CathSim](https://github.com/robotvisionlabs/cathsim): a
-genuinely **deformable** wall instead of a rigid pipe, a **safety-scored** benchmark,
-and **CV-ready** data — all differentiable and GPU-parallel end to end. It runs *on*
-the [NVIDIA Newton](https://github.com/newton-physics/newton) engine; it does not
-reimplement one.
+**Launch page, demo video, and preprint:**
+https://seldingermed.github.io/seldinger-lumen/
 
-> **Status:** GPU-validated — tube-intrinsic contact, HGO deformable wall, anisotropic
-> friction, torsion, a real clot + 1-D flow field, and accurate-tier cross-validation.
-> See [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+![Lumen launch card](docs/assets/launch/social-card.png)
+
+## Why It Exists
+
+Most open catheter RL environments make target-reaching easy to score and wall safety
+hard to see. Lumen treats the clinically relevant pieces as first-class:
+
+- deformable HGO-style vessel wall, not a rigid pipe;
+- implicit tube-intrinsic contact on NVIDIA Newton/Warp;
+- torsion, anisotropic friction, flow, and clot interaction hooks;
+- synthetic fluoroscopy with masks, keypoints, node positions, and labels;
+- replayable case bundles and dataloader indexes;
+- benchmark rankings that prefer safe success over raw success.
 
 ## Install
 
 ```bash
-pip install -e ".[dev]"    # core + pinned Newton/Warp backend + tests
+git clone https://github.com/SeldingerMed/seldinger-lumen
+cd seldinger-lumen
+pip install -e ".[dev]"
+lumen doctor
 ```
 
-The geometry core needs only NumPy. The solver needs Warp + Newton, which run on
-**both CPU (Warp's LLVM backend) and CUDA** — same code, device picked at runtime.
-There is no separate CPU fallback to maintain.
-
-The package ships a PEP 561 `py.typed` marker, so downstream users get Lumen's
-public type annotations in mypy, pyright, and editor language servers without a
-separate stubs package.
+## First Run
 
 ```bash
-python -m lumen.hardware     # -> {"device": "cuda"|"cpu", ...}
-lumen doctor                 # install/backend readiness plus next-step guidance
+lumen play stenotic --out lumen-run
+lumen benchmark lumen-bench
+lumen render-fluoro lumen-fluoro.png
+lumen capture lumen-episodes
+lumen validate lumen-episodes --require-cv-labels
+lumen index lumen-episodes --out lumen-episodes/index.jsonl --check-sidecars
+lumen split-index lumen-episodes/index.jsonl --out-dir lumen-episodes/splits
 ```
 
-`lumen doctor` is the first troubleshooting command for a new workstation or CI
-runner: it reports installed Lumen/Warp/Newton versions, whether the pinned backend
-is validated, whether CUDA is visible, and the exact install command to run when
-solver dependencies are missing.
-
-Lumen keeps Warp/Newton backend chatter quiet by default so examples print parseable
-results. Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` when you want backend diagnostics.
-
-### GPU hardware benchmark
-
-CPU CI checks the portable regression suite. CUDA throughput claims are guarded by
-`.github/workflows/gpu-benchmark.yml`, a manual/weekly GitHub Actions workflow for a
-self-hosted Linux runner labeled `self-hosted`, `linux`, `x64`, and `cuda`. It runs:
-
-```bash
-python -m lumen.hardware
-pytest -q tests/test_newton_anatomy.py tests/test_throughput.py
-python examples/benchmark_throughput.py \
-  --device cuda --require-cuda --envs 256,1024,4096 \
-  --min-env-steps-per-s 10000 --json
-```
-
-Scheduled runs are opt-in until a CUDA runner is attached: set the repository
-variable `LUMEN_ENABLE_SCHEDULED_GPU_BENCHMARK=true`. Manual `workflow_dispatch`
-runs are always available and upload `hardware.json` plus `gpu-throughput.json`
-as artifacts; a validated Markdown summary is published to the GitHub Actions job
-summary so GPU-claim regressions are auditable.
-
-## Quick start
+The package also registers Gymnasium environments:
 
 ```python
-import numpy as np
-from lumen.assets import procedural
-from lumen.newton.sim import NewtonGuidewireSim
+import gymnasium as gym
+import lumen.envs.registration
 
-asset = procedural.straight_tube(length=80, radius=2.0)
-pts, lumen = asset.edge_arrays(asset.edges[0])
-device = np.stack([np.full(11, 1.0), np.zeros(11), np.linspace(4, 24, 11)], axis=1)
-
-sim = NewtonGuidewireSim(pts, R=2.0, device_points=device)   # device auto-detected
-sim.step(insertion=1.0)
-print(sim.node_radii().max())
+env = gym.make("Lumen/NavStenotic-v0")
+obs, info = env.reset()
+obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
 
-The dependency-light geometry core works standalone:
+## Demo
 
-```python
-from lumen.core.frame import CenterlineFrame
-hit = CenterlineFrame(pts).project(np.array([1.0, 0.0, 50.0]))   # -> (s, θ, r)
-```
+<p align="center">
+  <img src="docs/assets/demo/nav_bifurcation.gif" width="360" alt="Lumen schematic branch navigation">
+  <img src="docs/assets/demo/fluoro_bifurcation.gif" width="360" alt="Lumen synthetic fluoroscopy branch navigation">
+</p>
 
-## First 10 minutes for RL/CV users
+The left view is the control/debug view. The right view is the synthetic fluoroscopy
+stream used by image-observation policies and CV data tooling.
 
-Check the backend, run the fixed benchmark, render a fluoroscopy frame, then write a
-replayable case bundle. These commands use only procedural anatomy.
+## Citation
 
-```bash
-lumen hardware
-lumen play stenotic --out /tmp/lumen-run      # watch a guidewire thread the vessel
-lumen train tube --out /tmp/policy.npz        # train a policy (CEM, no torch)
-lumen play tube --policy /tmp/policy.npz       # ...then watch it drive
-lumen benchmark /tmp/lumen-bench
-lumen render-fluoro /tmp/lumen_fluoro.png
-lumen capture /tmp/lumen-episodes
-lumen validate /tmp/lumen-episodes
-lumen replay /tmp/lumen-episodes
-lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
-lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-arrays --require-cv-labels
-lumen dataset-card /tmp/lumen-episodes/index.jsonl --out /tmp/lumen-episodes/DATASET_CARD.md --check-arrays --require-cv-labels
-lumen materialize-batch /tmp/lumen-episodes/index.jsonl /tmp/lumen-episodes/smoke_batch.npz --limit 32
-lumen split-index /tmp/lumen-episodes/index.jsonl --out-dir /tmp/lumen-episodes/splits
-lumen calibrate
-```
+If Lumen is useful in your work, cite the launch preprint:
 
-### Import cross-sectional anatomy
-
-Lumen can import an already-segmented 3-D anatomy mask from `.npz` and convert it
-to the same `Asset` graph used by the simulator. The `.npz` should contain `mask`
-or `volume`; include `spacing_mm` and `origin_mm` arrays when the voxel frame is
-known. Raw demo volumes can be thresholded during import:
-
-```bash
-lumen import-mask anatomy.npz anatomy.asset.json --threshold 100
-```
-
-The importer is intentionally a lightweight seam: it follows axial connected
-components, estimates local radii, and writes a centerline/radius tree. Optional
-DICOM series loading is available from Python with `pip install -e ".[imaging]"`;
-model-backed segmenters can feed the same mask-to-asset path without becoming core
-Lumen dependencies.
-
-`lumen play` is the one-command way to *watch* a rollout: it drives a scene
-(`tube`/`stenotic`/`tree`) with a policy and writes a schematic animation
-(`<out>.avi` + `<out>.png`) — no GPU, no display, no 3-D engine — reporting the same
-tip-reach and wall-safety numbers the benchmark scores. `lumen train` fits a policy
-with the gradient-free CEM (no torch) and saves an `.npz` you hand back to
-`lumen play --policy` to visualize the trained agent.
-
-`capture_episode.py` writes one self-contained case directory per scenario plus
-`preview.png`, `preview_contact_sheet.png`, fluoro device/vessel mask contact
-sheets, and `label_overlay_contact_sheet.png`, so you can inspect observations and
-CV labels without opening NumPy sidecars.
-`lumen.data.rollout_episode(..., policy_observation="image")` lets capture/training
-policies receive rendered fluoro or luminal observations instead of the default fast
-privileged 5-D state observation; stored image-policy steps reuse that same pre-action
-frame so behavioral-cloning pairs align `step.obs` with `step.action`. `lumen validate` checks every bundle's
-asset, calibration, observations, masks, keypoints, labels, and sidecar refs before
-you train on it; add `--require-cv-labels` when a fluoro CV run must have
-device/vessel masks and tip/base keypoints on every frame. `lumen replay` prints clinical endpoint
-flags and skips invalid bundles with an explicit reason. It also reports
-manifest-only annotation coverage
-(`device_mask=19/19`, `vessel_mask=19/19`,
-`keypoints(base=18/19 tip=19/19 nodes=170/171)`) so a CV pipeline can screen a
-corpus before loading image arrays. `lumen index` writes one JSONL row per timestep
-with observation, mask, node-position, keypoint, action,
-clinical-metric, label, calibration, and provenance fields for dataloaders. Paths
-are relative to the index file by default, so sibling or nested index outputs can
-be loaded with `iter_index_records(path, load_arrays=True)`; pass
-`--absolute-paths` for a machine-local index. Pass `--modality fluoro
---require-cv-labels` to write a fluoro-only training index that fails on missing
-or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
-modalities, labels, calibration types, episode-level clinical outcome/safety counts,
-keypoint coverage, and missing sidecar references before a training job opens arrays;
-`lumen dataset-card` turns that same index QA into a shareable Markdown or JSON
-handoff artifact with provenance, clinical endpoint, annotation coverage, sidecar,
-and array-payload sections. Add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
-keypoints, `--check-arrays` to load referenced arrays, report observation/mask/node
-shape and dtype counts, report mask coverage and keypoint-to-device distances,
-reject empty/bad masks, and catch off-frame or off-device keypoints (JSON output
-is selected automatically via a `.json` file extension). Add `--require-uniform-arrays` before fixed-shape
-batch training to fail if any loaded array field mixes shape/dtype payloads.
-`lumen materialize-batch` writes a compressed `.npz` smoke-test batch plus
-`.manifest.json` from the first valid index rows; it fails fast on missing or
-mixed-shape arrays so training jobs can test tensor ingestion before a full
-dataloader run. Use
-`--keypoint-mask-tolerance` to tune how far device
-keypoints may sit from the device mask before the index fails. For training loops,
-`CaseBundle.load(path).replay(include_annotations=True)` yields each observation
-with its lazy-loaded masks/keypoints. `lumen split-index` turns a validated JSONL
-index into episode-grouped `train.jsonl`, `val.jsonl`, and `test.jsonl` files plus
-`manifest.json`, so all frames from one procedure stay in one fold while the split
-order is deterministic (`--seed`) and lightly stratified by fields such as `label`
-and `obs_modality`. The CLI and `split_index_records()` preserve sidecar paths from
-the source index as-is, so when splitting to a different output directory the source
-index must be created with `--absolute-paths`, or keep split outputs alongside the
-index to maintain relative path validity.
-For a minimal NumPy dataloader-style batch, run
-`python examples/load_fluoro_index.py /tmp/lumen-episodes/index.jsonl --limit 8`.
-The same tolerance option is available on `lumen validate` and `lumen index`
-when `--require-cv-labels` is enabled, so bad device labels can be stopped before
-writing an index.
-
-The standalone scripts (`lumen-hardware`, `lumen-validate`, `lumen-index`,
-`lumen-import-mask`, and the other `lumen-*` commands) are also installed for
-shell pipelines.
-
-The benchmark intentionally separates raw target reach from clinically safe reach:
-
-```text
-task               tier        safe   unsafe  success  mean_steps   max_pen
-nav_tube           easy        1.00     0.00     1.00        18.6     0.000
-nav_stenotic       medium      1.00     0.00     1.00        19.8     0.000
-nav_tree_branch    hard        0.00     1.00     1.00        51.0     1.325
-
-overall: safe=0.67  unsafe=0.33  success=1.00  worst max_pen=1.325  mean_return=60.6
-
-leaderboard (/tmp/lumen-bench):
-  1. forward-baseline         safe=0.67  unsafe=0.33  success=1.00  max_pen=1.325  return=60.6
-```
-
-`success_rate` is “tip reached the target.” `safe_success_rate` is “tip reached the
-target without crossing the wall-safety threshold.” `unsafe_success_rate` is target
-reach that required a safety breach. The leaderboard ranks safe success first, then
-raw success, then lower wall penetration, then higher mean return as the efficiency
-tie-break. A policy that solves the task by scraping through the vessel wall should
-not win a healthcare benchmark.
-
-To submit your own policy, copy the runnable template, replace `policy(obs)`, and
-save a validated scorecard. Both benchmark examples print rejected scorecards with
-the schema/comparability reason so a bad JSON file does not disappear silently:
-
-```bash
-python examples/submit_policy.py /tmp/lumen-bench my-lab-policy
-```
-
-For image-observation control rather than privileged state, run:
-
-```bash
-python examples/train_fluoro_nav.py
-```
-
-See [docs/EPISODE_SCHEMA.md](docs/EPISODE_SCHEMA.md) for the on-disk format.
-
-## What's inside (`lumen.newton`)
-
-| Piece | What it does |
-|---|---|
-| **Guidewire** | Newton `add_rod` cable — stretch + bend/twist; torsion carries proximal rotation to the tip |
-| **`TubeVBDSolver`** | a fork of Newton's `SolverVBD` that injects the tube-intrinsic contact **barrier + Hessian** into the AVBD solve, so contact is implicit and stable |
-| **HGO wall** | Holzapfel–Gasser–Ogden anisotropic shell as the deformable **shared lumen field** `R(s,θ)=R0+w` |
-| **Anisotropic friction** | Coulomb friction with μ varying by slide angle to the collagen fiber direction |
-| **Clot** | finite-extent Ogden occlusion that collapses the shared `R`; progressive damage → fragmentation; stent-retriever capture/slip/fragment |
-| **Flow** | 1-D resistive pressure field `P(s)`/`v(s)` along the centerline (clot raises resistance, aspiration is a pressure sink), with a lumped Windkessel fallback |
-| **Cross-validation** | fast-tier kernels vs. analytic ground truth to ~1e-6; STARK / ppf-contact-solver drop-in slot |
-
-There are two solver tiers: a **fast tier** (`lumen.newton`, batched Newton VBD) built
-for RL throughput, and an **accurate tier** (`lumen.accurate`) with a self-contained
-penetration-free IPC reference and Warp-autodiff gradients for offline calibration. The
-fast tier's force→indentation response is cross-validated against the accurate tier on
-the same scene. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design invariants and
-[docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md) for the single-env vs. batched solver
-support matrix.
-
-## Layout
-
-```
-lumen/core/       frame · lumen_field        tube-intrinsic geometry (NumPy only)
-lumen/newton/     sim · tube_vbd · tube_barrier_kernel · hgo_wall · clot · flow · devices · crossval
-lumen/assets/     schema · procedural generator
-lumen/profiles/   endovascular | …           add a modality here
-lumen/envs/       NavEnv (Gym, Newton-backed)
-lumen/hardware.py device detection (cuda/cpu)
+```bibtex
+@software{son_lumen_2026,
+  author = {Son, Colin},
+  title = {Lumen: an Open, Differentiable, GPU-Parallel Environment for Endovascular AI},
+  year = {2026},
+  url = {https://github.com/SeldingerMed/seldinger-lumen},
+  license = {Apache-2.0}
+}
 ```
 
 ## License
 
-[Apache-2.0](LICENSE). Every asset in the repo is procedurally generated, so you can
-use, modify, and redistribute it freely.
-
-## Contributing
-
-We welcome contributions — see [CONTRIBUTING.md](CONTRIBUTING.md). In short: sign
-your commits off (`git commit -s`, [DCO](https://developercertificate.org/)), keep
-`pytest` green, and open a PR. New modalities are new directories under
-`lumen/profiles/` — the core never changes.
+Apache-2.0.

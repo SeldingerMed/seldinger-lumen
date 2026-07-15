@@ -1,153 +1,216 @@
 ---
-title: lumen
+title: Lumen
 ---
 
-# lumen
+<style>
+  .lumen-hero {
+    margin: 0 0 2.2rem;
+    padding: 2.2rem 0 1rem;
+  }
+  .lumen-eyebrow {
+    color: #d6ae32;
+    font-weight: 800;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    margin-bottom: .6rem;
+  }
+  .lumen-hero h1 {
+    font-size: clamp(2.4rem, 7vw, 5.2rem);
+    line-height: .96;
+    letter-spacing: 0;
+    margin: 0 0 1rem;
+  }
+  .lumen-lede {
+    max-width: 880px;
+    font-size: 1.2rem;
+    line-height: 1.55;
+    color: #41504a;
+  }
+  .lumen-actions {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin: 1.3rem 0 1.8rem;
+  }
+  .lumen-button {
+    display: inline-block;
+    border-radius: 7px;
+    padding: .78rem 1rem;
+    font-weight: 750;
+    border: 1px solid #1f6f66;
+  }
+  .lumen-button.primary {
+    background: #0f766e;
+    color: white;
+  }
+  .lumen-button.secondary {
+    color: #0f5f58;
+    background: white;
+  }
+  .media-frame {
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid #d8e0dc;
+    background: #06100f;
+  }
+  .media-frame video,
+  .media-frame img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    align-items: start;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .callout {
+    border-left: 4px solid #0f766e;
+    padding: .75rem 1rem;
+    background: #f5faf8;
+    margin: 1rem 0;
+  }
+  .metric {
+    padding: 1rem;
+    border: 1px solid #d8e0dc;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+  .metric strong {
+    display: block;
+    color: #073b37;
+    font-size: 1.05rem;
+    margin-bottom: .25rem;
+  }
+  @media (max-width: 720px) {
+    .grid-2,
+    .grid-3 {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
 
-**A differentiable, GPU-parallel physics simulator for AI in a deformable tube.**
+<section class="lumen-hero">
+  <div class="lumen-eyebrow">Open endovascular AI simulator</div>
+  <h1>Lumen makes wall-safe vascular navigation trainable.</h1>
+  <p class="lumen-lede">
+    Lumen is an Apache-2.0, differentiable, GPU-parallel simulator for AI agents
+    navigating slender devices through deformable vascular anatomy. It pairs
+    Newton/Warp physics with synthetic fluoroscopy, CV labels, replayable datasets,
+    Gymnasium environments, and benchmark scoring that ranks safe success before raw
+    target reach.
+  </p>
+  <div class="lumen-actions">
+    <a class="lumen-button primary" href="https://github.com/SeldingerMed/seldinger-lumen">GitHub</a>
+    <a class="lumen-button secondary" href="assets/launch/lumen-preprint.pdf">Preprint PDF</a>
+    <a class="lumen-button secondary" href="assets/launch/lumen-launch.mp4">Launch video</a>
+  </div>
+</section>
 
-A guidewire in a vessel, a scope in an airway, an endoscope in a bowel — the same
-physics: a slender device threading a soft, moving tube. `lumen` solves that one
-problem and stays modality-agnostic. It's built to be a better base for learning
-endovascular/intraluminal control than existing options like
-[CathSim](https://github.com/robotvisionlabs/cathsim) — a genuinely deformable wall
-instead of a rigid pipe, a safety-scored benchmark, and CV-ready data — and runs *on*
-the [NVIDIA Newton](https://github.com/newton-physics/newton) engine.
+<div class="media-frame">
+  <video controls playsinline poster="assets/launch/social-card.png">
+    <source src="assets/launch/lumen-launch.mp4" type="video/mp4">
+  </video>
+</div>
 
-<p align="center">
-  <img src="assets/demo/nav_bifurcation.gif" alt="Guidewire navigating a branching vessel into the target branch" width="330">
-  <img src="assets/demo/fluoro_bifurcation.gif" alt="Synthetic fluoroscopy of the same branching-vessel navigation" width="330">
-  <br>
-  <em>A guidewire navigating a branching vessel — entering the target branch at the fork
-  and reaching the target, solved on Newton. Left: <strong>schematic</strong> (wire cyan,
-  target gold). Right: synthetic <strong>fluoroscopy</strong>, what an ML model sees.
-  Rendered with <code>lumen play</code>.</em>
-</p>
+## What Lumen Is
 
-[View on GitHub](https://github.com/SeldingerMed/seldinger-lumen){: .btn }
+Lumen is a research environment for endovascular reinforcement learning and computer
+vision. The central object is a deformable lumen: a branching, procedurally generated
+vascular path with contact, wall state, friction, torsion, flow, clot interaction
+hooks, and image formation.
 
-## Install
+The core loop is simple:
 
 ```bash
 pip install -e ".[dev]"
+lumen doctor
+lumen play stenotic --out lumen-run
+lumen benchmark lumen-bench
+lumen capture lumen-episodes
+lumen validate lumen-episodes --require-cv-labels
 ```
 
-`.[dev]` includes tests, Gymnasium, Warp, and the pinned Newton commit this solver is
-validated against. For runtime-only solver use, install `.[solver]` instead. Runs on
-**CPU and CUDA** from the same code (Warp picks the device at runtime).
-Set `LUMEN_BACKEND_LOG_LEVEL=info` or `debug` to show Warp/Newton backend diagnostics.
-Run `lumen doctor` when bringing up a new workstation or CI runner; it reports the
-installed Lumen/Warp/Newton versions, pinned-backend validation status, CUDA visibility,
-and actionable reinstall guidance when optional solver dependencies are missing.
+## What It Solves
 
-## A 20-second taste
+Existing open endovascular RL simulators made autonomous catheterization practical to
+study. Lumen pushes the open surface toward the harder problem researchers actually
+need to optimize:
 
-```python
-import numpy as np
-from lumen.assets import procedural
-from lumen.newton.sim import NewtonGuidewireSim
+<div class="grid-3">
+  <div class="metric"><strong>Deformable wall</strong> The lumen is a physical field, not just a rigid visual pipe.</div>
+  <div class="metric"><strong>Implicit contact</strong> Tube-intrinsic contact is injected into the Newton/Warp solve.</div>
+  <div class="metric"><strong>Safety-first score</strong> Safe success ranks above raw target reach.</div>
+  <div class="metric"><strong>CV labels</strong> Synthetic fluoro ships with masks, keypoints, and node positions.</div>
+  <div class="metric"><strong>Dataset workflow</strong> Capture, validate, index, split, and materialize replayable episodes.</div>
+  <div class="metric"><strong>Open license</strong> Apache-2.0 core for research and commercial experimentation.</div>
+</div>
 
-asset = procedural.straight_tube(length=80, radius=2.0)
-pts, lumen = asset.edge_arrays(asset.edges[0])
-device = np.stack([np.full(11, 1.0), np.zeros(11), np.linspace(4, 24, 11)], axis=1)
+## Same Rollout, Two Views
 
-sim = NewtonGuidewireSim(pts, R=2.0, device_points=device)
-sim.step(insertion=1.0)
+<div class="grid-2">
+  <div>
+    <div class="media-frame">
+      <img src="assets/demo/nav_bifurcation.gif" alt="Lumen schematic branch navigation">
+    </div>
+    <p><strong>Schematic control view.</strong> Useful for debugging policy behavior and
+    wall-safety outcomes.</p>
+  </div>
+  <div>
+    <div class="media-frame">
+      <img src="assets/demo/fluoro_bifurcation.gif" alt="Lumen synthetic fluoroscopy branch navigation">
+    </div>
+    <p><strong>Synthetic fluoroscopy.</strong> The image stream used by CV pipelines and
+    image-observation policies.</p>
+  </div>
+</div>
+
+## Why It Is Better Than Rigid-Pipe Catheter Tasks
+
+Rigid catheter tasks can reward target reach while hiding the thing that matters:
+unsafe wall interaction. Lumen makes safety observable and scoreable. A policy that
+reaches the target after breaching the wall is reported as unsafe success, not a clean
+win.
+
+<div class="media-frame">
+  <img src="assets/launch/comparison-card.png" alt="Lumen goes beyond rigid-pipe catheter tasks">
+</div>
+
+The result is a stronger benchmark substrate for learning:
+
+- deformable HGO-style vessel wall;
+- tube-intrinsic contact rather than detached collision geometry;
+- differentiable Newton/Warp simulation path;
+- paired state and image observations;
+- synthetic masks/keypoints for CV training;
+- deterministic replayable case bundles;
+- episode-grouped train/validation/test splits.
+
+## Research Package
+
+The launch preprint describes the design, benchmark semantics, and relationship to
+CathSim and related autonomous endovascular navigation work.
+
+- [Read the preprint PDF](assets/launch/lumen-preprint.pdf)
+- [Download LaTeX source ZIP](assets/launch/lumen-preprint-latex.zip)
+- [Open the repository](https://github.com/SeldingerMed/seldinger-lumen)
+
+## Quick Citation
+
+```bibtex
+@software{son_lumen_2026,
+  author = {Son, Colin},
+  title = {Lumen: an Open, Differentiable, GPU-Parallel Environment for Endovascular AI},
+  year = {2026},
+  url = {https://github.com/SeldingerMed/seldinger-lumen},
+  license = {Apache-2.0}
+}
 ```
 
-## First 10 minutes for RL/CV users
-
-```bash
-lumen hardware
-lumen play stenotic --out /tmp/lumen-run
-lumen train tube --out /tmp/policy.npz
-lumen play tube --policy /tmp/policy.npz
-lumen benchmark /tmp/lumen-bench
-lumen render-fluoro /tmp/lumen_fluoro.png
-lumen capture /tmp/lumen-episodes
-lumen validate /tmp/lumen-episodes
-lumen replay /tmp/lumen-episodes
-lumen index /tmp/lumen-episodes --out /tmp/lumen-episodes/index.jsonl --check-sidecars
-lumen inspect-index /tmp/lumen-episodes/index.jsonl --check-arrays --require-cv-labels
-lumen materialize-batch /tmp/lumen-episodes/index.jsonl /tmp/lumen-episodes/smoke_batch.npz --limit 32
-lumen split-index /tmp/lumen-episodes/index.jsonl --out-dir /tmp/lumen-episodes/splits
-lumen calibrate
-```
-
-`capture_episode.py` writes replayable case bundles with `preview.png`,
-`preview_contact_sheet.png`, fluoro device/vessel mask contact sheets, and
-`label_overlay_contact_sheet.png`. `lumen validate` checks every bundle's asset,
-calibration, observations, masks, keypoints, labels, and sidecar refs before you
-train on it; add `--require-cv-labels` when a fluoro CV run must have
-device/vessel masks and tip/base keypoints on every frame. The replay summary reports clinical flags plus
-annotation coverage such as
-`device_mask=19/19`, `vessel_mask=19/19`, and
-`keypoints(base=18/19 tip=19/19 nodes=170/171)`, so a CV pipeline can screen
-masks/keypoints before loading arrays. `lumen index` writes a
-JSONL dataloader index with observation, mask, node-position, keypoint, action,
-clinical-metric, label, calibration, and provenance fields. Paths are
-relative to the index file by default, so sibling or nested index outputs can be
-loaded with `iter_index_records(path, load_arrays=True)`; pass
-`--absolute-paths` for a machine-local index. Pass `--modality fluoro
---require-cv-labels` to write a fluoro-only training index that fails on missing
-or empty CV labels. `lumen inspect-index --check-paths` summarizes rows,
-modalities, labels, calibration types, episode-level clinical outcome/safety counts,
-keypoint coverage, and missing sidecar references before a training job opens arrays;
-add `--require-cv-labels` to fail if fluoro rows lack mask refs or present tip/base
-keypoints, `--check-arrays` to load referenced arrays, report observation/mask/node
-shape and dtype counts, report mask coverage and keypoint-to-device distances,
-reject empty/bad masks, and catch off-frame or off-device keypoints, and add
-`--json` for scripts and notebooks. Add `--require-uniform-arrays` before
-fixed-shape batch training to fail if any loaded array field mixes shape/dtype
-payloads. `lumen materialize-batch` turns an inspected JSONL index into a strict
-compressed `.npz` smoke-test batch plus `.manifest.json`; it refuses missing or
-mixed-shape requested arrays so CV/RL jobs can test tensor ingestion before a
-full training run. Use
-`--keypoint-mask-tolerance` to tune how far device
-keypoints may sit from the device mask before the index fails. For
-training loops, `CaseBundle.load(path).replay(include_annotations=True)` yields
-each observation with lazy-loaded annotation arrays. `lumen split-index` writes
-episode-grouped `train.jsonl`, `val.jsonl`, `test.jsonl`, and `manifest.json` files
-from a validated index so procedure frames cannot leak across ML folds; use
-`--seed`, `--ratios`, and `--stratify` to reproduce split assignments. The splitter
-preserves sidecar paths from the source index as-is, so when splitting to a different
-output directory the source index must be created with `--absolute-paths`, or keep
-split outputs alongside the index to maintain relative path validity for array loading.
-For a minimal NumPy dataloader-style batch, run
-`python examples/load_fluoro_index.py /tmp/lumen-episodes/index.jsonl --limit 8`.
-The same tolerance option is available on `lumen validate` and `lumen index`
-when `--require-cv-labels` is enabled, so bad device labels can be stopped before
-writing an index.
-
-The standalone `lumen-*` scripts, including `lumen-validate`, remain installed for
-shell pipelines.
-
-The benchmark separates raw target reach from clinically safe reach:
-`safe_success_rate` is target reach without wall-safety breach, while
-`unsafe_success_rate` is target reach that required a safety breach. The leaderboard
-ranks safe success before raw success, then lower wall penetration, then return.
-
-Calibration uses wall-probe episodes, not navigation rollouts:
-`examples/calibrate_from_episode.py` shows the biplanar identifiability check and
-`lumen.data.probe_episode(...)` creates the replayable probe. Use
-`lumen.data.joint_probe_episode(...)` when you need the wall+friction calibration
-seam (`C10` and `mu`) instead of stiffness alone.
-
-## What it models
-
-- **Tube-intrinsic contact** injected (force + Hessian) into Newton's AVBD solve — implicit and stable.
-- **HGO deformable wall** as the shared lumen field `R(s,θ)=R0+w`.
-- **Anisotropic, fiber-aligned friction** and **torsion**.
-- A real **clot** (Ogden, progressive damage, stent-retriever capture) and a **1-D flow pressure field**.
-- CV-ready observations: contrast/vessel DRR, biplanar fluoro, masks/keypoints,
-  luminal texture/artifacts, and PNG/AVI previews.
-- **Accurate-tier cross-validation** against analytic ground truth.
-
-## Learn more
-
-- [Architecture & design invariants](https://github.com/SeldingerMed/seldinger-lumen/blob/master/ARCHITECTURE.md)
-- [Contributing](https://github.com/SeldingerMed/seldinger-lumen/blob/master/CONTRIBUTING.md)
-
----
-
-Apache-2.0 · every asset is procedurally generated, so use it freely.
+Apache-2.0.
