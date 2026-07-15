@@ -151,7 +151,7 @@ def test_read_split_manifest_rejects_malformed_field_types(tmp_path):
     invalid = _valid_manifest()
     invalid["assignments"] = {"case_a": "holdout"}
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="assignments must map strings to train, val, or test"):
+    with pytest.raises(ValueError, match="invalid split assignment"):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()

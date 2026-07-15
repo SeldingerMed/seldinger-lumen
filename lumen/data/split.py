@@ -223,26 +223,28 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
     assignments_obj = raw.get("assignments")
     if not isinstance(assignments_obj, dict):
         raise ValueError(f"split manifest {manifest_path} assignments must be an object")
-    bad_assignments = [
-        group for group, split in assignments_obj.items()
-        if not isinstance(group, str) or split not in SPLIT_NAMES
-    ]
-    if bad_assignments:
-        raise ValueError(f"split manifest {manifest_path} assignments must map strings to train, val, or test")
+    assignment_counts: Counter[SplitName] = Counter()
+    for group, split_value in assignments_obj.items():
+        if not isinstance(group, str):
+            raise ValueError(f"split manifest {manifest_path} assignments must map strings to train, val, or test")
+        if split_value not in SPLIT_NAMES:
+            raise ValueError(f"split manifest {manifest_path} invalid split assignment: {split_value!r}")
+        assignment_counts[cast(SplitName, split_value)] += 1
 
     ratios_obj = raw.get("ratios")
     splits_obj = raw.get("splits")
     if not isinstance(ratios_obj, dict) or set(ratios_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} ratios must contain train, val, and test")
-    if any(not _is_number(ratios_obj[name]) or ratios_obj[name] < 0.0 for name in SPLIT_NAMES):
-        raise ValueError(f"split manifest {manifest_path} ratios must be non-negative numbers")
+    ratios: dict[SplitName, float] = {}
+    for name in SPLIT_NAMES:
+        ratio_value = ratios_obj[name]
+        if not _is_number(ratio_value) or ratio_value < 0.0:
+            raise ValueError(f"split manifest {manifest_path} ratios must be non-negative numbers")
+        ratios[name] = float(ratio_value)
     if not isinstance(splits_obj, dict) or set(splits_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} splits must contain train, val, and test")
     split_record_total = 0
     split_episode_total = 0
-    assignment_counts: Counter[SplitName] = Counter()
-    for split_value in assignments_obj.values():
-        assignment_counts[cast(SplitName, split_value)] += 1
 
     for split in SPLIT_NAMES:
         summary = splits_obj[split]
@@ -253,14 +255,16 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
                 raise ValueError(f"split manifest {manifest_path} split {split!r} {field} must be a non-negative integer")
         _validate_count_map(summary.get("labels"), f"split {split!r} labels", manifest_path)
         _validate_count_map(summary.get("modalities"), f"split {split!r} modalities", manifest_path)
-        split_record_total += cast(int, summary["records"])
-        split_episode_total += cast(int, summary["episodes"])
-        if assignment_counts[split] != summary["episodes"]:
+        summary_records = cast(int, summary["records"])
+        summary_episodes = cast(int, summary["episodes"])
+        split_record_total += summary_records
+        split_episode_total += summary_episodes
+        if assignment_counts[split] != summary_episodes:
             raise ValueError(
                 f"split manifest {manifest_path} split {split!r} episode count does not match assignments"
             )
 
-    ratio_total = sum(cast(float, ratios_obj[name]) for name in SPLIT_NAMES)
+    ratio_total = sum(ratios[name] for name in SPLIT_NAMES)
     # ``set(ratios_obj)`` was validated above, so every split name is present here.
     if ratio_total == 0.0:
         raise ValueError(f"split manifest {manifest_path} ratios must include at least one positive value")
