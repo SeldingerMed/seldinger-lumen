@@ -75,6 +75,25 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
     return manifest
 
 
+def _file_exists_nonempty(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _manifest_media_path(root: Path, rel) -> Path | None:
+    rel_path = Path(str(rel))
+    if rel_path.is_absolute() or ".." in rel_path.parts:
+        return None
+    path = root / rel_path
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    return path
+
+
 def verify_demo_package(demo_dir="lumen_demo") -> dict:
     """Verify a demo bundle written by :func:`render_demo_package`."""
     root = Path(demo_dir)
@@ -94,8 +113,12 @@ def verify_demo_package(demo_dir="lumen_demo") -> dict:
     media = manifest.get("media", {})
     checks = {}
     for name, rel in sorted(media.items()):
-        path = root / str(rel)
-        ok = path.is_file() and path.stat().st_size > 0
+        path = _manifest_media_path(root, rel)
+        if path is None:
+            checks[name] = False
+            problems.append(f"unsafe media path in manifest: {rel}")
+            continue
+        ok = _file_exists_nonempty(path)
         checks[name] = ok
         if not ok:
             problems.append(f"missing or empty media: {rel}")

@@ -267,6 +267,27 @@ def test_verify_demo_cli_reports_invalid_manifest_json(tmp_path, capsys):
     assert "invalid JSON" in report["problems"][0]
 
 
+def test_verify_demo_cli_rejects_manifest_media_path_escape(tmp_path, capsys):
+    from lumen.cli import main
+
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    (demo / "manifest.json").write_text(json.dumps({
+        "ok": True,
+        "navigation": {"safe": True},
+        "media": {"outside": "../secret.txt"},
+    }))
+    (tmp_path / "secret.txt").write_text("not demo media")
+
+    with pytest.raises(SystemExit) as seen:
+        main(["verify-demo", str(demo)])
+
+    assert seen.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ok"]
+    assert "unsafe media path" in report["problems"][0]
+
+
 def test_import_mask_cli_exports_lumen_asset(tmp_path, capsys):
     from lumen.assets import Asset
     from lumen.cli import main
