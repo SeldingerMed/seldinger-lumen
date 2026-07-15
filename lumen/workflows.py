@@ -86,7 +86,15 @@ def verify_demo_package(demo_dir="lumen_demo") -> dict:
     problems: list[str] = []
     if not manifest_path.is_file():
         return {"ok": False, "problems": [f"missing {manifest_path}"], "checks": {}}
-    manifest = json.loads(manifest_path.read_text())
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError as e:
+        return {
+            "ok": False,
+            "problems": [f"invalid JSON in {manifest_path}: {e}"],
+            "checks": {},
+            "manifest": str(manifest_path),
+        }
     media = manifest.get("media", {})
     checks = {}
     for name, rel in sorted(media.items()):
