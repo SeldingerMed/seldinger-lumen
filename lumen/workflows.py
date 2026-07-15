@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +36,78 @@ def render_fluoro_example(out="fluoro.png") -> None:
     tip = (tip[0], views[0]["image"].shape[0] - 1 - tip[1])
     print(f"wrote {out}, {stem}_lateral.png, masks, and {stem}_biplanar.avi; "
           f"tip keypoint view0=({tip[0]:.1f}, {tip[1]:.1f})")
+
+
+def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
+                        steps: int = 60, size: int = 480, seed: int = 0) -> dict:
+    """Write a compact demo media bundle and manifest.
+
+    This intentionally composes existing first-run renderers instead of carrying a
+    separate social-video renderer. The output is enough for a quick launch clip:
+    a navigation animation/poster, a synthetic fluoro frame/masks, and a manifest
+    with the navigation safety metrics needed to describe what was generated.
+    """
+    from lumen.viz import play
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    nav = play(scene=scene, policy="forward", steps=steps, seed=seed,
+               size=size, out=str(out / "navigation"))
+    with contextlib.redirect_stdout(io.StringIO()):
+        render_fluoro_example(out / "fluoro.png")
+    files = {
+        "navigation_video": out / "navigation.avi",
+        "navigation_poster": out / "navigation.png",
+        "fluoro_ap": out / "fluoro.png",
+        "fluoro_lateral": out / "fluoro_lateral.png",
+        "device_mask": out / "fluoro_device_mask.png",
+        "vessel_mask": out / "fluoro_vessel_mask.png",
+        "biplanar_video": out / "fluoro_biplanar.avi",
+    }
+    checks = {name: path.is_file() and path.stat().st_size > 0 for name, path in files.items()}
+    manifest = {
+        "ok": bool(all(checks.values()) and nav["safe"]),
+        "scene": scene,
+        "steps_requested": int(steps),
+        "seed": int(seed),
+        "size": int(size),
+        "navigation": nav,
+        "checks": checks,
+        "media": {name: path.name for name, path in files.items()},
+    }
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
+
+
+def verify_demo_package(demo_dir="lumen_demo") -> dict:
+    """Verify a demo bundle written by :func:`render_demo_package`."""
+    root = Path(demo_dir)
+    manifest_path = root / "manifest.json"
+    problems: list[str] = []
+    if not manifest_path.is_file():
+        return {"ok": False, "problems": [f"missing {manifest_path}"], "checks": {}}
+    manifest = json.loads(manifest_path.read_text())
+    media = manifest.get("media", {})
+    checks = {}
+    for name, rel in sorted(media.items()):
+        path = root / str(rel)
+        ok = path.is_file() and path.stat().st_size > 0
+        checks[name] = ok
+        if not ok:
+            problems.append(f"missing or empty media: {rel}")
+    nav = manifest.get("navigation", {})
+    if not isinstance(nav, dict):
+        problems.append("manifest navigation summary is not an object")
+    elif not nav.get("safe", False):
+        problems.append("navigation rollout is not marked safe")
+    if not manifest.get("ok", False):
+        problems.append("manifest ok flag is false")
+    return {
+        "ok": not problems,
+        "problems": problems,
+        "checks": checks,
+        "manifest": str(manifest_path),
+    }
 
 
 def _display01(frame):

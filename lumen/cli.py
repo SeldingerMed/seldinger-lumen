@@ -19,6 +19,8 @@ def _command_table():
         "doctor": ("Diagnose install/backend readiness and print next steps.", doctor_main),
         "benchmark": ("Run the canonical navigation benchmark.", benchmark_main),
         "play": ("Watch a scene: roll out a policy and write an animation.", play_main),
+        "demo": ("Write a compact demo media bundle.", demo_main),
+        "verify-demo": ("Verify a generated demo media bundle.", verify_demo_main),
         "train": ("Train a navigation policy (CEM) and save it for play/eval.", train_main),
         "render-fluoro": ("Render the canonical synthetic fluoroscopy demo.", render_fluoro_main),
         "capture": ("Capture the canonical procedural case-bundle corpus.", capture_main),
@@ -246,6 +248,45 @@ def play_main(argv=None, prog=None) -> None:
     summary = play(scene=args.scene, policy=args.policy, steps=args.steps,
                    seed=args.seed, size=args.size, out=args.out)
     print(json.dumps(summary, indent=2))
+
+
+def demo_main(argv=None, prog=None) -> None:
+    from lumen.workflows import render_demo_package
+
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Write a compact demo bundle with navigation video, fluoro media, "
+                    "masks, and manifest.json.")
+    parser.add_argument("out_dir", nargs="?", default="lumen_demo")
+    parser.add_argument("--scene", choices=["tube", "stenotic", "tree"], default="stenotic")
+    parser.add_argument("--steps", type=int, default=60)
+    parser.add_argument("--size", type=int, default=480)
+    parser.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args(argv)
+
+    summary = render_demo_package(
+        args.out_dir,
+        scene=args.scene,
+        steps=args.steps,
+        size=args.size,
+        seed=args.seed,
+    )
+    print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def verify_demo_main(argv=None, prog=None) -> None:
+    from lumen.workflows import verify_demo_package
+
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Verify media files and manifest claims for a generated Lumen demo bundle.")
+    parser.add_argument("demo_dir", nargs="?", default="lumen_demo")
+    args = parser.parse_args(argv)
+
+    report = verify_demo_package(args.demo_dir)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    if not report["ok"]:
+        raise SystemExit(1)
 
 
 def train_main(argv=None, prog=None) -> None:

@@ -21,6 +21,8 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "lumen-doctor": "lumen.cli:doctor_main",
     "lumen-benchmark": "lumen.cli:benchmark_main",
     "lumen-play": "lumen.cli:play_main",
+    "lumen-demo": "lumen.cli:demo_main",
+    "lumen-verify-demo": "lumen.cli:verify_demo_main",
     "lumen-train": "lumen.cli:train_main",
     "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
     "lumen-capture": "lumen.cli:capture_main",
@@ -193,6 +195,60 @@ def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
     out = capsys.readouterr().out
     assert "usage: lumen index" in out
     assert "--check-sidecars" in out
+
+
+def test_demo_cli_help_mentions_manifest(capsys):
+    from lumen.cli import main
+
+    with pytest.raises(SystemExit) as seen:
+        main(["demo", "--help"])
+
+    assert seen.value.code == 0
+    out = capsys.readouterr().out
+    assert "usage: lumen demo" in out
+    assert "manifest.json" in out
+
+
+def test_demo_cli_writes_manifest_and_media(tmp_path, capsys):
+    from lumen.cli import main
+
+    out = tmp_path / "demo"
+    main(["demo", str(out), "--scene", "tube", "--steps", "2", "--size", "96"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["scene"] == "tube"
+    assert payload["checks"]["navigation_video"]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["media"]["navigation_video"] == "navigation.avi"
+    for rel in manifest["media"].values():
+        path = out / rel
+        assert path.is_file()
+        assert path.stat().st_size > 0
+
+
+def test_verify_demo_cli_accepts_generated_bundle(tmp_path, capsys):
+    from lumen.cli import main
+
+    out = tmp_path / "demo"
+    main(["demo", str(out), "--scene", "tube", "--steps", "2", "--size", "96"])
+    capsys.readouterr()
+
+    main(["verify-demo", str(out)])
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"]
+    assert not report["problems"]
+
+
+def test_verify_demo_cli_fails_missing_manifest(tmp_path, capsys):
+    from lumen.cli import main
+
+    with pytest.raises(SystemExit) as seen:
+        main(["verify-demo", str(tmp_path / "missing")])
+
+    assert seen.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ok"]
+    assert "missing" in report["problems"][0]
 
 
 def test_import_mask_cli_exports_lumen_asset(tmp_path, capsys):
