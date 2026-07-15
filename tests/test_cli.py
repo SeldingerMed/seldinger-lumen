@@ -220,10 +220,67 @@ def test_demo_cli_writes_manifest_and_media(tmp_path, capsys):
     assert payload["checks"]["navigation_video"]
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["media"]["navigation_video"] == "navigation.avi"
+    assert set(manifest["media"]) == {
+        "biplanar_video",
+        "device_mask",
+        "fluoro_ap",
+        "fluoro_lateral",
+        "navigation_poster",
+        "navigation_video",
+        "vessel_mask",
+    }
     for rel in manifest["media"].values():
         path = out / rel
         assert path.is_file()
         assert path.stat().st_size > 0
+
+
+def test_render_demo_package_reports_navigation_failure(monkeypatch, tmp_path):
+    import lumen.viz
+    from lumen import workflows
+
+    def fail_play(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(lumen.viz, "play", fail_play)
+
+    manifest = workflows.render_demo_package(tmp_path / "demo", steps=1, size=32)
+
+    assert not manifest["ok"]
+    assert manifest["checks"] == {}
+    assert "navigation render failed: RuntimeError: boom" in manifest["problems"]
+    assert json.loads((tmp_path / "demo" / "manifest.json").read_text()) == manifest
+
+
+def test_render_demo_package_handles_navigation_without_safe(monkeypatch, tmp_path):
+    import lumen.viz
+    from lumen import workflows
+
+    def fake_play(**kwargs):
+        stem = tmp_path / "demo" / "navigation"
+        stem.with_suffix(".avi").write_bytes(b"avi")
+        stem.with_suffix(".png").write_bytes(b"png")
+        return {"scene": kwargs["scene"]}
+
+    def fake_fluoro(out):
+        out = tmp_path / "demo" / "fluoro.png"
+        out.write_bytes(b"ap")
+        for name in (
+            "fluoro_lateral.png",
+            "fluoro_device_mask.png",
+            "fluoro_vessel_mask.png",
+            "fluoro_biplanar.avi",
+        ):
+            (tmp_path / "demo" / name).write_bytes(b"media")
+
+    monkeypatch.setattr(lumen.viz, "play", fake_play)
+    monkeypatch.setattr(workflows, "render_fluoro_example", fake_fluoro)
+
+    manifest = workflows.render_demo_package(tmp_path / "demo", steps=1, size=32)
+
+    assert not manifest["ok"]
+    assert manifest["navigation"] == {"scene": "stenotic"}
+    assert all(manifest["checks"].values())
 
 
 def test_verify_demo_cli_accepts_generated_bundle(tmp_path, capsys):

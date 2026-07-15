@@ -51,18 +51,37 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    nav = play(scene=scene, policy="forward", steps=steps, seed=seed,
-               size=size, out=str(out / "navigation"))
+    try:
+        nav = play(scene=scene, policy="forward", steps=steps, seed=seed,
+                   size=size, out=str(out / "navigation"))
+    except Exception as exc:
+        manifest = {
+            "ok": False,
+            "scene": scene,
+            "steps_requested": int(steps),
+            "seed": int(seed),
+            "size": int(size),
+            "navigation": {},
+            "checks": {},
+            "media": {},
+            "problems": [f"navigation render failed: {type(exc).__name__}: {exc}"],
+        }
+        (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        return manifest
     with contextlib.redirect_stdout(io.StringIO()):
         render_fluoro_example(str(out / "fluoro.png"))
     files = {
         "navigation_video": out / "navigation.avi",
         "navigation_poster": out / "navigation.png",
         "fluoro_ap": out / "fluoro.png",
+        "fluoro_lateral": out / "fluoro_lateral.png",
+        "device_mask": out / "fluoro_device_mask.png",
+        "vessel_mask": out / "fluoro_vessel_mask.png",
+        "biplanar_video": out / "fluoro_biplanar.avi",
     }
     checks = {name: _file_exists_nonempty(path) for name, path in files.items()}
     manifest = {
-        "ok": bool(all(checks.values()) and nav["safe"]),
+        "ok": bool(all(checks.values()) and nav.get("safe", False)),
         "scene": scene,
         "steps_requested": int(steps),
         "seed": int(seed),
