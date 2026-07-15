@@ -151,7 +151,7 @@ def test_read_split_manifest_rejects_malformed_field_types(tmp_path):
     invalid = _valid_manifest()
     invalid["assignments"] = {"case_a": "holdout"}
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="assignments must map strings to train, val, or test"):
+    with pytest.raises(ValueError, match="invalid split assignment"):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()
@@ -165,6 +165,40 @@ def test_read_split_manifest_rejects_malformed_field_types(tmp_path):
     ok["seed"] = -7
     manifest_path.write_text(json.dumps(ok))
     assert read_split_manifest(manifest_path)["seed"] == -7
+
+
+def test_read_split_manifest_rejects_inconsistent_summary_totals(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["records"] = 2
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="split record counts do not match records"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["splits"]["train"]["episodes"] = 0
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="summary group count \\(0\\) does not match assigned group count \\(1\\)"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["episodes"] = 2
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="split episode counts do not match episodes"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["ratios"] = {"train": 0.0, "val": 0.0, "test": 0.0}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="at least one positive"):
+        read_split_manifest(manifest_path)
+
+    invalid = _valid_manifest()
+    invalid["ratios"] = {"train": 1.0, "val": 1.0, "test": 0.0}
+    manifest_path.write_text(json.dumps(invalid))
+    with pytest.raises(ValueError, match="ratios must sum to 1.0"):
+        read_split_manifest(manifest_path)
 
 
 def test_read_split_manifest_rejects_non_json_file_path(tmp_path):

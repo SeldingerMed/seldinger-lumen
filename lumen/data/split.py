@@ -167,28 +167,32 @@ def _is_int_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
-def _validate_string(value: object, field: str, manifest_path: Path) -> None:
+def _validated_string(value: object, field: str, manifest_path: Path) -> str:
     if not isinstance(value, str):
         raise ValueError(f"split manifest {manifest_path} {field} must be a string")
+    return value
 
 
-def _validate_int(value: object, field: str, manifest_path: Path) -> None:
+def _validated_int(value: object, field: str, manifest_path: Path) -> int:
     # Seeds may be negative (random.Random accepts them); only exclude bool/non-int.
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"split manifest {manifest_path} {field} must be an integer")
+    return value
 
 
-def _validate_split_count(value: object, field: str, manifest_path: Path) -> None:
+def _validated_split_count(value: object, field: str, manifest_path: Path) -> int:
     if not _is_int_count(value):
         raise ValueError(f"split manifest {manifest_path} {field} must be a non-negative integer")
+    return cast(int, value)
 
 
-def _validate_count_map(value: object, field: str, manifest_path: Path) -> None:
+def _validated_count_map(value: object, field: str, manifest_path: Path) -> dict[str, int]:
     if not isinstance(value, dict):
         raise ValueError(f"split manifest {manifest_path} {field} must be an object")
     bad_items = [key for key, count in value.items() if not isinstance(key, str) or not _is_int_count(count)]
     if bad_items:
         raise ValueError(f"split manifest {manifest_path} {field} must map strings to integer counts")
+    return {key: cast(int, count) for key, count in value.items()}
 
 
 def read_split_manifest(path: str | Path) -> SplitManifest:
@@ -211,43 +215,101 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
     missing = sorted(required.difference(raw))
     if missing:
         raise ValueError(f"split manifest {manifest_path} missing required fields: {missing}")
-    for field in ("source_index", "out_dir", "group_by"):
-        _validate_string(raw.get(field), field, manifest_path)
-    _validate_int(raw.get("seed"), "seed", manifest_path)
-    _validate_split_count(raw.get("records"), "records", manifest_path)
-    _validate_split_count(raw.get("episodes"), "episodes", manifest_path)
+    source_index = _validated_string(raw.get("source_index"), "source_index", manifest_path)
+    out_dir = _validated_string(raw.get("out_dir"), "out_dir", manifest_path)
+    group_by = _validated_string(raw.get("group_by"), "group_by", manifest_path)
+    seed = _validated_int(raw.get("seed"), "seed", manifest_path)
+    total_records = _validated_split_count(raw.get("records"), "records", manifest_path)
+    total_episodes = _validated_split_count(raw.get("episodes"), "episodes", manifest_path)
 
     stratify_obj = raw.get("stratify")
     if not isinstance(stratify_obj, list) or any(not isinstance(field, str) for field in stratify_obj):
         raise ValueError(f"split manifest {manifest_path} stratify must be a list of strings")
+    stratify = list(stratify_obj)
     assignments_obj = raw.get("assignments")
     if not isinstance(assignments_obj, dict):
         raise ValueError(f"split manifest {manifest_path} assignments must be an object")
-    bad_assignments = [
-        group for group, split in assignments_obj.items()
-        if not isinstance(group, str) or split not in SPLIT_NAMES
-    ]
-    if bad_assignments:
-        raise ValueError(f"split manifest {manifest_path} assignments must map strings to train, val, or test")
+    assignment_counts: Counter[SplitName] = Counter()
+    assignments: dict[str, SplitName] = {}
+    # JSON object parsing leaves one value per group key; validate that parsed map.
+    for group, split_value in assignments_obj.items():
+        if not isinstance(group, str):
+            raise ValueError(f"split manifest {manifest_path} assignments must map strings to train, val, or test")
+        if split_value not in SPLIT_NAMES:
+            raise ValueError(f"split manifest {manifest_path} invalid split assignment: {split_value!r}")
+        split_name = cast(SplitName, split_value)
+        assignments[group] = split_name
+        assignment_counts[split_name] += 1
 
     ratios_obj = raw.get("ratios")
     splits_obj = raw.get("splits")
     if not isinstance(ratios_obj, dict) or set(ratios_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} ratios must contain train, val, and test")
-    if any(not _is_number(ratios_obj[name]) or ratios_obj[name] < 0.0 for name in SPLIT_NAMES):
-        raise ValueError(f"split manifest {manifest_path} ratios must be non-negative numbers")
+    ratios: dict[SplitName, float] = {}
+    for name in SPLIT_NAMES:
+        ratio_value = ratios_obj[name]
+        if not _is_number(ratio_value) or ratio_value < 0.0:
+            raise ValueError(f"split manifest {manifest_path} ratios must be non-negative numbers")
+        ratios[name] = float(ratio_value)
     if not isinstance(splits_obj, dict) or set(splits_obj) != set(SPLIT_NAMES):
         raise ValueError(f"split manifest {manifest_path} splits must contain train, val, and test")
+    split_record_total = 0
+    split_episode_total = 0
+    splits: dict[SplitName, SplitSummary] = {}
+
     for split in SPLIT_NAMES:
         summary = splits_obj[split]
         if not isinstance(summary, dict):
             raise ValueError(f"split manifest {manifest_path} split {split!r} summary must be an object")
-        for field in ("records", "episodes"):
-            if not _is_int_count(summary.get(field)):
-                raise ValueError(f"split manifest {manifest_path} split {split!r} {field} must be a non-negative integer")
-        _validate_count_map(summary.get("labels"), f"split {split!r} labels", manifest_path)
-        _validate_count_map(summary.get("modalities"), f"split {split!r} modalities", manifest_path)
-    return cast(SplitManifest, raw)
+        summary_records = _validated_split_count(
+            summary.get("records"), f"split {split!r} records", manifest_path
+        )
+        summary_episodes = _validated_split_count(
+            summary.get("episodes"), f"split {split!r} episodes", manifest_path
+        )
+        labels = _validated_count_map(summary.get("labels"), f"split {split!r} labels", manifest_path)
+        modalities = _validated_count_map(summary.get("modalities"), f"split {split!r} modalities", manifest_path)
+        split_record_total += summary_records
+        split_episode_total += summary_episodes
+        splits[split] = {
+            "records": summary_records,
+            "episodes": summary_episodes,
+            "labels": labels,
+            "modalities": modalities,
+        }
+        # The historical ``episodes`` manifest field stores the number of
+        # distinct ``group_by`` values; assignments have exactly one entry per
+        # ``group_by`` value.
+        assigned_group_count = assignment_counts[split]
+        summary_group_count = summary_episodes
+        if assigned_group_count != summary_group_count:
+            raise ValueError(
+                f"split manifest {manifest_path} split {split!r} summary group count ({summary_group_count}) "
+                f"does not match assigned group count ({assigned_group_count})"
+            )
+
+    ratio_total = sum(ratios[name] for name in SPLIT_NAMES)
+    # ``set(ratios_obj)`` was validated above, so every split name is present here.
+    if ratio_total == 0.0:
+        raise ValueError(f"split manifest {manifest_path} ratios must include at least one positive value")
+    if abs(ratio_total - 1.0) > 1e-9:
+        raise ValueError(f"split manifest {manifest_path} ratios must sum to 1.0")
+    if split_record_total != total_records:
+        raise ValueError(f"split manifest {manifest_path} split record counts do not match records")
+    if split_episode_total != total_episodes:
+        raise ValueError(f"split manifest {manifest_path} split episode counts do not match episodes")
+    return {
+        "source_index": source_index,
+        "out_dir": out_dir,
+        "group_by": group_by,
+        "seed": seed,
+        "ratios": ratios,
+        "stratify": stratify,
+        "records": total_records,
+        "episodes": total_episodes,
+        "assignments": assignments,
+        "splits": splits,
+    }
 
 
 def split_index_records(index_path: str | Path, out_dir: str | Path,
