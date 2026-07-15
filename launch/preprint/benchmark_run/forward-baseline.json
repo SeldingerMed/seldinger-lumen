@@ -1,0 +1,55 @@
+{
+  "name": "forward-baseline",
+  "suite_version": "lumen-bench/2",
+  "per_task": [
+    {
+      "name": "nav_tube",
+      "tier": "easy",
+      "episodes": 5,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "unsafe_success_rate": 0.0,
+      "mean_steps": 18.6,
+      "max_pen": 0.0,
+      "safety_max_pen": 0.3,
+      "mean_return": 47.22668692016602
+    },
+    {
+      "name": "nav_stenotic",
+      "tier": "medium",
+      "episodes": 5,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "unsafe_success_rate": 0.0,
+      "mean_steps": 19.8,
+      "max_pen": 0.0,
+      "safety_max_pen": 0.3,
+      "mean_return": 49.43556094360353
+    },
+    {
+      "name": "nav_tree_branch",
+      "tier": "hard",
+      "episodes": 5,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "unsafe_success_rate": 0.0,
+      "mean_steps": 54.0,
+      "max_pen": 0.1776893256448957,
+      "safety_max_pen": 0.3,
+      "mean_return": 91.34254299559956
+    }
+  ],
+  "overall": {
+    "success_rate": 1.0,
+    "safe_success_rate": 1.0,
+    "unsafe_success_rate": 0.0,
+    "max_pen": 0.1776893256448957,
+    "mean_return": 62.668263619789705
+  },
+  "provenance": "procedural",
+  "notes": {
+    "policy": "lumen.bench.forward_policy",
+    "command": "lumen benchmark",
+    "safety_max_pen": 0.3
+  }
+}

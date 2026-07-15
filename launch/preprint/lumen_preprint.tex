@@ -9,6 +9,10 @@
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{amsmath}
+\usepackage{float}
+\usepackage{placeins}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 
 \hypersetup{
   colorlinks=true,
@@ -21,8 +25,7 @@
 \author{
   Colin Son, MD\\
   Seldinger, Inc.\\
-  \href{https://orcid.org/0000-0002-1782-0537}{ORCID: 0000-0002-1782-0537}\\
-  \href{https://github.com/SeldingerMed/seldinger-lumen}{github.com/SeldingerMed/seldinger-lumen}
+  ORCID: 0000-0002-1782-0537
 }
 \date{July 2026}
 
@@ -30,19 +33,19 @@
 \maketitle
 
 \begin{abstract}
-Endovascular autonomy needs simulation environments that expose the clinical signals a policy must optimize: wall contact, device state, branch selection, image observations, and safety-aware benchmark outcomes. Lumen is an Apache-2.0 endovascular AI environment built around a deformable lumen model, tube-intrinsic contact, GPU-parallel Newton/Warp execution, Gymnasium-compatible navigation tasks, synthetic fluoroscopy, luminal image generation, and replayable computer-vision datasets. The environment is designed to make wall-safe target reaching a first-class benchmark objective rather than an after-the-fact visualization. This preprint describes the system architecture, observation and dataset surfaces, reduced-order flow and device modules, and benchmark semantics used in the public release.
+Endovascular autonomy needs simulation environments that expose the signals an agent must optimize: branch selection, target reach, wall interaction, image observations, and reproducible safety outcomes. Lumen is an Apache-2.0 endovascular AI environment built around procedural vascular cases, tube-intrinsic contact, GPU-parallel Newton/Warp execution, Gymnasium-compatible navigation tasks, synthetic fluoroscopy, luminal image generation, and replayable computer-vision datasets. This preprint describes the public release and reports a launch benchmark on lumen-bench/2, where a deterministic forward baseline achieved 100\% safe success across tube, stenotic, and branch-navigation tasks while retaining explicit wall-penetration accounting. Relative to CathSim and SOFA/BeamAdapter-derived navigation stacks, Lumen emphasizes benchmarked wall safety, multi-modal labels, and reproducible dataset artifacts from the same simulator state.
 \end{abstract}
 
 \section{Motivation}
 
-Autonomous catheter and guidewire navigation has become a credible research direction for robotic endovascular intervention, with reinforcement learning, imitation learning, and inverse reinforcement learning all explored in physical and simulated vessels \cite{robertshaw2024systematic, robertshaw2024mt, jianu2022cathsim, iagn2024}. CathSim showed that an open simulator can accelerate this work by pairing robot/device simulation with reinforcement-learning tasks \cite{jianu2022cathsim,jianu2024cathsim}. Lumen extends that open benchmark surface toward the signals that are difficult to study in rigid-pipe reaching tasks: deformable-wall interaction, wall penetration, branch-route safety, paired fluoroscopic and state observations, and dataset-grade labels emitted from the same scene.
+Autonomous catheter and guidewire navigation is now an active research direction for robotic endovascular intervention, with reinforcement learning, imitation learning, inverse reinforcement learning, and expert-trajectory learning explored in simulated and physical settings \cite{robertshaw2023systematic,robertshaw2024mt,jianu2022cathsim,jianu2024cathsim,jianu2024expert,iagn2024}. CathSim demonstrated the value of an open endovascular simulator for autonomous catheterization research by pairing high-fidelity robot/device simulation with reinforcement-learning tasks \cite{jianu2022cathsim,jianu2024cathsim}. SOFA and BeamAdapter provide a separate lineage: finite-element flexible-device modeling for interactive interventional-radiology simulation and mechanical-thrombectomy navigation studies \cite{allard2007sofa,beamadapter,robertshaw2024mt}.
 
-The design goal is direct: make endovascular navigation trainable as a safety-scored, reproducible AI benchmark. Lumen therefore treats the lumen as a simulated physical substrate rather than only a visual guide. Policies can be evaluated on target reach, route adherence, wall interaction, and image-observation behavior through a shared API.
+Lumen is aimed at the benchmark layer between these lines of work. It exposes procedural vascular cases, wall-state semantics, image observations, label generation, and safety-scored leaderboard outputs through a single public stack. The core design decision is that target reach and wall-safe target reach are separate outcomes. A policy that reaches a branch while breaching the wall is not treated as equivalent to a policy that reaches the same target without unsafe interaction.
 
-\begin{figure}[t]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{figures/figure1_overview.png}
-  \caption{A real Lumen launch capture: a policy rollout in a procedurally generated vascular tree with wall-safety scoring. The launch video and public page use these real simulator-derived captures rather than generated promotional imagery.}
+  \includegraphics[width=0.72\linewidth]{figures/figure1_overview.png}
+  \caption{Simulator-native Lumen navigation capture from the current implementation. The same procedural vascular tree drives policy state, wall-safety accounting, rendered observations, and replay metadata.}
   \label{fig:overview}
 \end{figure}
 
@@ -51,31 +54,31 @@ The design goal is direct: make endovascular navigation trainable as a safety-sc
 Lumen is organized around five connected surfaces:
 
 \begin{enumerate}
-  \item \textbf{Procedural vascular cases.} Centerline trees, stenotic segments, tortuous paths, and branch targets are generated as replayable cases. This supports fast benchmark creation and deterministic reruns.
-  \item \textbf{Tube-intrinsic contact and wall state.} Device progress is represented along the vessel manifold, with contact, route progress, wall penetration, torsion, and friction surfaced as environment state.
-  \item \textbf{GPU-parallel simulation.} The solver path uses NVIDIA Newton/Warp-style kernels for differentiable, high-throughput simulation work \cite{warpdocs,warpgithub}.
-  \item \textbf{Observation and dataset generation.} Synthetic fluoroscopy, segmentation masks, keypoints, device masks, and luminal RGB views are generated from the same scene graph.
-  \item \textbf{Gymnasium-compatible RL tasks.} Navigation tasks are registered through the Gymnasium interface \cite{gymnasium2024,gym2016}, allowing existing RL tooling to treat Lumen as a standard environment.
+  \item \textbf{Procedural vascular cases.} Tube, stenotic, tortuous, and branching vascular cases are generated as replayable scenes, enabling deterministic reruns and benchmark submissions.
+  \item \textbf{Tube-intrinsic contact and wall state.} Device progress is represented along the vessel manifold, with route progress, contact, penetration, torsion, and friction surfaced as environment state.
+  \item \textbf{GPU-parallel execution.} Newton/Warp-style kernels support high-throughput differentiable simulation paths for calibration and batched environment work \cite{nvidiawarp}.
+  \item \textbf{Observation and dataset generation.} Fluoroscopy, luminal RGB, segmentation masks, keypoints, device masks, and detector-noise variants are generated from the same scene state.
+  \item \textbf{Gymnasium-compatible RL tasks.} Navigation tasks are registered through the Gymnasium interface, allowing standard reinforcement-learning tooling to treat Lumen as a conventional environment \cite{gym2016,gymnasium2024}.
 \end{enumerate}
 
-This arrangement follows the successful pattern of general RL benchmarks \cite{gym2016,gymnasium2024}, physics-backed control suites \cite{todorov2012mujoco}, and medical-simulation frameworks \cite{allard2007sofa,sofaweb,updegrove2017simvascular,izzo2018vmtk}, while specializing the state, observation, and scoring surfaces for endovascular device navigation.
+This arrangement follows the successful pattern of general RL benchmarks \cite{gym2016,gymnasium2024}, physics-backed control suites \cite{todorov2012mujoco,coumans2021bullet}, and medical-simulation frameworks \cite{allard2007sofa,updegrove2017simvascular,izzo2018vmtk}, while specializing state, observation, and scoring surfaces for endovascular device navigation.
 
 \section{Observation Layer}
 
-Lumen emits both state observations and image observations. The image side is deliberately multi-modal. A single scene can produce biplanar digitally reconstructed radiographs, masks for vessel and device geometry, labeled keypoints, noisy fluoroscopy, and a luminal RGB camera view. These outputs make the simulator useful not only for reinforcement learning but also for computer-vision pretraining, perception-debugging, and dataset construction.
+Lumen emits state observations and image observations from the same case. A single scene can produce biplanar digitally reconstructed radiographs, masks for vessel and device geometry, labeled keypoints, noisy fluoroscopy, and a luminal RGB camera view. These outputs support reinforcement learning, computer-vision pretraining, perception debugging, and dataset construction.
 
-\begin{figure}[t]
+\begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/figure2_multimodal.png}
   \caption{Multi-modal scene outputs from one Lumen case: biplanar fluoroscopy, vessel/device labels, luminal RGB, detector noise, and masks. The same geometry drives control state and image data.}
   \label{fig:multimodal}
 \end{figure}
 
-The dataset workflow is exposed as command-line tooling for capture, validation, indexing, and train/validation/test splitting. Episode sidecars allow users to verify that labels, masks, and replay metadata are present before a dataset is consumed by a model.
+The dataset workflow is exposed as command-line tooling for capture, validation, indexing, and train/validation/test splitting. Episode sidecars make label, mask, and replay metadata auditable before the dataset is consumed by a model.
 
 \section{Physics and Device Modules}
 
-Lumen includes reduced-order modules for the device and vascular phenomena that should influence policy behavior. The release includes:
+Lumen includes reduced-order modules for phenomena that should influence policy behavior:
 
 \begin{itemize}
   \item deformable-wall semantics inspired by arterial-wall mechanics and anisotropic constitutive modeling \cite{holzapfel2000arterial,gasser2006distributed};
@@ -86,68 +89,91 @@ Lumen includes reduced-order modules for the device and vascular phenomena that 
   \item synthetic fluoroscopy and luminal rendering for image-observation agents.
 \end{itemize}
 
-\begin{figure}[t]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{figures/figure3_physics.png}
-  \caption{Advanced modules captured from the current implementation: reduced-order aneurysm inflow with a flow-diverter trace and clot/stentriever retrieval state. These modules expose clinically relevant state variables to agents and analysis scripts.}
+  \begin{subfigure}[t]{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/figure3a_aneurysm_flow.png}
+    \caption{Aneurysm inflow before and after a flow-diverter state change.}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[t]{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/figure3b_stentriever.png}
+    \caption{Stentriever retrieval, captured clot, and damage traces.}
+  \end{subfigure}
+  \caption{Simulator-native advanced module outputs from the current implementation. These are raw Lumen captures, not website screenshots or generated promotional imagery.}
   \label{fig:physics}
 \end{figure}
 
-The simulator is not only a renderer around a centerline. It is a benchmark substrate where contact, flow, clot/device state, and image formation can be captured together, inspected together, and reproduced from case metadata.
+The simulator is not only a renderer around a centerline. It is a benchmark substrate where contact, flow, clot/device state, image formation, and replay metadata can be captured together and reproduced from case metadata.
 
-\section{Benchmark Semantics}
+\section{Benchmark Protocol and Results}
 
-The central benchmark decision in Lumen is to rank \emph{safe success} above raw target reach. A policy that reaches a target while breaching the wall is not equivalent to a policy that reaches the target without unsafe interaction. This distinction matters for endovascular autonomy because the easiest target-reaching policy is not necessarily the most clinically meaningful policy.
+The launch benchmark, \texttt{lumen-bench/2}, evaluates three fixed procedural tasks: \texttt{nav\_tube}, \texttt{nav\_stenotic}, and \texttt{nav\_tree\_branch}. Each task is run for five seeded episodes. The scorecard ranks safe target reach before raw target reach, then wall safety, then return. The safety threshold for the launch scorecard is a maximum wall penetration of 0.3 simulator units.
 
-\begin{figure}[t]
+\begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/figure4_benchmark.png}
   \caption{Navigation rollouts in branching and tortuous vessels. Lumen reports route progress, target reach, wall penetration, and safety status so benchmark results can distinguish safe target reach from unsafe reach.}
   \label{fig:benchmark}
 \end{figure}
 
-Lumen environments can be used with standard reinforcement-learning algorithms such as PPO and SAC \cite{schulman2017ppo,haarnoja2018sac,haarnoja2018applications}, while the environment API remains compatible with broader RL infrastructure. The benchmark output is intentionally explicit: route progress, target success, unsafe contact, wall penetration, and replay metadata are all available to downstream evaluation scripts.
-
-\section{Positioning Relative to CathSim}
-
-CathSim made open-source endovascular simulator research more accessible by providing an autonomous catheterization environment and validating RL tasks in simulation \cite{jianu2022cathsim,jianu2024cathsim}. Lumen is built for the next layer of benchmark pressure: deformable-wall state, wall-safety scoring, multi-modal image labels, replayable dataset tooling, and coupled endovascular state modules in one public stack.
-
-\begin{table}[t]
+\begin{table}[H]
   \centering
-  \caption{Launch-release surface of Lumen.}
-  \begin{tabular}{p{0.28\linewidth}p{0.62\linewidth}}
+  \caption{Launch benchmark result for the deterministic \texttt{forward-baseline} policy on \texttt{lumen-bench/2}. The scorecard is included with the release artifacts.}
+  \label{tab:benchmark}
+  \begin{tabular}{llrrrrr}
     \toprule
-    Surface & Lumen release behavior \\
+    Task & Tier & Episodes & Safe success & Unsafe success & Mean steps & Max pen. \\
     \midrule
-    RL interface & Gymnasium-registered navigation tasks and command-line benchmark runs. \\
-    Safety scoring & Target reach separated from wall-safe target reach. \\
-    Geometry & Procedural stenotic, tortuous, and branching vascular cases. \\
-    Physics state & Tube-intrinsic contact, route progress, wall penetration, friction/torsion hooks. \\
-    Image observations & Fluoro, masks, keypoints, labels, noisy detector output, luminal RGB. \\
-    Dataset tooling & Capture, validate, index, split, and materialize replayable episodes. \\
-    License & Apache-2.0 public repository. \\
+    \texttt{nav\_tube} & Easy & 5 & 1.00 & 0.00 & 18.6 & 0.000 \\
+    \texttt{nav\_stenotic} & Medium & 5 & 1.00 & 0.00 & 19.8 & 0.000 \\
+    \texttt{nav\_tree\_branch} & Hard & 5 & 1.00 & 0.00 & 54.0 & 0.178 \\
+    \midrule
+    Overall & -- & 15 & 1.00 & 0.00 & -- & 0.178 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
+The forward baseline is intentionally simple: it advances the proximal end at full rate. It is useful as a reproducibility check and a floor for trained policies, not as a ceiling. Standard reinforcement-learning algorithms such as PPO and SAC can be applied through the Gymnasium interface \cite{schulman2017ppo,haarnoja2018sac,haarnoja2018applications}, while leaderboard submissions preserve per-task scorecards for comparison.
+
+\section{Comparison to CathSim and SOFA/BeamAdapter}
+
+CathSim, SOFA/BeamAdapter, and Lumen occupy related but distinct positions in the open endovascular-simulation landscape. CathSim is the closest open autonomous-catheterization benchmark reference, with MuJoCo-based robot/device simulation, force sensing, and reinforcement-learning tasks \cite{jianu2022cathsim,jianu2024cathsim}. SOFA/BeamAdapter is a mature flexible-instrument simulation surface for catheters, guidewires, and coils, and has been used as the basis for SOFA mechanical-thrombectomy navigation studies \cite{allard2007sofa,beamadapter,robertshaw2024mt}. Lumen is designed around a compact public benchmark where wall safety, image labels, and replayable datasets are first-class outputs.
+
+\begin{table}[H]
+  \centering
+  \caption{Capability positioning of Lumen against commonly cited open endovascular-simulation references.}
+  \label{tab:comparison}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{L{0.18\linewidth}L{0.25\linewidth}L{0.25\linewidth}L{0.23\linewidth}}
+    \toprule
+    Surface & Lumen & CathSim & SOFA/BeamAdapter \\
+    \midrule
+    Primary target & Wall-safe AI benchmark and data generation & Autonomous catheterization simulator and RL tasks & Flexible catheter/guidewire mechanics \\
+    RL interface & Gymnasium tasks plus portable scorecards & PPO/SAC-style RL evaluation reported & Used by navigation studies; no common leaderboard \\
+    Safety metric & Safe success separated from unsafe reach & Contact/force simulation surface & SOFA-scene contact mechanics \\
+    Imaging and labels & Fluoro, luminal RGB, masks, keypoints, noisy detector output & Visual simulation and segmentation surfaces & Scene-dependent rendering and mechanics \\
+    Geometry & Replayable tube, stenotic, tortuous, and branch cases & Aorta/robot simulation assets & User-authored SOFA scenes and vascular models \\
+    Release emphasis & Reproducible benchmark artifacts, CV-ready captures, Apache-2.0 & Open autonomous catheterization simulator & Open mechanics framework and plugin ecosystem \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The practical contribution is that Lumen packages wall-safety scoring, procedural task reproducibility, multi-modal labels, and replay artifacts into one public benchmark release that can be inspected outside the RL loop.
+
 \section{Availability}
 
-The public repository is:
-
-\begin{center}
-\href{https://github.com/SeldingerMed/seldinger-lumen}{https://github.com/SeldingerMed/seldinger-lumen}
-\end{center}
-
-The launch page, screenshots, demo video, and this preprint are published at:
-
-\begin{center}
-\href{https://seldingermed.github.io/seldinger-lumen/}{https://seldingermed.github.io/seldinger-lumen/}
-\end{center}
+The public repository is \href{https://github.com/SeldingerMed/seldinger-lumen}{github.com/SeldingerMed/seldinger-lumen}. The release includes the benchmark scorecard, simulator-native figures, launch video, source LaTeX, and generated PDF.
 
 \section{Conclusion}
 
-Lumen provides an open endovascular AI environment where vessel navigation, wall safety, synthetic imaging, labels, and replayable benchmark artifacts are emitted from the same stack. The practical result is a stronger public substrate for studying policies that must do more than reach a coordinate: they must navigate vascular anatomy while preserving wall safety and producing interpretable image-state behavior.
+Lumen provides an open endovascular AI environment where vessel navigation, wall safety, synthetic imaging, labels, and replayable benchmark artifacts are emitted from the same stack. The launch benchmark establishes a reproducible baseline for safe target reach; the comparison with CathSim and SOFA/BeamAdapter clarifies the role of Lumen as a safety-scored, dataset-ready benchmark rather than another isolated viewer or mechanics demo.
 
+\FloatBarrier
+\clearpage
 \begin{thebibliography}{99}
 
 \bibitem{jianu2022cathsim}
@@ -160,15 +186,20 @@ T. Jianu, B. Huang, M. E. M. K. Abdelaziz, M. N. Vu, S. Fichera, C.-Y. Lee, P. B
 \newblock CathSim: An open-source simulator for endovascular intervention.
 \newblock \emph{IEEE Transactions on Medical Robotics and Bionics}, 2024.
 
-\bibitem{robertshaw2024systematic}
+\bibitem{jianu2024expert}
+T. Jianu, B. Huang, T. Vo, M. N. Vu, J. Kang, H. Nguyen, O. Omisore, P. Berthet-Rayne, S. Fichera, and A. Nguyen.
+\newblock Autonomous catheterization with open-source simulator and expert trajectory.
+\newblock \emph{arXiv:2401.09059}, 2024.
+
+\bibitem{robertshaw2023systematic}
 H. Robertshaw, L. Karstensen, B. Jackson, H. Sadati, K. Rhode, S. Ourselin, A. Granados, and T. C. Booth.
 \newblock Artificial intelligence in the autonomous navigation of endovascular interventions: A systematic review.
-\newblock \emph{arXiv:2405.03305}, 2024.
+\newblock \emph{Frontiers in Human Neuroscience}, 17, 2023.
 
 \bibitem{robertshaw2024mt}
 H. Robertshaw, L. Karstensen, B. Jackson, A. Granados, and T. C. Booth.
 \newblock Autonomous navigation of catheters and guidewires in mechanical thrombectomy using inverse reinforcement learning.
-\newblock \emph{arXiv:2406.12499}, 2024.
+\newblock \emph{International Journal of Computer Assisted Radiology and Surgery}, 2024.
 
 \bibitem{iagn2024}
 Y. Liu et al.
@@ -180,10 +211,10 @@ J. Allard, S. Cotin, F. Faure, P.-J. Bensoussan, F. Poyer, C. Duriez, H. Delinge
 \newblock SOFA: An open source framework for medical simulation.
 \newblock \emph{Studies in Health Technology and Informatics}, 125:13--18, 2007.
 
-\bibitem{sofaweb}
+\bibitem{beamadapter}
 SOFA Consortium.
-\newblock SOFA: Open-source framework for interactive mechanical simulation.
-\newblock \url{https://www.sofa-framework.org/}.
+\newblock BeamAdapter: Kirchhoff-rod finite-element simulation for catheters, guidewires, coils, and interventional-radiology deployment.
+\newblock Software documentation and source package, 2026.
 
 \bibitem{updegrove2017simvascular}
 A. Updegrove, N. M. Wilson, J. Merkow, H. Lan, A. L. Marsden, and S. C. Shadden.
@@ -205,15 +236,10 @@ T. C. Gasser, R. W. Ogden, and G. A. Holzapfel.
 \newblock Hyperelastic modelling of arterial layers with distributed collagen fibre orientations.
 \newblock \emph{Journal of the Royal Society Interface}, 3(6):15--35, 2006.
 
-\bibitem{warpdocs}
+\bibitem{nvidiawarp}
 NVIDIA.
 \newblock Warp: A Python framework for high-performance simulation and spatial computing.
-\newblock \url{https://developer.nvidia.com/warp-python}.
-
-\bibitem{warpgithub}
-NVIDIA.
-\newblock NVIDIA Warp source repository.
-\newblock \url{https://github.com/NVIDIA/warp}.
+\newblock Software documentation, 2026.
 
 \bibitem{gym2016}
 G. Brockman, V. Cheung, L. Pettersson, J. Schneider, J. Schulman, J. Tang, and W. Zaremba.
@@ -263,7 +289,7 @@ E. Todorov, T. Erez, and Y. Tassa.
 \bibitem{coumans2021bullet}
 E. Coumans and Y. Bai.
 \newblock PyBullet, a Python module for physics simulation for games, robotics and machine learning.
-\newblock \url{https://pybullet.org/}, 2021.
+\newblock Software reference, 2021.
 
 \end{thebibliography}
 
