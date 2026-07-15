@@ -178,9 +178,10 @@ def _validate_int(value: object, field: str, manifest_path: Path) -> None:
         raise ValueError(f"split manifest {manifest_path} {field} must be an integer")
 
 
-def _validate_split_count(value: object, field: str, manifest_path: Path) -> None:
+def _validated_split_count(value: object, field: str, manifest_path: Path) -> int:
     if not _is_int_count(value):
         raise ValueError(f"split manifest {manifest_path} {field} must be a non-negative integer")
+    return cast(int, value)
 
 
 def _validate_count_map(value: object, field: str, manifest_path: Path) -> None:
@@ -214,8 +215,8 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
     for field in ("source_index", "out_dir", "group_by"):
         _validate_string(raw.get(field), field, manifest_path)
     _validate_int(raw.get("seed"), "seed", manifest_path)
-    _validate_split_count(raw.get("records"), "records", manifest_path)
-    _validate_split_count(raw.get("episodes"), "episodes", manifest_path)
+    total_records = _validated_split_count(raw.get("records"), "records", manifest_path)
+    total_episodes = _validated_split_count(raw.get("episodes"), "episodes", manifest_path)
 
     stratify_obj = raw.get("stratify")
     if not isinstance(stratify_obj, list) or any(not isinstance(field, str) for field in stratify_obj):
@@ -224,6 +225,7 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
     if not isinstance(assignments_obj, dict):
         raise ValueError(f"split manifest {manifest_path} assignments must be an object")
     assignment_counts: Counter[SplitName] = Counter()
+    # JSON object parsing leaves one value per group key; validate that parsed map.
     for group, split_value in assignments_obj.items():
         if not isinstance(group, str):
             raise ValueError(f"split manifest {manifest_path} assignments must map strings to train, val, or test")
@@ -250,13 +252,14 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
         summary = splits_obj[split]
         if not isinstance(summary, dict):
             raise ValueError(f"split manifest {manifest_path} split {split!r} summary must be an object")
-        for field in ("records", "episodes"):
-            if not _is_int_count(summary.get(field)):
-                raise ValueError(f"split manifest {manifest_path} split {split!r} {field} must be a non-negative integer")
+        summary_records = _validated_split_count(
+            summary.get("records"), f"split {split!r} records", manifest_path
+        )
+        summary_episodes = _validated_split_count(
+            summary.get("episodes"), f"split {split!r} episodes", manifest_path
+        )
         _validate_count_map(summary.get("labels"), f"split {split!r} labels", manifest_path)
         _validate_count_map(summary.get("modalities"), f"split {split!r} modalities", manifest_path)
-        summary_records = cast(int, summary["records"])
-        summary_episodes = cast(int, summary["episodes"])
         split_record_total += summary_records
         split_episode_total += summary_episodes
         if assignment_counts[split] != summary_episodes:
@@ -268,9 +271,9 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
     # ``set(ratios_obj)`` was validated above, so every split name is present here.
     if ratio_total == 0.0:
         raise ValueError(f"split manifest {manifest_path} ratios must include at least one positive value")
-    if split_record_total != raw["records"]:
+    if split_record_total != total_records:
         raise ValueError(f"split manifest {manifest_path} split record counts do not match records")
-    if split_episode_total != raw["episodes"]:
+    if split_episode_total != total_episodes:
         raise ValueError(f"split manifest {manifest_path} split episode counts do not match episodes")
     return cast(SplitManifest, raw)
 
