@@ -19,7 +19,7 @@ dependencies = ["numpy>=1.24"]
 # do not write an engine). Newton has no stable PyPI release yet and is pre-1.0,
 # so install the exact commit our SolverVBD fork is validated against.
 solver = [
-  "warp-lang==1.14.0",
+  "warp-lang==1.15.0",
   "newton @ git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7",
 ]
 gym = ["gymnasium>=0.29"]         # M5: register the nav envs for gymnasium.make
@@ -28,7 +28,7 @@ dev = [
   "pytest>=7",
   "ruff>=0.5",
   "gymnasium>=0.29",
-  "warp-lang==1.14.0",
+  "warp-lang==1.15.0",
   "newton @ git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7",
 ]
 
