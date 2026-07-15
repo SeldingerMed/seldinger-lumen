@@ -2,9 +2,40 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 from pathlib import Path
 
 import numpy as np
+
+
+def _write_json_manifest(out: Path, manifest: dict) -> dict:
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
+
+
+def _write_demo_failure_manifest(
+    out: Path,
+    *,
+    scene: str,
+    steps: int,
+    seed: int,
+    size: int,
+    problems: list[str],
+    navigation: dict | None = None,
+) -> dict:
+    return _write_json_manifest(out, {
+        "ok": False,
+        "scene": scene,
+        "steps_requested": int(steps),
+        "seed": int(seed),
+        "size": int(size),
+        "navigation": navigation or {},
+        "checks": {},
+        "media": {},
+        "problems": problems,
+    })
 
 
 def render_fluoro_example(out="fluoro.png") -> None:
@@ -33,6 +64,147 @@ def render_fluoro_example(out="fluoro.png") -> None:
     tip = (tip[0], views[0]["image"].shape[0] - 1 - tip[1])
     print(f"wrote {out}, {stem}_lateral.png, masks, and {stem}_biplanar.avi; "
           f"tip keypoint view0=({tip[0]:.1f}, {tip[1]:.1f})")
+
+
+def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
+                        steps: int = 60, size: int = 480, seed: int = 0) -> dict:
+    """Write a compact demo media bundle and manifest.
+
+    This intentionally composes existing first-run renderers instead of carrying a
+    separate social-video renderer. The output is enough for a quick launch clip:
+    a navigation animation/poster, AP and lateral synthetic fluoro frames, device
+    and vessel masks, a two-frame biplanar AVI, and a manifest with the navigation
+    safety metrics needed to describe what was generated.
+    ``out_dir`` is caller-selected and may be relative or absolute.
+    """
+    from lumen.viz import play
+
+    valid_scenes = {"tube", "stenotic", "tree"}
+    if scene not in valid_scenes:
+        raise ValueError(f"scene must be one of {sorted(valid_scenes)}, got {scene!r}")
+    if steps <= 0:
+        raise ValueError(f"steps must be positive, got {steps}")
+    if size <= 0:
+        raise ValueError(f"size must be positive, got {size}")
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        nav = play(scene=scene, policy="forward", steps=steps, seed=seed,
+                   size=size, out=str(out / "navigation"))
+    except Exception as exc:
+        return _write_demo_failure_manifest(
+            out,
+            scene=scene,
+            steps=steps,
+            seed=seed,
+            size=size,
+            problems=[f"navigation render failed: {type(exc).__name__}: {exc}"],
+        )
+    fluoro_stdout = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(fluoro_stdout):
+            render_fluoro_example(str(out / "fluoro.png"))
+    except Exception as exc:
+        problems = [f"fluoro render failed: {type(exc).__name__}: {exc}"]
+        captured = fluoro_stdout.getvalue().strip()
+        if captured:
+            problems.append(f"fluoro output before failure: {captured}")
+        return _write_demo_failure_manifest(
+            out,
+            scene=scene,
+            steps=steps,
+            seed=seed,
+            size=size,
+            navigation=nav,
+            problems=problems,
+        )
+    files = {
+        "navigation_video": out / "navigation.avi",
+        "navigation_poster": out / "navigation.png",
+        "fluoro_ap": out / "fluoro.png",
+        "fluoro_lateral": out / "fluoro_lateral.png",
+        "device_mask": out / "fluoro_device_mask.png",
+        "vessel_mask": out / "fluoro_vessel_mask.png",
+        "biplanar_video": out / "fluoro_biplanar.avi",
+    }
+    checks = {name: _file_exists_nonempty(path) for name, path in files.items()}
+    manifest = {
+        "ok": bool(all(checks.values()) and nav.get("safe", False)),
+        "scene": scene,
+        "steps_requested": int(steps),
+        "seed": int(seed),
+        "size": int(size),
+        "navigation": nav,
+        "checks": checks,
+        "media": {name: path.name for name, path in files.items()},
+    }
+    return _write_json_manifest(out, manifest)
+
+
+def _file_exists_nonempty(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _manifest_media_path(root: Path, rel: str | Path) -> Path | None:
+    rel_path = Path(str(rel))
+    if rel_path.is_absolute():
+        return None
+    path = root / rel_path
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    return path
+
+
+def verify_demo_package(demo_dir="lumen_demo") -> dict:
+    """Verify a demo bundle written by :func:`render_demo_package`."""
+    root = Path(demo_dir)
+    manifest_path = root / "manifest.json"
+    problems: list[str] = []
+    if not manifest_path.is_file():
+        return {"ok": False, "problems": [f"missing {manifest_path}"], "checks": {}}
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError as e:
+        return {
+            "ok": False,
+            "problems": [f"invalid JSON in {manifest_path}: {e}"],
+            "checks": {},
+            "manifest": str(manifest_path),
+        }
+    media = manifest.get("media", {})
+    if not isinstance(media, dict):
+        problems.append("manifest media is not an object")
+        media = {}
+    checks = {}
+    for name, rel in sorted(media.items()):
+        path = _manifest_media_path(root, rel)
+        if path is None:
+            checks[name] = False
+            problems.append(f"unsafe media path in manifest: {rel}")
+            continue
+        ok = _file_exists_nonempty(path)
+        checks[name] = ok
+        if not ok:
+            problems.append(f"missing or empty media: {rel}")
+    nav = manifest.get("navigation", {})
+    if not isinstance(nav, dict):
+        problems.append("manifest navigation summary is not an object")
+    elif not nav.get("safe", False):
+        problems.append("navigation rollout is not marked safe")
+    if not manifest.get("ok", False):
+        problems.append("manifest ok flag is false")
+    return {
+        "ok": not problems,
+        "problems": problems,
+        "checks": checks,
+        "manifest": str(manifest_path),
+    }
 
 
 def _display01(frame):

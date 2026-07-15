@@ -21,6 +21,8 @@ EXPECTED_CONSOLE_SCRIPTS = {
     "lumen-doctor": "lumen.cli:doctor_main",
     "lumen-benchmark": "lumen.cli:benchmark_main",
     "lumen-play": "lumen.cli:play_main",
+    "lumen-demo": "lumen.cli:demo_main",
+    "lumen-verify-demo": "lumen.cli:verify_demo_main",
     "lumen-train": "lumen.cli:train_main",
     "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
     "lumen-capture": "lumen.cli:capture_main",
@@ -193,6 +195,211 @@ def test_umbrella_cli_subcommand_help_uses_subcommand_prog(capsys):
     out = capsys.readouterr().out
     assert "usage: lumen index" in out
     assert "--check-sidecars" in out
+
+
+def test_demo_cli_help_mentions_manifest(capsys):
+    from lumen.cli import main
+
+    with pytest.raises(SystemExit) as seen:
+        main(["demo", "--help"])
+
+    assert seen.value.code == 0
+    out = capsys.readouterr().out
+    assert "usage: lumen demo" in out
+    assert "manifest.json" in out
+
+
+def test_demo_cli_writes_manifest_and_media(tmp_path, capsys):
+    from lumen.cli import main
+
+    out = tmp_path / "demo"
+    main(["demo", str(out), "--scene", "tube", "--steps", "2", "--size", "96"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["scene"] == "tube"
+    assert payload["checks"]["navigation_video"]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["media"]["navigation_video"] == "navigation.avi"
+    assert set(manifest["media"]) == {
+        "biplanar_video",
+        "device_mask",
+        "fluoro_ap",
+        "fluoro_lateral",
+        "navigation_poster",
+        "navigation_video",
+        "vessel_mask",
+    }
+    for rel in manifest["media"].values():
+        path = out / rel
+        assert path.is_file()
+        assert path.stat().st_size > 0
+
+
+def test_render_demo_package_reports_navigation_failure(monkeypatch, tmp_path):
+    import lumen.viz
+    from lumen import workflows
+
+    def fail_play(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(lumen.viz, "play", fail_play)
+
+    manifest = workflows.render_demo_package(tmp_path / "demo", steps=1, size=32)
+
+    assert not manifest["ok"]
+    assert manifest["checks"] == {}
+    assert "navigation render failed: RuntimeError: boom" in manifest["problems"]
+    assert json.loads((tmp_path / "demo" / "manifest.json").read_text()) == manifest
+
+
+def test_render_demo_package_reports_fluoro_failure(monkeypatch, tmp_path):
+    import lumen.viz
+    from lumen import workflows
+
+    def fake_play(**kwargs):
+        stem = tmp_path / "demo" / "navigation"
+        stem.with_suffix(".avi").write_bytes(b"avi")
+        stem.with_suffix(".png").write_bytes(b"png")
+        return {"scene": kwargs["scene"], "safe": True}
+
+    def fail_fluoro(_out):
+        print("started fluoro")
+        raise RuntimeError("fluoro boom")
+
+    monkeypatch.setattr(lumen.viz, "play", fake_play)
+    monkeypatch.setattr(workflows, "render_fluoro_example", fail_fluoro)
+
+    manifest = workflows.render_demo_package(tmp_path / "demo", steps=1, size=32)
+
+    assert not manifest["ok"]
+    assert manifest["checks"] == {}
+    assert "fluoro render failed: RuntimeError: fluoro boom" in manifest["problems"]
+    assert "fluoro output before failure: started fluoro" in manifest["problems"]
+    assert json.loads((tmp_path / "demo" / "manifest.json").read_text()) == manifest
+
+
+def test_render_demo_package_handles_navigation_without_safe(monkeypatch, tmp_path):
+    import lumen.viz
+    from lumen import workflows
+
+    def fake_play(**kwargs):
+        stem = tmp_path / "demo" / "navigation"
+        stem.with_suffix(".avi").write_bytes(b"avi")
+        stem.with_suffix(".png").write_bytes(b"png")
+        return {"scene": kwargs["scene"]}
+
+    def fake_fluoro(out):
+        out = tmp_path / "demo" / "fluoro.png"
+        out.write_bytes(b"ap")
+        for name in (
+            "fluoro_lateral.png",
+            "fluoro_device_mask.png",
+            "fluoro_vessel_mask.png",
+            "fluoro_biplanar.avi",
+        ):
+            (tmp_path / "demo" / name).write_bytes(b"media")
+
+    monkeypatch.setattr(lumen.viz, "play", fake_play)
+    monkeypatch.setattr(workflows, "render_fluoro_example", fake_fluoro)
+
+    manifest = workflows.render_demo_package(tmp_path / "demo", steps=1, size=32)
+
+    assert not manifest["ok"]
+    assert manifest["navigation"] == {"scene": "stenotic"}
+    assert all(manifest["checks"].values())
+
+
+def test_render_demo_package_rejects_invalid_direct_args(tmp_path):
+    from lumen import workflows
+
+    with pytest.raises(ValueError, match="scene must be one of"):
+        workflows.render_demo_package(tmp_path / "demo", scene="bad")
+    with pytest.raises(ValueError, match="steps must be positive"):
+        workflows.render_demo_package(tmp_path / "demo", steps=0)
+    with pytest.raises(ValueError, match="size must be positive"):
+        workflows.render_demo_package(tmp_path / "demo", size=0)
+
+
+def test_verify_demo_cli_accepts_generated_bundle(tmp_path, capsys):
+    from lumen.cli import main
+
+    out = tmp_path / "demo"
+    main(["demo", str(out), "--scene", "tube", "--steps", "2", "--size", "96"])
+    capsys.readouterr()
+
+    main(["verify-demo", str(out)])
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"]
+    assert not report["problems"]
+
+
+def test_verify_demo_cli_fails_missing_manifest(tmp_path, capsys):
+    from lumen.cli import main
+
+    with pytest.raises(SystemExit) as seen:
+        main(["verify-demo", str(tmp_path / "missing")])
+
+    assert seen.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ok"]
+    assert "missing" in report["problems"][0]
+
+
+def test_verify_demo_cli_reports_invalid_manifest_json(tmp_path, capsys):
+    from lumen.cli import main
+
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    (demo / "manifest.json").write_text("{not json")
+
+    with pytest.raises(SystemExit) as seen:
+        main(["verify-demo", str(demo)])
+
+    assert seen.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ok"]
+    assert "invalid JSON" in report["problems"][0]
+
+
+def test_verify_demo_cli_rejects_non_object_manifest_media(tmp_path, capsys):
+    from lumen.cli import main
+
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    (demo / "manifest.json").write_text(json.dumps({
+        "ok": True,
+        "navigation": {"safe": True},
+        "media": ["fluoro.png"],
+    }))
+
+    with pytest.raises(SystemExit) as seen:
+        main(["verify-demo", str(demo)])
+
+    assert seen.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ok"]
+    assert "manifest media is not an object" in report["problems"]
+
+
+def test_verify_demo_cli_rejects_manifest_media_path_escape(tmp_path, capsys):
+    from lumen.cli import main
+
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    (demo / "manifest.json").write_text(json.dumps({
+        "ok": True,
+        "navigation": {"safe": True},
+        "media": {"outside": "../secret.txt"},
+    }))
+    (tmp_path / "secret.txt").write_text("not demo media")
+
+    with pytest.raises(SystemExit) as seen:
+        main(["verify-demo", str(demo)])
+
+    assert seen.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ok"]
+    assert "unsafe media path" in report["problems"][0]
 
 
 def test_import_mask_cli_exports_lumen_asset(tmp_path, capsys):
