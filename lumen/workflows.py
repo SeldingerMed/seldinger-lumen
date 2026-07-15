@@ -10,6 +10,11 @@ from pathlib import Path
 import numpy as np
 
 
+def _write_json_manifest(out: Path, manifest: dict) -> dict:
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
+
+
 def render_fluoro_example(out="fluoro.png") -> None:
     """Render the canonical biplanar fluoro demo and write preview artifacts."""
     from lumen.sensors import FluoroSensor, write_avi, write_png
@@ -46,8 +51,17 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
     separate social-video renderer. The output is enough for a quick launch clip:
     a navigation animation/poster, a synthetic fluoro frame/masks, and a manifest
     with the navigation safety metrics needed to describe what was generated.
+    ``out_dir`` is caller-selected and may be relative or absolute.
     """
     from lumen.viz import play
+
+    valid_scenes = {"tube", "stenotic", "tree"}
+    if scene not in valid_scenes:
+        raise ValueError(f"scene must be one of {sorted(valid_scenes)}, got {scene!r}")
+    if steps <= 0:
+        raise ValueError(f"steps must be positive, got {steps}")
+    if size <= 0:
+        raise ValueError(f"size must be positive, got {size}")
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -66,10 +80,28 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
             "media": {},
             "problems": [f"navigation render failed: {type(exc).__name__}: {exc}"],
         }
-        (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-        return manifest
-    with contextlib.redirect_stdout(io.StringIO()):
-        render_fluoro_example(str(out / "fluoro.png"))
+        return _write_json_manifest(out, manifest)
+    fluoro_stdout = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(fluoro_stdout):
+            render_fluoro_example(str(out / "fluoro.png"))
+    except Exception as exc:
+        problems = [f"fluoro render failed: {type(exc).__name__}: {exc}"]
+        captured = fluoro_stdout.getvalue().strip()
+        if captured:
+            problems.append(f"fluoro output before failure: {captured}")
+        manifest = {
+            "ok": False,
+            "scene": scene,
+            "steps_requested": int(steps),
+            "seed": int(seed),
+            "size": int(size),
+            "navigation": nav,
+            "checks": {},
+            "media": {},
+            "problems": problems,
+        }
+        return _write_json_manifest(out, manifest)
     files = {
         "navigation_video": out / "navigation.avi",
         "navigation_poster": out / "navigation.png",
@@ -90,8 +122,7 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
         "checks": checks,
         "media": {name: path.name for name, path in files.items()},
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    return manifest
+    return _write_json_manifest(out, manifest)
 
 
 def _file_exists_nonempty(path: Path) -> bool:

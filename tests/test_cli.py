@@ -252,6 +252,32 @@ def test_render_demo_package_reports_navigation_failure(monkeypatch, tmp_path):
     assert json.loads((tmp_path / "demo" / "manifest.json").read_text()) == manifest
 
 
+def test_render_demo_package_reports_fluoro_failure(monkeypatch, tmp_path):
+    import lumen.viz
+    from lumen import workflows
+
+    def fake_play(**kwargs):
+        stem = tmp_path / "demo" / "navigation"
+        stem.with_suffix(".avi").write_bytes(b"avi")
+        stem.with_suffix(".png").write_bytes(b"png")
+        return {"scene": kwargs["scene"], "safe": True}
+
+    def fail_fluoro(_out):
+        print("started fluoro")
+        raise RuntimeError("fluoro boom")
+
+    monkeypatch.setattr(lumen.viz, "play", fake_play)
+    monkeypatch.setattr(workflows, "render_fluoro_example", fail_fluoro)
+
+    manifest = workflows.render_demo_package(tmp_path / "demo", steps=1, size=32)
+
+    assert not manifest["ok"]
+    assert manifest["checks"] == {}
+    assert "fluoro render failed: RuntimeError: fluoro boom" in manifest["problems"]
+    assert "fluoro output before failure: started fluoro" in manifest["problems"]
+    assert json.loads((tmp_path / "demo" / "manifest.json").read_text()) == manifest
+
+
 def test_render_demo_package_handles_navigation_without_safe(monkeypatch, tmp_path):
     import lumen.viz
     from lumen import workflows
@@ -281,6 +307,17 @@ def test_render_demo_package_handles_navigation_without_safe(monkeypatch, tmp_pa
     assert not manifest["ok"]
     assert manifest["navigation"] == {"scene": "stenotic"}
     assert all(manifest["checks"].values())
+
+
+def test_render_demo_package_rejects_invalid_direct_args(tmp_path):
+    from lumen import workflows
+
+    with pytest.raises(ValueError, match="scene must be one of"):
+        workflows.render_demo_package(tmp_path / "demo", scene="bad")
+    with pytest.raises(ValueError, match="steps must be positive"):
+        workflows.render_demo_package(tmp_path / "demo", steps=0)
+    with pytest.raises(ValueError, match="size must be positive"):
+        workflows.render_demo_package(tmp_path / "demo", size=0)
 
 
 def test_verify_demo_cli_accepts_generated_bundle(tmp_path, capsys):
