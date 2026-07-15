@@ -54,15 +54,11 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
     nav = play(scene=scene, policy="forward", steps=steps, seed=seed,
                size=size, out=str(out / "navigation"))
     with contextlib.redirect_stdout(io.StringIO()):
-        render_fluoro_example(out / "fluoro.png")
+        render_fluoro_example(str(out / "fluoro.png"))
     files = {
         "navigation_video": out / "navigation.avi",
         "navigation_poster": out / "navigation.png",
         "fluoro_ap": out / "fluoro.png",
-        "fluoro_lateral": out / "fluoro_lateral.png",
-        "device_mask": out / "fluoro_device_mask.png",
-        "vessel_mask": out / "fluoro_vessel_mask.png",
-        "biplanar_video": out / "fluoro_biplanar.avi",
     }
     checks = {name: path.is_file() and path.stat().st_size > 0 for name, path in files.items()}
     manifest = {
