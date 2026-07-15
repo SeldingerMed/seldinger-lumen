@@ -15,6 +15,29 @@ def _write_json_manifest(out: Path, manifest: dict) -> dict:
     return manifest
 
 
+def _write_demo_failure_manifest(
+    out: Path,
+    *,
+    scene: str,
+    steps: int,
+    seed: int,
+    size: int,
+    problems: list[str],
+    navigation: dict | None = None,
+) -> dict:
+    return _write_json_manifest(out, {
+        "ok": False,
+        "scene": scene,
+        "steps_requested": int(steps),
+        "seed": int(seed),
+        "size": int(size),
+        "navigation": navigation or {},
+        "checks": {},
+        "media": {},
+        "problems": problems,
+    })
+
+
 def render_fluoro_example(out="fluoro.png") -> None:
     """Render the canonical biplanar fluoro demo and write preview artifacts."""
     from lumen.sensors import FluoroSensor, write_avi, write_png
@@ -49,8 +72,9 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
 
     This intentionally composes existing first-run renderers instead of carrying a
     separate social-video renderer. The output is enough for a quick launch clip:
-    a navigation animation/poster, a synthetic fluoro frame/masks, and a manifest
-    with the navigation safety metrics needed to describe what was generated.
+    a navigation animation/poster, AP and lateral synthetic fluoro frames, device
+    and vessel masks, a two-frame biplanar AVI, and a manifest with the navigation
+    safety metrics needed to describe what was generated.
     ``out_dir`` is caller-selected and may be relative or absolute.
     """
     from lumen.viz import play
@@ -69,18 +93,14 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
         nav = play(scene=scene, policy="forward", steps=steps, seed=seed,
                    size=size, out=str(out / "navigation"))
     except Exception as exc:
-        manifest = {
-            "ok": False,
-            "scene": scene,
-            "steps_requested": int(steps),
-            "seed": int(seed),
-            "size": int(size),
-            "navigation": {},
-            "checks": {},
-            "media": {},
-            "problems": [f"navigation render failed: {type(exc).__name__}: {exc}"],
-        }
-        return _write_json_manifest(out, manifest)
+        return _write_demo_failure_manifest(
+            out,
+            scene=scene,
+            steps=steps,
+            seed=seed,
+            size=size,
+            problems=[f"navigation render failed: {type(exc).__name__}: {exc}"],
+        )
     fluoro_stdout = io.StringIO()
     try:
         with contextlib.redirect_stdout(fluoro_stdout):
@@ -90,18 +110,15 @@ def render_demo_package(out_dir="lumen_demo", *, scene: str = "stenotic",
         captured = fluoro_stdout.getvalue().strip()
         if captured:
             problems.append(f"fluoro output before failure: {captured}")
-        manifest = {
-            "ok": False,
-            "scene": scene,
-            "steps_requested": int(steps),
-            "seed": int(seed),
-            "size": int(size),
-            "navigation": nav,
-            "checks": {},
-            "media": {},
-            "problems": problems,
-        }
-        return _write_json_manifest(out, manifest)
+        return _write_demo_failure_manifest(
+            out,
+            scene=scene,
+            steps=steps,
+            seed=seed,
+            size=size,
+            navigation=nav,
+            problems=problems,
+        )
     files = {
         "navigation_video": out / "navigation.avi",
         "navigation_poster": out / "navigation.png",
