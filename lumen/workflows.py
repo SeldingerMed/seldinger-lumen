@@ -134,7 +134,7 @@ def _file_exists_nonempty(path: Path) -> bool:
 
 def _manifest_media_path(root: Path, rel: str | Path) -> Path | None:
     rel_path = Path(str(rel))
-    if rel_path.is_absolute() or ".." in rel_path.parts:
+    if rel_path.is_absolute():
         return None
     path = root / rel_path
     try:
