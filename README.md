@@ -1,31 +1,13 @@
 # Lumen
 
-**Open, differentiable, GPU-parallel simulation for endovascular AI.**
+**Open, differentiable, GPU-parallel simulation for wall-safe endovascular AI.**
 
-Lumen is an Apache-2.0 research environment for training and evaluating agents that
-navigate slender devices through deformable vascular anatomy. It combines a
-Newton/Warp physics backend, tube-intrinsic contact, an anisotropic deformable wall,
-synthetic fluoroscopy, CV labels, Gymnasium environments, and a safety-scored RL
-benchmark in one public stack.
+Lumen is an Apache-2.0 research environment for training and evaluating agents that navigate slender devices through deformable vascular anatomy. It combines Newton/Warp-backed simulation, tube-intrinsic contact, synthetic fluoroscopy, luminal RGB, CV labels, replayable datasets, Gymnasium environments, and benchmark scoring that ranks safe target reach above raw reach.
 
-**Launch page, demo video, and preprint:**
+Launch page, demo video, screenshots, and preprint:
 https://seldingermed.github.io/seldinger-lumen/
 
-![Lumen launch card](docs/assets/launch/social-card.png)
-
-## Why It Exists
-
-Most open catheter RL environments make target-reaching easy to score and wall safety
-hard to see. Lumen treats the clinically relevant pieces as first-class:
-
-- deformable HGO-style vessel wall, not a rigid pipe;
-- implicit tube-intrinsic contact on NVIDIA Newton/Warp;
-- torsion, anisotropic friction, flow, and clot interaction hooks;
-- synthetic fluoroscopy with masks, keypoints, node positions, and labels;
-- replayable case bundles and dataloader indexes;
-- benchmark rankings that prefer safe success over raw success.
-
-Solver feature coverage is tracked in `docs/SOLVER_SUPPORT.md`.
+![Lumen launch still](docs/assets/launch/social-card.png)
 
 ## Install
 
@@ -48,7 +30,7 @@ lumen index lumen-episodes --out lumen-episodes/index.jsonl --check-sidecars
 lumen split-index lumen-episodes/index.jsonl --out-dir lumen-episodes/splits
 ```
 
-The package also registers Gymnasium environments:
+## Python API
 
 ```python
 import gymnasium as gym
@@ -59,19 +41,17 @@ obs, info = env.reset()
 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
 
-## Demo
+## What Is Included
 
-<p align="center">
-  <img src="docs/assets/demo/nav_bifurcation.gif" width="360" alt="Lumen schematic branch navigation">
-  <img src="docs/assets/demo/fluoro_bifurcation.gif" width="360" alt="Lumen synthetic fluoroscopy branch navigation">
-</p>
+- Procedural stenotic, tortuous, and branching vascular cases.
+- Tube-intrinsic contact with wall penetration and safety status.
+- Synthetic fluoroscopy, masks, keypoints, detector noise, and luminal RGB.
+- Flow-diverter, aneurysm-inflow, clot, retrieval, and fragmentation modules.
+- Dataset capture, validation, indexing, splitting, and materialization tooling.
 
-The left view is the control/debug view. The right view is the synthetic fluoroscopy
-stream used by image-observation policies and CV data tooling.
+Solver feature coverage is tracked in [docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md).
 
 ## Citation
-
-If Lumen is useful in your work, cite the launch preprint:
 
 ```bibtex
 @software{son_lumen_2026,

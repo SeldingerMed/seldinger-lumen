@@ -1,168 +1,90 @@
-# Lumen Launch Social Copy
+# Lumen Launch Social Drafts
 
-Primary URL: https://seldingermed.github.io/seldinger-lumen/
+Use the real screenshots and video from `docs/assets/launch/`. Recommended attachments:
 
-Repository: https://github.com/SeldingerMed/seldinger-lumen
+- X/LinkedIn: `social-card.png` or `lumen-launch.mp4`
+- Reddit/Discord: `sensor-layer.png`, `physics-layer.png`, and `lumen-launch.mp4`
+- Square preview: `social-card-square.png`
 
-Suggested media:
-- `social-card.png` for X/LinkedIn/Reddit link cards
-- `social-card-square.png` for Discord/LinkedIn image posts
-- `lumen-launch.mp4` for launch posts and pinned replies
-- `lumen-preprint.pdf` for research communities
+## X
 
-## X / Twitter
+Post 1:
 
-### Main Launch Post
+> Launching Lumen: an open, Apache-2.0 environment for wall-safe endovascular AI.
+>
+> It brings deformable vascular anatomy, tube-intrinsic contact, synthetic fluoroscopy, luminal RGB, masks/keypoints, replayable datasets, and Gymnasium RL benchmarks into one public stack.
+>
+> Repo: https://github.com/SeldingerMed/seldinger-lumen
+> Page: https://seldingermed.github.io/seldinger-lumen/
 
-I’m launching Lumen: an open, differentiable, GPU-parallel simulator for endovascular AI.
+Post 2:
 
-It gives RL/CV researchers:
-- deformable vessel-wall physics
-- Newton/Warp simulation
-- synthetic fluoroscopy + masks/keypoints
-- Gymnasium envs
-- safety-scored benchmarks
-- replayable dataset tooling
+> The benchmark target is not just "reach the branch."
+>
+> In Lumen, safe target reach is distinct from target reach with unsafe wall interaction. The simulator emits route progress, wall penetration, safety status, fluoroscopy, masks, keypoints, and replay metadata from the same scene.
+>
+> https://github.com/SeldingerMed/seldinger-lumen
 
-Repo + demo + preprint:
-https://seldingermed.github.io/seldinger-lumen/
+Post 3:
 
-### Thread
-
-1. Lumen is live.
-
-Open, Apache-2.0 simulation for endovascular AI: guidewires, deformable lumens, synthetic fluoro, RL benchmarks, and CV labels in one stack.
-
-https://seldingermed.github.io/seldinger-lumen/
-
-2. The key idea: reaching the target is not enough.
-
-Endovascular agents should not win by scraping through the vessel wall. Lumen reports safe success, unsafe success, wall penetration, and return, then ranks safe success first.
-
-3. It is built around a deformable lumen field, not just a rigid pipe.
-
-The wall is part of the simulation state. Contact, wall displacement, and safety metrics all refer to the same physical geometry.
-
-4. It is also a CV data generator.
-
-Lumen renders synthetic fluoroscopy with device masks, vessel masks, tip/base keypoints, node positions, and replayable case bundles.
-
-5. The workflow is meant to be boring in a good way:
-
-`lumen play`
-`lumen benchmark`
-`lumen capture`
-`lumen validate`
-`lumen index`
-`lumen split-index`
-`lumen materialize-batch`
-
-6. CathSim helped make open endovascular RL concrete. Lumen pushes the open surface toward deformable-wall physics, differentiability, safety scoring, and dataset-grade CV artifacts.
-
-7. Preprint, demo video, and repo:
-https://seldingermed.github.io/seldinger-lumen/
-
-### Short Follow-Up Posts
-
-Lumen’s benchmark ranks safe target reach above raw target reach.
-
-That sounds obvious, but it changes the incentives: an agent that reaches the branch by violating wall safety does not get treated as a clean success.
-
-Lumen is open-source endovascular simulation for people who need more than a Gym wrapper:
-
-deformable wall, contact mechanics, synthetic fluoro, masks/keypoints, replayable episodes, and safety-scored RL.
+> Lumen goes beyond rigid-pipe catheter tasks:
+>
+> - deformable-wall semantics
+> - tube-intrinsic contact
+> - synthetic biplanar fluoro
+> - luminal RGB
+> - dataset capture/validation/indexing
+> - clot, aneurysm, flow-diverter, retrieval state
+>
+> Open repo + preprint:
+> https://seldingermed.github.io/seldinger-lumen/
 
 ## Discord
 
-I just launched Lumen, an open Apache-2.0 simulator for endovascular AI:
-https://seldingermed.github.io/seldinger-lumen/
+Short:
 
-It is built for RL/CV work around guidewire/catheter navigation:
-- differentiable Newton/Warp physics
-- deformable vessel wall
-- tube-intrinsic contact
-- synthetic fluoroscopy
-- masks/keypoints/node labels
-- Gymnasium envs
-- safety-scored benchmark
-- replayable dataset tooling
+> I launched Lumen, an open Apache-2.0 simulator for endovascular AI. It is built around wall-safe navigation rather than simple target reach: deformable vascular cases, tube-intrinsic contact, synthetic fluoro, masks/keypoints, luminal RGB, replayable datasets, and Gymnasium benchmarks.
+>
+> Repo: https://github.com/SeldingerMed/seldinger-lumen
+> Launch page/video/preprint: https://seldingermed.github.io/seldinger-lumen/
 
-The main difference from rigid-pipe catheter tasks is that Lumen makes wall safety part of the score, not a side note. A target reach that crosses the wall-safety threshold is reported as unsafe success.
+Technical:
 
-Preprint and demo video are on the page.
+> Lumen is meant to be a stronger open benchmark substrate for autonomous endovascular navigation. The current release includes procedural stenotic/tortuous/branching vessels, wall-penetration and safe-success metrics, synthetic fluoro with CV labels, luminal RGB, replayable episode capture, and reduced-order modules for aneurysm inflow, flow diversion, clot, stentriever retrieval, and fragmentation.
+>
+> The important distinction: a policy that reaches the target after unsafe wall interaction is not scored as the same thing as safe target reach.
 
 ## Reddit
 
-Suggested title:
+Title options:
 
-Open-source differentiable simulator for endovascular AI: deformable vessel wall, synthetic fluoro, safety-scored RL
+- Lumen: open-source wall-safe endovascular RL environment
+- Launching Lumen, an Apache-2.0 simulator for endovascular AI
+- Open simulator for endovascular navigation with safety scoring, fluoro, and CV labels
 
-Suggested body:
+Body:
 
-I’m releasing Lumen, an Apache-2.0 simulator for endovascular AI research:
-https://github.com/SeldingerMed/seldinger-lumen
+> I just launched Lumen, an Apache-2.0 environment for endovascular AI research.
+>
+> The goal is to make endovascular navigation trainable as a safety-scored benchmark rather than a simple target-reaching task. Lumen includes procedural vascular cases, tube-intrinsic contact, wall-penetration metrics, safe-success scoring, synthetic fluoroscopy, masks/keypoints, luminal RGB, dataset capture/validation/indexing, and Gymnasium environments.
+>
+> It also includes advanced state modules for aneurysm inflow, flow diversion, clot fields, stentriever retrieval, and fragmentation.
+>
+> Repo: https://github.com/SeldingerMed/seldinger-lumen
+> Launch page/video/preprint: https://seldingermed.github.io/seldinger-lumen/
+>
+> I would be especially interested in feedback from people working on robotic endovascular navigation, medical simulation, synthetic fluoro/CV data, or RL benchmark design.
 
-Launch page + preprint + demo:
-https://seldingermed.github.io/seldinger-lumen/
+## Reply Starters
 
-The goal is to give RL/CV researchers a stronger open substrate for guidewire/catheter navigation than target-reaching in rigid tubes.
+For "How is this different from CathSim?":
 
-What is included:
-- differentiable Newton/Warp physics
-- deformable HGO-style vessel wall
-- tube-intrinsic contact
-- synthetic fluoroscopy
-- masks, keypoints, device nodes, and replayable case bundles
-- Gymnasium environments
-- benchmark scoring that separates safe success from unsafe success
-- dataset tooling: capture, validate, index, split, materialize
+> CathSim is the key prior open simulator and helped make autonomous catheterization easier to study. Lumen is aimed at the next benchmark layer: wall-safety scoring, deformable-wall semantics, paired state/image observations, synthetic CV labels, replayable dataset tooling, and modules for aneurysm/flow/clot/device state.
 
-The benchmark ranks safe success before raw target reach, so an agent cannot “win” by reaching the target through unsafe wall interaction.
+For "Is this clinically validated?":
 
-I’d be especially interested in feedback from people working on surgical robotics, catheter navigation, sim-to-real, or medical CV datasets.
+> The launch release is a research environment and benchmark substrate. The immediate value is reproducible experimentation around wall-safe navigation, imaging observations, labels, and endovascular state modules in a public Apache-2.0 stack.
 
-## LinkedIn
+For "Can I train agents on it?":
 
-I’m launching Lumen: an open, differentiable, GPU-parallel simulator for endovascular AI.
-
-The research problem is not just “can an agent reach a point in a vessel?” It is whether it can navigate a slender device through deformable anatomy while preserving wall safety and producing image-grounded behavior that can be studied, replayed, and trained on.
-
-Lumen combines:
-- deformable vessel-wall physics
-- Newton/Warp simulation
-- tube-intrinsic contact
-- synthetic fluoroscopy
-- masks, keypoints, and node labels
-- Gymnasium environments
-- safety-scored RL benchmarks
-- replayable dataset tooling
-
-The launch package includes a preprint, demo video, and public Apache-2.0 repo:
-https://seldingermed.github.io/seldinger-lumen/
-
-## Suggested Replies
-
-### “How is this different from CathSim?”
-
-CathSim is the strongest open reference point for endovascular RL. Lumen targets a different surface: deformable-lumen physics, differentiability, safety-scored success, synthetic fluoro labels, and replayable dataset tooling in an Apache-2.0 stack.
-
-### “Is this only for vascular work?”
-
-The launch focus is endovascular because that is where the benchmark and fluoro tooling are aimed. The core abstraction is broader: a slender device moving through a deformable lumen, which also maps to airway, bowel, duct, and scope-like tasks.
-
-### “Can it generate training data?”
-
-Yes. Lumen can capture replayable case bundles, validate labels/sidecars, write JSONL dataloader indexes, split by episode to avoid leakage, and materialize strict NPZ smoke-test batches.
-
-### “What should I try first?”
-
-Start with:
-
-```bash
-pip install -e ".[dev]"
-lumen doctor
-lumen play stenotic --out lumen-run
-lumen benchmark lumen-bench
-```
-
-Then try the capture/validate/index workflow if you care about CV or imitation-learning data.
+> Yes. The environments are Gymnasium-compatible, and the CLI includes benchmark/capture/validate/index/split tooling so policies and datasets can be replayed and compared.

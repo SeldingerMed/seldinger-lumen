@@ -7,96 +7,130 @@ title: Lumen
     display: none;
   }
   .main-content {
-    max-width: 1060px;
+    max-width: 1120px;
     padding-top: 2rem;
   }
-  .lumen-hero {
-    margin: 0 0 2.2rem;
-    padding: 2.2rem 0 1rem;
+  .lumen-page {
+    --ink: #edf4f8;
+    --muted: #aebbc7;
+    --line: #344154;
+    --panel: #111720;
+    --bg: #090b10;
+    --cyan: #68d7e1;
+    --green: #70d38d;
+    color: var(--ink);
+    background:
+      linear-gradient(rgba(104, 215, 225, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(104, 215, 225, 0.045) 1px, transparent 1px),
+      var(--bg);
+    background-size: 64px 64px;
+    margin: -2rem calc(50% - 50vw) 0;
+    padding: 3.2rem max(1.4rem, calc(50vw - 560px)) 4rem;
   }
-  .lumen-eyebrow {
-    color: #d6ae32;
+  .lumen-kicker {
+    color: var(--cyan);
     font-weight: 800;
-    letter-spacing: .16em;
+    letter-spacing: .14em;
     text-transform: uppercase;
-    margin-bottom: .6rem;
+    margin-bottom: .8rem;
+  }
+  .lumen-hero {
+    display: grid;
+    grid-template-columns: minmax(0, .72fr) minmax(360px, 1fr);
+    gap: 2rem;
+    align-items: center;
   }
   .lumen-hero h1 {
-    font-size: clamp(2.4rem, 7vw, 5.2rem);
-    line-height: .96;
+    color: var(--ink);
+    font-size: clamp(2.8rem, 7vw, 5.8rem);
+    line-height: .95;
     letter-spacing: 0;
-    margin: 0 0 1rem;
-    color: #073b37;
+    margin: 0 0 1.1rem;
   }
   .lumen-lede {
-    max-width: 880px;
-    font-size: 1.2rem;
+    color: #d6dee8;
+    font-size: 1.16rem;
     line-height: 1.55;
-    color: #41504a;
+    margin: 0;
   }
   .lumen-actions {
     display: flex;
-    gap: .75rem;
     flex-wrap: wrap;
-    margin: 1.3rem 0 1.8rem;
+    gap: .75rem;
+    margin: 1.35rem 0 0;
   }
   .lumen-button {
-    display: inline-block;
+    border: 1px solid var(--line);
     border-radius: 7px;
-    padding: .78rem 1rem;
-    font-weight: 750;
-    border: 1px solid #1f6f66;
+    color: var(--ink);
+    display: inline-block;
+    font-weight: 800;
+    padding: .76rem .95rem;
   }
   .lumen-button.primary {
-    background: #0f766e;
-    color: white;
+    background: var(--cyan);
+    border-color: var(--cyan);
+    color: #071015;
   }
-  .lumen-button.secondary {
-    color: #0f5f58;
-    background: white;
+  .lumen-media {
+    border: 1px solid var(--line);
+    background: #05080c;
   }
-  .media-frame {
-    overflow: hidden;
-    border-radius: 8px;
-    border: 1px solid #d8e0dc;
-    background: #06100f;
-  }
-  .media-frame video,
-  .media-frame img {
+  .lumen-media img,
+  .lumen-media video {
     display: block;
     width: 100%;
     height: auto;
   }
-  .grid-2 {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-    align-items: start;
+  .section {
+    border-top: 1px solid var(--line);
+    margin-top: 2.6rem;
+    padding-top: 2rem;
   }
+  .section h2 {
+    color: var(--ink);
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    line-height: 1;
+    letter-spacing: 0;
+    margin: 0 0 1rem;
+  }
+  .section p,
+  .section li {
+    color: #d6dee8;
+    font-size: 1.02rem;
+    line-height: 1.55;
+  }
+  .grid-2,
   .grid-3 {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1rem;
   }
-  .callout {
-    border-left: 4px solid #0f766e;
-    padding: .75rem 1rem;
-    background: #f5faf8;
-    margin: 1rem 0;
+  .grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .metric {
+    border: 1px solid var(--line);
+    background: rgba(17, 23, 32, .82);
     padding: 1rem;
-    border: 1px solid #d8e0dc;
-    border-radius: 8px;
-    background: #ffffff;
   }
   .metric strong {
+    color: var(--green);
     display: block;
-    color: #073b37;
     font-size: 1.05rem;
-    margin-bottom: .25rem;
+    margin-bottom: .3rem;
   }
-  @media (max-width: 720px) {
+  .code-block {
+    background: #05080c;
+    border: 1px solid var(--line);
+    color: #d6dee8;
+    overflow-x: auto;
+    padding: 1rem;
+  }
+  @media (max-width: 820px) {
+    .lumen-hero,
     .grid-2,
     .grid-3 {
       grid-template-columns: 1fr;
@@ -104,121 +138,81 @@ title: Lumen
   }
 </style>
 
-<section class="lumen-hero">
-  <div class="lumen-eyebrow">Open endovascular AI simulator</div>
-  <h1>Lumen makes wall-safe vascular navigation trainable.</h1>
-  <p class="lumen-lede">
-    Lumen is an Apache-2.0, differentiable, GPU-parallel simulator for AI agents
-    navigating slender devices through deformable vascular anatomy. It pairs
-    Newton/Warp physics with synthetic fluoroscopy, CV labels, replayable datasets,
-    Gymnasium environments, and benchmark scoring that ranks safe success before raw
-    target reach.
-  </p>
-  <div class="lumen-actions">
-    <a class="lumen-button primary" href="https://github.com/SeldingerMed/seldinger-lumen">GitHub</a>
-    <a class="lumen-button secondary" href="assets/launch/lumen-preprint.pdf">Preprint PDF</a>
-    <a class="lumen-button secondary" href="assets/launch/lumen-launch.mp4">Launch video</a>
-  </div>
-</section>
+<div class="lumen-page">
+  <section class="lumen-hero">
+    <div>
+      <div class="lumen-kicker">Open endovascular AI environment</div>
+      <h1>Wall-safe vascular navigation, in the open.</h1>
+      <p class="lumen-lede">
+        Lumen is an Apache-2.0 simulator for training and evaluating endovascular AI agents across deformable vascular anatomy, tube-intrinsic contact, synthetic fluoroscopy, luminal RGB, CV labels, and safety-scored Gymnasium benchmarks.
+      </p>
+      <div class="lumen-actions">
+        <a class="lumen-button primary" href="https://github.com/SeldingerMed/seldinger-lumen">GitHub</a>
+        <a class="lumen-button" href="assets/launch/lumen-preprint.pdf">Preprint PDF</a>
+        <a class="lumen-button" href="assets/launch/lumen-launch.mp4">Launch video</a>
+      </div>
+    </div>
+    <div class="lumen-media">
+      <img src="assets/launch/hero-frame.png" alt="Lumen wall-safe endovascular navigation rollout">
+    </div>
+  </section>
 
-<div class="media-frame">
-  <video controls playsinline poster="assets/launch/social-card.png">
-    <source src="assets/launch/lumen-launch.mp4" type="video/mp4">
-  </video>
-</div>
+  <section class="section">
+    <div class="lumen-media">
+      <video controls playsinline poster="assets/launch/social-card.png">
+        <source src="assets/launch/lumen-launch.mp4" type="video/mp4">
+      </video>
+    </div>
+  </section>
 
-## What Lumen Is
+  <section class="section">
+    <h2>What Lumen Solves</h2>
+    <div class="grid-3">
+      <div class="metric"><strong>Wall safety is scored</strong> Target reach is separated from safe target reach, so unsafe wall interaction does not look like a clean success.</div>
+      <div class="metric"><strong>The lumen is state</strong> Contact, route progress, wall penetration, torsion, and friction hooks are emitted from the same simulation stack.</div>
+      <div class="metric"><strong>Images are first-class</strong> Fluoroscopy, masks, keypoints, labels, detector noise, and luminal RGB are generated from one scene.</div>
+      <div class="metric"><strong>Advanced use cases ship</strong> Flow diversion, aneurysm inflow traces, clot fields, retrieval, and fragmentation are exposed as simulator state.</div>
+      <div class="metric"><strong>Benchmarks are reproducible</strong> Cases, captures, episode sidecars, indexes, and splits are designed for reruns and comparison.</div>
+      <div class="metric"><strong>The stack is public</strong> The repository, launch video, screenshots, and preprint are available from this page.</div>
+    </div>
+  </section>
 
-Lumen is a research environment for endovascular reinforcement learning and computer
-vision. The central object is a deformable lumen: a branching, procedurally generated
-vascular path with contact, wall state, friction, torsion, flow, clot interaction
-hooks, and image formation.
+  <section class="section">
+    <h2>Real Simulator Captures</h2>
+    <div class="grid-2">
+      <div class="lumen-media"><img src="assets/launch/sensor-layer.png" alt="Lumen multimodal sensor layer"></div>
+      <div class="lumen-media"><img src="assets/launch/physics-layer.png" alt="Lumen flow, clot, aneurysm, and device state"></div>
+      <div class="lumen-media"><img src="assets/launch/nav-frame.png" alt="Lumen navigation benchmark rollouts"></div>
+      <div class="lumen-media"><img src="assets/launch/benchmark-outro.png" alt="Lumen reproducible benchmark launch frame"></div>
+    </div>
+  </section>
 
-The core loop is simple:
+  <section class="section">
+    <h2>Why It Moves Beyond CathSim</h2>
+    <p>
+      CathSim made open endovascular RL research easier to start. Lumen is aimed at the next benchmark layer: deformable-wall semantics, wall-safety scoring, paired image/state observations, dataset-grade labels, and endovascular modules that expose flow, aneurysm, clot, and device effects. The result is a stronger public substrate for agents that must optimize more than reaching a coordinate.
+    </p>
+  </section>
 
-```bash
+  <section class="section">
+    <h2>Run It</h2>
+    <pre class="code-block"><code>git clone https://github.com/SeldingerMed/seldinger-lumen
+cd seldinger-lumen
 pip install -e ".[dev]"
 lumen doctor
 lumen play stenotic --out lumen-run
 lumen benchmark lumen-bench
 lumen capture lumen-episodes
-lumen validate lumen-episodes --require-cv-labels
-```
+lumen validate lumen-episodes --require-cv-labels</code></pre>
+  </section>
 
-## What It Solves
-
-Existing open endovascular RL simulators made autonomous catheterization practical to
-study. Lumen pushes the open surface toward the harder problem researchers actually
-need to optimize:
-
-<div class="grid-3">
-  <div class="metric"><strong>Deformable wall</strong> The lumen is a physical field, not just a rigid visual pipe.</div>
-  <div class="metric"><strong>Implicit contact</strong> Tube-intrinsic contact is injected into the Newton/Warp solve.</div>
-  <div class="metric"><strong>Safety-first score</strong> Safe success ranks above raw target reach.</div>
-  <div class="metric"><strong>CV labels</strong> Synthetic fluoro ships with masks, keypoints, and node positions.</div>
-  <div class="metric"><strong>Dataset workflow</strong> Capture, validate, index, split, and materialize replayable episodes.</div>
-  <div class="metric"><strong>Open license</strong> Apache-2.0 core for research and commercial experimentation.</div>
+  <section class="section">
+    <h2>Research Package</h2>
+    <ul>
+      <li><a href="assets/launch/lumen-preprint.pdf">Read the launch preprint PDF</a></li>
+      <li><a href="assets/launch/lumen-preprint-latex.zip">Download the LaTeX source ZIP</a></li>
+      <li><a href="assets/launch/social-media-proposals.md">Open the launch post drafts</a></li>
+      <li><a href="https://github.com/SeldingerMed/seldinger-lumen">Open the public repository</a></li>
+    </ul>
+  </section>
 </div>
-
-## Same Rollout, Two Views
-
-<div class="grid-2">
-  <div>
-    <div class="media-frame">
-      <img src="assets/demo/nav_bifurcation.gif" alt="Lumen schematic branch navigation">
-    </div>
-    <p><strong>Schematic control view.</strong> Useful for debugging policy behavior and
-    wall-safety outcomes.</p>
-  </div>
-  <div>
-    <div class="media-frame">
-      <img src="assets/demo/fluoro_bifurcation.gif" alt="Lumen synthetic fluoroscopy branch navigation">
-    </div>
-    <p><strong>Synthetic fluoroscopy.</strong> The image stream used by CV pipelines and
-    image-observation policies.</p>
-  </div>
-</div>
-
-## Why It Is Better Than Rigid-Pipe Catheter Tasks
-
-Rigid catheter tasks can reward target reach while hiding the thing that matters:
-unsafe wall interaction. Lumen makes safety observable and scoreable. A policy that
-reaches the target after breaching the wall is reported as unsafe success, not a clean
-win.
-
-<div class="media-frame">
-  <img src="assets/launch/comparison-card.png" alt="Lumen goes beyond rigid-pipe catheter tasks">
-</div>
-
-The result is a stronger benchmark substrate for learning:
-
-- deformable HGO-style vessel wall;
-- tube-intrinsic contact rather than detached collision geometry;
-- differentiable Newton/Warp simulation path;
-- paired state and image observations;
-- synthetic masks/keypoints for CV training;
-- deterministic replayable case bundles;
-- episode-grouped train/validation/test splits.
-
-## Research Package
-
-The launch preprint describes the design, benchmark semantics, and relationship to
-CathSim and related autonomous endovascular navigation work.
-
-- [Read the preprint PDF](assets/launch/lumen-preprint.pdf)
-- [Download LaTeX source ZIP](assets/launch/lumen-preprint-latex.zip)
-- [Open the repository](https://github.com/SeldingerMed/seldinger-lumen)
-
-## Quick Citation
-
-```bibtex
-@software{son_lumen_2026,
-  author = {Son, Colin},
-  title = {Lumen: an Open, Differentiable, GPU-Parallel Environment for Endovascular AI},
-  year = {2026},
-  url = {https://github.com/SeldingerMed/seldinger-lumen},
-  license = {Apache-2.0}
-}
-```
-
-Apache-2.0.

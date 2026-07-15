@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      @font-face {
+        font-family: "Inter";
+        src: local("Inter"), local("Arial");
+      }
+
+      @font-face {
+        font-family: "JetBrains Mono";
+        src: local("JetBrains Mono"), local("Menlo");
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #090b10;
+      }
+
+      body {
+        font-family: Inter, Arial, sans-serif;
+        color: #f2f6fa;
+      }
+
+      .mono {
+        font-family: "JetBrains Mono", Menlo, monospace;
+      }
+
+      #root {
+        position: relative;
+        overflow: hidden;
+        background:
+          linear-gradient(rgba(104, 215, 225, 0.055) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(104, 215, 225, 0.045) 1px, transparent 1px),
+          #090b10;
+        background-size: 96px 96px;
+      }
+
+      .topbar,
+      .bottombar {
+        position: absolute;
+        left: 70px;
+        right: 70px;
+        height: 1px;
+        background: #344154;
+        opacity: 0.9;
+        z-index: 20;
+      }
+
+      .topbar {
+        top: 62px;
+      }
+
+      .bottombar {
+        bottom: 62px;
+      }
+
+      .brand {
+        position: absolute;
+        top: 78px;
+        left: 74px;
+        z-index: 22;
+        color: #aab6c4;
+        font-size: 24px;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .timecode {
+        position: absolute;
+        right: 74px;
+        top: 78px;
+        z-index: 22;
+        color: #aab6c4;
+        font-size: 22px;
+      }
+
+      .scene-text {
+        position: absolute;
+        z-index: 10;
+        left: 74px;
+        top: 172px;
+        width: 610px;
+        min-height: 610px;
+        padding: 54px 54px 48px;
+        border: 2px solid #344154;
+        background: rgba(17, 23, 32, 0.88);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 32px;
+      }
+
+      .scene-text.right {
+        left: auto;
+        right: 74px;
+      }
+
+      .eyebrow {
+        color: #68d7e1;
+        font-size: 25px;
+        font-weight: 740;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        letter-spacing: 0;
+        line-height: 0.96;
+      }
+
+      h1 {
+        font-size: 90px;
+        font-weight: 820;
+      }
+
+      h2 {
+        font-size: 76px;
+        font-weight: 800;
+      }
+
+      p {
+        margin: 0;
+        color: #d6dee8;
+        font-size: 33px;
+        line-height: 1.18;
+        font-weight: 420;
+      }
+
+      .scene-text p.mono {
+        font-size: 27px;
+        line-height: 1.25;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .stat {
+        padding: 20px 18px;
+        border: 2px solid #344154;
+        background: rgba(9, 11, 16, 0.78);
+      }
+
+      .stat b {
+        display: block;
+        color: #70d38d;
+        font-size: 36px;
+        line-height: 1;
+      }
+
+      .stat span {
+        display: block;
+        margin-top: 9px;
+        color: #aab6c4;
+        font-size: 18px;
+        line-height: 1.1;
+      }
+
+      .media {
+        position: absolute;
+        z-index: 5;
+        right: 74px;
+        top: 142px;
+        width: 1110px;
+        height: 780px;
+        object-fit: contain;
+        border: 2px solid #344154;
+        background: #0b0f15;
+      }
+
+      .media.left {
+        left: 74px;
+        right: auto;
+      }
+
+      .media.wide {
+        left: 710px;
+        right: 74px;
+        width: auto;
+      }
+
+      .media.full {
+        left: 74px;
+        right: 74px;
+        top: 150px;
+        width: auto;
+        height: 720px;
+      }
+
+      .split-media {
+        position: absolute;
+        left: 74px;
+        top: 150px;
+        width: 1110px;
+        height: 780px;
+        z-index: 5;
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        gap: 24px;
+      }
+
+      .split-media img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border: 2px solid #344154;
+        background: #0b0f15;
+      }
+
+      .caption {
+        position: absolute;
+        z-index: 21;
+        left: 78px;
+        bottom: 82px;
+        color: #aab6c4;
+        font-size: 22px;
+      }
+
+      .caption.right {
+        left: auto;
+        right: 78px;
+      }
+
+      .rule {
+        width: 100%;
+        height: 2px;
+        background: #344154;
+      }
+
+      .accent {
+        color: #68d7e1;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="18"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div class="topbar" data-layout-ignore></div>
+      <div class="bottombar" data-layout-ignore></div>
+      <div class="brand mono" data-layout-ignore>Lumen / Seldinger</div>
+      <div class="timecode mono" data-layout-ignore>open endovascular AI environment</div>
+
+      <video
+        id="tree-video"
+        class="clip media"
+        data-start="0"
+        data-duration="4.8"
+        data-track-index="0"
+        src="assets/real-tree-navigation.mp4"
+        muted
+        playsinline
+      ></video>
+
+      <div id="scene-1" class="clip scene-text" data-start="0" data-duration="4.8" data-track-index="1">
+        <div>
+          <div class="eyebrow">real rollout</div>
+          <h1>Wall-safe endovascular RL, in the open.</h1>
+        </div>
+        <p>Procedural vascular trees, tube-intrinsic contact, and safety-scored navigation from the same public stack.</p>
+        <div class="stats">
+          <div class="stat"><b>0.0 mm</b><span>max wall penetration in this rollout</span></div>
+          <div class="stat"><b>safe</b><span>branch target reached</span></div>
+        </div>
+      </div>
+
+      <img
+        id="modalities"
+        class="clip media left"
+        data-start="4.8"
+        data-duration="4.8"
+        data-track-index="2"
+        src="assets/real-modalities-mosaic.png"
+        alt=""
+      />
+
+      <div id="scene-2" class="clip scene-text right" data-start="4.8" data-duration="4.8" data-track-index="3">
+        <div>
+          <div class="eyebrow">sensor layer</div>
+          <h2>Fluoro, labels, and luminal RGB from one scene.</h2>
+        </div>
+        <p>Biplanar DRR, device/vessel masks, keypoints, noisy detector physics, and endoscopic RGB are emitted as training data.</p>
+        <div class="rule"></div>
+        <p class="mono"><span class="accent">obs</span>: image + masks + keypoints</p>
+      </div>
+
+      <div id="physics" class="clip split-media" data-start="9.6" data-duration="4.4" data-track-index="4">
+        <img src="assets/real-aneurysm-flow-diversion.png" alt="" />
+        <img src="assets/real-stentriever-retrieval.png" alt="" />
+      </div>
+
+      <div id="scene-3" class="clip scene-text right" data-start="9.6" data-duration="4.4" data-track-index="5">
+        <div>
+          <div class="eyebrow">coupled physics</div>
+          <h2>Flow, clot, aneurysm, and device effects are state.</h2>
+        </div>
+        <p>Reduced-order fast paths expose the hard clinical signals agents need: stasis, retrieval, fragmentation, aspiration, and flow recovery.</p>
+        <div class="stats">
+          <div class="stat"><b>47.9%</b><span>lower peak sac inflow in this diverter trace</span></div>
+          <div class="stat"><b>2 envs</b><span>independent retrieval vs fragmentation</span></div>
+        </div>
+      </div>
+
+      <img
+        id="nav-mosaic"
+        class="clip media"
+        data-start="14"
+        data-duration="4"
+        data-track-index="6"
+        src="assets/real-navigation-mosaic.png"
+        alt=""
+      />
+
+      <div id="scene-4" class="clip scene-text" data-start="14" data-duration="4" data-track-index="7">
+        <div>
+          <div class="eyebrow">launch</div>
+          <h2>Built for reproducible endovascular AI benchmarks.</h2>
+        </div>
+        <p class="mono">github.com/SeldingerMed/seldinger-lumen</p>
+        <p class="mono">seldingermed.github.io/seldinger-lumen</p>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from("#scene-1 .stat", { opacity: 0, y: 28, duration: 0.45, stagger: 0.08, ease: "power2.out" }, 1.2);
+
+      tl.from("#modalities", { opacity: 0, x: -120, filter: "blur(18px)", duration: 0.7, ease: "power3.out" }, 4.8);
+      tl.from("#scene-2", { opacity: 0, x: 90, filter: "blur(16px)", duration: 0.65, ease: "power3.out" }, 4.98);
+      tl.from("#scene-2 .rule", { scaleX: 0, transformOrigin: "left center", duration: 0.45, ease: "power2.out" }, 5.9);
+
+      tl.from("#physics", { opacity: 0, y: 60, filter: "blur(16px)", duration: 0.7, ease: "power3.out" }, 9.6);
+      tl.from("#scene-3", { opacity: 0, x: 90, filter: "blur(16px)", duration: 0.65, ease: "power3.out" }, 9.78);
+      tl.from("#scene-3 .stat", { opacity: 0, y: 26, duration: 0.45, stagger: 0.08, ease: "power2.out" }, 10.8);
+
+      tl.from("#nav-mosaic", { opacity: 0, scale: 0.96, filter: "blur(14px)", duration: 0.7, ease: "power3.out" }, 14);
+      tl.from("#scene-4", { opacity: 0, x: -80, filter: "blur(16px)", duration: 0.65, ease: "power3.out" }, 14.2);
+      tl.to("#scene-4, #nav-mosaic", { opacity: 0, duration: 0.4, ease: "power2.in" }, 17.6);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
