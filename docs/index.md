@@ -3,6 +3,13 @@ title: Lumen
 ---
 
 <style>
+  .page-header {
+    display: none;
+  }
+  .main-content {
+    max-width: 1060px;
+    padding-top: 2rem;
+  }
   .lumen-hero {
     margin: 0 0 2.2rem;
     padding: 2.2rem 0 1rem;
@@ -19,6 +26,7 @@ title: Lumen
     line-height: .96;
     letter-spacing: 0;
     margin: 0 0 1rem;
+    color: #073b37;
   }
   .lumen-lede {
     max-width: 880px;
