@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict, deque
 import json
+import math
 from pathlib import Path
 import random
 from typing import Iterable, Literal, TypedDict, cast
@@ -262,15 +263,19 @@ def read_split_manifest(path: str | Path) -> SplitManifest:
         _validate_count_map(summary.get("modalities"), f"split {split!r} modalities", manifest_path)
         split_record_total += summary_records
         split_episode_total += summary_episodes
-        if assignment_counts[split] != summary_episodes:
+        assigned_groups = assignment_counts[split]
+        if assigned_groups != summary_episodes:
             raise ValueError(
-                f"split manifest {manifest_path} split {split!r} episode count does not match assignments"
+                f"split manifest {manifest_path} split {split!r} episode count ({summary_episodes}) "
+                f"does not match assigned group count ({assigned_groups})"
             )
 
     ratio_total = sum(ratios[name] for name in SPLIT_NAMES)
     # ``set(ratios_obj)`` was validated above, so every split name is present here.
     if ratio_total == 0.0:
         raise ValueError(f"split manifest {manifest_path} ratios must include at least one positive value")
+    if not math.isclose(ratio_total, 1.0, rel_tol=1e-9, abs_tol=1e-12):
+        raise ValueError(f"split manifest {manifest_path} ratios must sum to 1.0")
     if split_record_total != total_records:
         raise ValueError(f"split manifest {manifest_path} split record counts do not match records")
     if split_episode_total != total_episodes:
