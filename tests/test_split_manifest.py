@@ -179,7 +179,7 @@ def test_read_split_manifest_rejects_inconsistent_summary_totals(tmp_path):
     invalid = _valid_manifest()
     invalid["splits"]["train"]["episodes"] = 0
     manifest_path.write_text(json.dumps(invalid))
-    with pytest.raises(ValueError, match="episode count \\(0\\) does not match assigned group count \\(1\\)"):
+    with pytest.raises(ValueError, match="summary group count \\(0\\) does not match assigned group count \\(1\\)"):
         read_split_manifest(manifest_path)
 
     invalid = _valid_manifest()
