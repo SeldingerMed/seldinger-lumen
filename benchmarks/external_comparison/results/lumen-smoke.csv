@@ -1,0 +1,11 @@
+environment,task,task_class,policy,seed,success,safe_success,steps,total_reward,final_distance,max_penetration,max_contact_force,mean_contact_force,unsafe_event,crashed,elapsed_sec,notes,steps_per_second
+lumen,nav_tube,simple_target_navigation,forward,0,True,True,20,48.78305130004884,2.2083356970944337,0.0,,,False,False,0.17804812494432554,{'safety_max_pen': 0.3},112.32918069906025
+lumen,nav_tube,simple_target_navigation,forward,1,True,True,19,47.29946762084962,1.699678374354491,0.0,,,False,False,0.1611847080057487,{'safety_max_pen': 0.3},117.8771872039025
+lumen,nav_stenotic,tortuous_or_stenotic_navigation,forward,0,True,True,20,48.69914321899415,2.292243778149121,0.0,,,False,False,0.17039516696240753,{'safety_max_pen': 0.3},117.37422109168382
+lumen,nav_stenotic,tortuous_or_stenotic_navigation,forward,1,True,True,19,47.237547454833994,1.761598540370116,0.0,,,False,False,0.16213637503096834,{'safety_max_pen': 0.3},117.1853015485943
+lumen,nav_tree_branch,branch_or_arch_navigation,forward,0,True,True,54,91.34254299559956,0.7979228000856722,0.1776893256448957,,,False,False,0.47830291697755456,{'safety_max_pen': 0.3},112.89916511743554
+lumen,nav_tree_branch,branch_or_arch_navigation,forward,1,True,True,54,91.34254299559956,0.7979228000856722,0.1776893256448957,,,False,False,0.4757777919876389,{'safety_max_pen': 0.3},113.49836186007387
+lumen,nav_tortuous,tortuous_or_stenotic_navigation,forward,0,True,True,40,58.00094495702568,1.9841580057267834,0.0,,,False,False,0.646298875042703,{'safety_max_pen': 0.3},61.89087053162064
+lumen,nav_tortuous,tortuous_or_stenotic_navigation,forward,1,True,True,38,55.623317947840135,2.080579439653235,0.0,,,False,False,0.5837118749623187,{'safety_max_pen': 0.3},65.10061150024244
+lumen,nav_tortuous_tree,branch_or_arch_navigation,forward,0,True,True,70,120.90913238165132,2.2635968904431536,0.28226407979609336,,,False,False,0.6225921250297688,{'safety_max_pen': 0.3},112.43315998680998
+lumen,nav_tortuous_tree,branch_or_arch_navigation,forward,1,True,True,70,120.90913238165132,2.2635968904431536,0.28226407979609336,,,False,False,0.6258895419887267,{'safety_max_pen': 0.3},111.84082063039298

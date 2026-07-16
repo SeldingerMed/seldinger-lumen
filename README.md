@@ -9,6 +9,12 @@ https://seldingermed.github.io/seldinger-lumen/
 
 ![Lumen launch still](docs/assets/launch/social-card.png)
 
+## Benchmark Snapshot
+
+In a matched branch-navigation PPO comparison using 50,000 training steps and 30 deterministic evaluation episodes, Lumen reached 100% raw success and 100% safe success on `nav_tree_branch`. CathSim reached 100% raw success on `phantom3_bca`, but 6.7% safe success under the comparison force threshold. Lumen evaluation throughput was 79.7 steps/s versus 12.1 steps/s for CathSim in this run.
+
+The full preprint and benchmark summaries are linked from the [launch page](https://seldingermed.github.io/seldinger-lumen/).
+
 ## Install
 
 ```bash

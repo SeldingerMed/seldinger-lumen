@@ -1,0 +1,358 @@
+{
+  "run_id": "lumen-smoke",
+  "created_unix": 1784163668.2144718,
+  "environment": "lumen",
+  "task_specs": [
+    {
+      "name": "nav_tube",
+      "task_class": "simple_target_navigation"
+    },
+    {
+      "name": "nav_stenotic",
+      "task_class": "tortuous_or_stenotic_navigation"
+    },
+    {
+      "name": "nav_tree_branch",
+      "task_class": "branch_or_arch_navigation"
+    },
+    {
+      "name": "nav_tortuous",
+      "task_class": "tortuous_or_stenotic_navigation"
+    },
+    {
+      "name": "nav_tortuous_tree",
+      "task_class": "branch_or_arch_navigation"
+    }
+  ],
+  "host": {
+    "python": "3.13.12",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "processor": "arm",
+    "cwd": "<repo>",
+    "argv": [
+      "benchmarks/external_comparison/common_bench.py",
+      "lumen",
+      "--episodes",
+      "2",
+      "--max-steps",
+      "80",
+      "--policies",
+      "forward",
+      "--run-id",
+      "lumen-smoke"
+    ]
+  },
+  "extra": {
+    "repo_commit": "fb82da9fbb7d27a9b4a500fe2ff70a9ccca9d52c"
+  },
+  "episodes": [
+    {
+      "environment": "lumen",
+      "task": "nav_tube",
+      "task_class": "simple_target_navigation",
+      "policy": "forward",
+      "seed": 0,
+      "success": true,
+      "safe_success": true,
+      "steps": 20,
+      "total_reward": 48.78305130004884,
+      "final_distance": 2.2083356970944337,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.17804812494432554,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 112.32918069906025
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tube",
+      "task_class": "simple_target_navigation",
+      "policy": "forward",
+      "seed": 1,
+      "success": true,
+      "safe_success": true,
+      "steps": 19,
+      "total_reward": 47.29946762084962,
+      "final_distance": 1.699678374354491,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.1611847080057487,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 117.8771872039025
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_stenotic",
+      "task_class": "tortuous_or_stenotic_navigation",
+      "policy": "forward",
+      "seed": 0,
+      "success": true,
+      "safe_success": true,
+      "steps": 20,
+      "total_reward": 48.69914321899415,
+      "final_distance": 2.292243778149121,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.17039516696240753,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 117.37422109168382
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_stenotic",
+      "task_class": "tortuous_or_stenotic_navigation",
+      "policy": "forward",
+      "seed": 1,
+      "success": true,
+      "safe_success": true,
+      "steps": 19,
+      "total_reward": 47.237547454833994,
+      "final_distance": 1.761598540370116,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.16213637503096834,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 117.1853015485943
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tree_branch",
+      "task_class": "branch_or_arch_navigation",
+      "policy": "forward",
+      "seed": 0,
+      "success": true,
+      "safe_success": true,
+      "steps": 54,
+      "total_reward": 91.34254299559956,
+      "final_distance": 0.7979228000856722,
+      "max_penetration": 0.1776893256448957,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.47830291697755456,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 112.89916511743554
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tree_branch",
+      "task_class": "branch_or_arch_navigation",
+      "policy": "forward",
+      "seed": 1,
+      "success": true,
+      "safe_success": true,
+      "steps": 54,
+      "total_reward": 91.34254299559956,
+      "final_distance": 0.7979228000856722,
+      "max_penetration": 0.1776893256448957,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.4757777919876389,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 113.49836186007387
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tortuous",
+      "task_class": "tortuous_or_stenotic_navigation",
+      "policy": "forward",
+      "seed": 0,
+      "success": true,
+      "safe_success": true,
+      "steps": 40,
+      "total_reward": 58.00094495702568,
+      "final_distance": 1.9841580057267834,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.646298875042703,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 61.89087053162064
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tortuous",
+      "task_class": "tortuous_or_stenotic_navigation",
+      "policy": "forward",
+      "seed": 1,
+      "success": true,
+      "safe_success": true,
+      "steps": 38,
+      "total_reward": 55.623317947840135,
+      "final_distance": 2.080579439653235,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.5837118749623187,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 65.10061150024244
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tortuous_tree",
+      "task_class": "branch_or_arch_navigation",
+      "policy": "forward",
+      "seed": 0,
+      "success": true,
+      "safe_success": true,
+      "steps": 70,
+      "total_reward": 120.90913238165132,
+      "final_distance": 2.2635968904431536,
+      "max_penetration": 0.28226407979609336,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.6225921250297688,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 112.43315998680998
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tortuous_tree",
+      "task_class": "branch_or_arch_navigation",
+      "policy": "forward",
+      "seed": 1,
+      "success": true,
+      "safe_success": true,
+      "steps": 70,
+      "total_reward": 120.90913238165132,
+      "final_distance": 2.2635968904431536,
+      "max_penetration": 0.28226407979609336,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.6258895419887267,
+      "notes": {
+        "safety_max_pen": 0.3
+      },
+      "steps_per_second": 111.84082063039298
+    }
+  ],
+  "aggregate": [
+    {
+      "environment": "lumen",
+      "task": "nav_stenotic",
+      "policy": "forward",
+      "episodes": 2,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 0.0,
+      "mean_steps_success": 19.5,
+      "mean_steps_all": 19.5,
+      "mean_final_distance": 2.0269211592596186,
+      "mean_return": 47.96834533691407,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "steps_per_second": 117.27976132013906
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tortuous",
+      "policy": "forward",
+      "episodes": 2,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 0.0,
+      "mean_steps_success": 39.0,
+      "mean_steps_all": 39.0,
+      "mean_final_distance": 2.032368722690009,
+      "mean_return": 56.81213145243291,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "steps_per_second": 63.49574101593154
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tortuous_tree",
+      "policy": "forward",
+      "episodes": 2,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 0.0,
+      "mean_steps_success": 70.0,
+      "mean_steps_all": 70.0,
+      "mean_final_distance": 2.2635968904431536,
+      "mean_return": 120.90913238165132,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "steps_per_second": 112.13699030860148
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tree_branch",
+      "policy": "forward",
+      "episodes": 2,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 0.0,
+      "mean_steps_success": 54.0,
+      "mean_steps_all": 54.0,
+      "mean_final_distance": 0.7979228000856722,
+      "mean_return": 91.34254299559956,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "steps_per_second": 113.19876348875471
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tube",
+      "policy": "forward",
+      "episodes": 2,
+      "success_rate": 1.0,
+      "safe_success_rate": 1.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 0.0,
+      "mean_steps_success": 19.5,
+      "mean_steps_all": 19.5,
+      "mean_final_distance": 1.9540070357244623,
+      "mean_return": 48.041259460449226,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "steps_per_second": 115.10318395148137
+    }
+  ]
+}

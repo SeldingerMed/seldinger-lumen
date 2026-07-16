@@ -1,0 +1,151 @@
+{
+  "run_id": "lumen-nav-tube-ppo-smoke-64",
+  "created_unix": 1784165743.6568,
+  "environment": "lumen",
+  "task_specs": [
+    {
+      "name": "nav_tube",
+      "task_class": "simple_target_navigation"
+    }
+  ],
+  "host": {
+    "python": "3.10.20",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cwd": "<repo>",
+    "argv": [
+      "benchmarks/external_comparison/train_sb3.py",
+      "--environment",
+      "lumen",
+      "--task",
+      "nav_tube",
+      "--algo",
+      "ppo",
+      "--timesteps",
+      "64",
+      "--eval-episodes",
+      "2",
+      "--max-steps",
+      "80",
+      "--run-id",
+      "lumen-nav-tube-ppo-smoke-64"
+    ]
+  },
+  "extra": {
+    "algo": "ppo",
+    "timesteps": 64,
+    "seed": 0,
+    "model_path": "benchmarks/external_comparison/models/lumen-nav-tube-ppo-smoke-64.zip",
+    "train_elapsed_sec": 25.559430832974613,
+    "aggregate": [
+      {
+        "environment": "lumen",
+        "task": "nav_tube",
+        "policy": "ppo_trained",
+        "episodes": 2,
+        "success_rate": 0.0,
+        "safe_success_rate": 0.0,
+        "crash_rate": 0.0,
+        "unsafe_event_rate": 0.0,
+        "mean_steps_success": null,
+        "mean_steps_all": 80.0,
+        "mean_final_distance": 15.305217859550652,
+        "mean_return": 24.746756744384733,
+        "max_contact_force": null,
+        "mean_contact_force": null,
+        "steps_per_second": 81.142215210903
+      }
+    ],
+    "host": {
+      "python": "3.10.20",
+      "platform": "macOS-26.5.2-arm64-arm-64bit",
+      "machine": "arm64",
+      "processor": "arm",
+      "cwd": "<repo>",
+      "argv": [
+        "benchmarks/external_comparison/train_sb3.py",
+        "--environment",
+        "lumen",
+        "--task",
+        "nav_tube",
+        "--algo",
+        "ppo",
+        "--timesteps",
+        "64",
+        "--eval-episodes",
+        "2",
+        "--max-steps",
+        "80",
+        "--run-id",
+        "lumen-nav-tube-ppo-smoke-64"
+      ]
+    },
+    "repo_commit": "fb82da9fbb7d27a9b4a500fe2ff70a9ccca9d52c"
+  },
+  "episodes": [
+    {
+      "environment": "lumen",
+      "task": "nav_tube",
+      "task_class": "simple_target_navigation",
+      "policy": "ppo_trained",
+      "seed": 10000,
+      "success": false,
+      "safe_success": false,
+      "steps": 80,
+      "total_reward": 24.8155967712402,
+      "final_distance": 13.651449666047164,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.990193041972816,
+      "notes": {
+        "train_steps": 64
+      },
+      "steps_per_second": 80.79232695940945
+    },
+    {
+      "environment": "lumen",
+      "task": "nav_tube",
+      "task_class": "simple_target_navigation",
+      "policy": "ppo_trained",
+      "seed": 10001,
+      "success": false,
+      "safe_success": false,
+      "steps": 80,
+      "total_reward": 24.677916717529264,
+      "final_distance": 16.95898605305414,
+      "max_penetration": 0.0,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 0.9816902080201544,
+      "notes": {
+        "train_steps": 64
+      },
+      "steps_per_second": 81.49210346239654
+    }
+  ],
+  "aggregate": [
+    {
+      "environment": "lumen",
+      "task": "nav_tube",
+      "policy": "ppo_trained",
+      "episodes": 2,
+      "success_rate": 0.0,
+      "safe_success_rate": 0.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 0.0,
+      "mean_steps_success": null,
+      "mean_steps_all": 80.0,
+      "mean_final_distance": 15.305217859550652,
+      "mean_return": 24.746756744384733,
+      "max_contact_force": null,
+      "mean_contact_force": null,
+      "steps_per_second": 81.142215210903
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    curl \
+    g++-10 \
+    gcc-10 \
+    git \
+    libboost-all-dev \
+    libeigen3-dev \
+    libglew-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    patchelf \
+    python3-dev \
+    python3-pip \
+    qtbase5-dev \
+    libqt5opengl5-dev \
+    unzip \
+    wget \
+    zip \
+    zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --upgrade pip \
+ && python3 -m pip install numpy scipy pybind11
+
+RUN mkdir -p /opt/sofa/src /opt/sofa/build \
+ && git clone --depth 1 -b v22.12 https://github.com/sofa-framework/sofa.git /opt/sofa/src
+
+RUN cmake \
+    -D SOFA_FETCH_SOFAPYTHON3=True \
+    -D SOFA_FETCH_BEAMADAPTER=True \
+    -D PYTHON_VERSION=3.8 \
+    -D pybind11_DIR="$(python3 -c 'import pybind11; print(pybind11.get_cmake_dir())')" \
+    -D PYTHON_EXECUTABLE=/usr/bin/python3 \
+    -D CMAKE_C_COMPILER=gcc-10 \
+    -D CMAKE_CXX_COMPILER=g++-10 \
+    -S /opt/sofa/src \
+    -B /opt/sofa/build \
+ && cmake \
+    -D PLUGIN_SOFAPYTHON3=True \
+    -D PLUGIN_BEAMADAPTER=True \
+    -S /opt/sofa/src \
+    -B /opt/sofa/build \
+ && make -j 4 --directory /opt/sofa/build \
+ && make install --directory /opt/sofa/build
+
+ENV PYTHONPATH="/opt/sofa/build/install/plugins/SofaPython3/lib/python3/site-packages/:${PYTHONPATH}"
+ENV SOFA_ROOT="/opt/sofa/build/install"
+
+RUN python3 -m pip install scipy scikit-image pyvista PyOpenGL pygame matplotlib pillow opencv-python meshio pyyaml optuna gymnasium
+
+COPY . /opt/eve_training
+RUN python3 -m pip install /opt/eve_training/eve \
+ && python3 -m pip install -e /opt/eve_training/eve_bench
+
+WORKDIR /opt/eve_training
+
+CMD ["python3", "./eve_bench/example/function_check.py"]

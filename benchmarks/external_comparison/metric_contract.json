@@ -1,0 +1,73 @@
+{
+  "contract_id": "lumen-common-endovascular-bench/2026-07-15",
+  "purpose": "Common pilot and training benchmark for Lumen, CathSim, and stEVE/SOFA-style endovascular RL environments.",
+  "source_protocols": [
+    {
+      "name": "CathSim",
+      "paper": "CathSim: An Open-source Simulator for Endovascular Intervention",
+      "url": "https://arxiv.org/abs/2208.01455",
+      "repo": "https://github.com/airvlab/cathsim",
+      "reported_algorithms": ["PPO", "SAC"],
+      "native_tasks": ["phantom3/bca", "phantom3/lcca"]
+    },
+    {
+      "name": "stEVE_bench",
+      "paper": "Learning-Based Autonomous Navigation, Benchmark Environments and Simulation Framework for Endovascular Interventions",
+      "url": "https://arxiv.org/abs/2410.01956",
+      "repos": [
+        "https://github.com/lkarstensen/stEVE",
+        "https://github.com/lkarstensen/deve_bench",
+        "https://github.com/lkarstensen/stEVE_training"
+      ],
+      "native_tasks": ["BasicWireNav", "ArchVariety", "DualDeviceNav"]
+    }
+  ],
+  "comparison_method": "Compare matched task classes rather than pretending all environments share identical geometry. Each result must identify the native environment, task, policy, seed schedule, episode count, and deviations.",
+  "task_classes": [
+    "simple_target_navigation",
+    "branch_or_arch_navigation",
+    "tortuous_or_stenotic_navigation",
+    "dual_device_or_advanced_intervention",
+    "multimodal_render_or_observation_throughput"
+  ],
+  "policies": {
+    "pilot": ["random", "forward", "sweep"],
+    "main": ["PPO", "SAC"]
+  },
+  "pilot_budget": {
+    "episodes_per_task_policy": 30,
+    "purpose": "Verify executable adapters and directional baseline metrics before spending multi-day RL compute."
+  },
+  "main_budget": {
+    "train_steps": 600000,
+    "seeds": 6,
+    "eval_episodes_per_seed_task": 100,
+    "purpose": "CathSim-style PPO/SAC self-assessment across matched task classes."
+  },
+  "required_metrics": {
+    "higher_is_better": [
+      "success_rate",
+      "safe_success_rate",
+      "steps_per_second"
+    ],
+    "lower_is_better": [
+      "mean_steps_success",
+      "mean_final_distance",
+      "mean_return_loss",
+      "unsafe_event_rate",
+      "crash_rate"
+    ],
+    "available_when_supported": [
+      "mean_contact_force",
+      "max_contact_force",
+      "force_violation_rate",
+      "path_ratio"
+    ]
+  },
+  "favorability_rule_for_preprint": "Only update launch/preprint with comparison results if Lumen is ahead on some or most metrics and is on par with the rest, allowing at most two slight deficits. Otherwise store the run as internal evidence without making a favorable claim.",
+  "known_deviations": [
+    "Pilot policies are not trained agents and cannot support claims about final RL control quality.",
+    "Native geometries differ across environments; comparison is by matched task class and metric contract.",
+    "stEVE/SOFA requires SOFA, SofaPython3, and BeamAdapter; executable status must be recorded separately from Lumen/CathSim."
+  ]
+}

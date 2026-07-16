@@ -1,0 +1,27 @@
+{
+  "run_id": "steve-smoke-venv",
+  "created_unix": 1784163851.13789,
+  "host": {
+    "python": "3.10.20",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cwd": "<repo>",
+    "argv": [
+      "benchmarks/external_comparison/common_bench.py",
+      "smoke-steve",
+      "--run-id",
+      "steve-smoke-venv"
+    ]
+  },
+  "checks": {
+    "python": "3.10.20 (main, Mar 20 2026, 00:34:16) [Clang 22.1.1 ]",
+    "eve_importable": true,
+    "eve_bench_importable": true,
+    "sofa_importable": false,
+    "sofa_runtime_importable": false,
+    "sofa_root": null,
+    "pythonpath": null
+  },
+  "status": "blocked"
+}

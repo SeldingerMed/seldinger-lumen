@@ -20,6 +20,7 @@
   citecolor=blue!45!black,
   urlcolor=blue!45!black
 }
+\emergencystretch=2em
 
 \title{\textbf{Lumen: An Open, Differentiable, GPU-Parallel Environment for Wall-Safe Endovascular AI}}
 \author{
@@ -33,7 +34,7 @@
 \maketitle
 
 \begin{abstract}
-Endovascular autonomy needs simulation environments that expose the signals an agent must optimize: branch selection, target reach, wall interaction, image observations, and reproducible safety outcomes. Lumen is an Apache-2.0 endovascular AI environment built around procedural vascular cases, tube-intrinsic contact, GPU-parallel Newton/Warp execution, Gymnasium-compatible navigation tasks, synthetic fluoroscopy, luminal image generation, and replayable computer-vision datasets. This preprint describes the public release and reports a launch benchmark on lumen-bench/2, where a deterministic forward baseline achieved 100\% safe success across tube, stenotic, and branch-navigation tasks while retaining explicit wall-penetration accounting. Relative to CathSim and SOFA/BeamAdapter-derived navigation stacks, Lumen emphasizes benchmarked wall safety, multi-modal labels, and reproducible dataset artifacts from the same simulator state.
+Endovascular autonomy needs simulation environments that expose the signals an agent must optimize: branch selection, target reach, wall interaction, image observations, and reproducible safety outcomes. Lumen is an Apache-2.0 endovascular AI environment built around procedural vascular cases, tube-intrinsic contact, GPU-parallel Newton/Warp execution, Gymnasium-compatible navigation tasks, synthetic fluoroscopy, luminal image generation, and replayable computer-vision datasets. This preprint describes the public release, reports a launch benchmark on lumen-bench/2, and adds a matched branch-navigation PPO comparison against CathSim. In the 50,000-step PPO comparison, Lumen achieved 100\% raw success and 100\% safe success across 30 held-out episodes; CathSim achieved 100\% raw success but 6.7\% safe success under the force threshold used for the comparison. Relative to CathSim and SOFA/BeamAdapter-derived navigation stacks, Lumen emphasizes benchmarked wall safety, multi-modal labels, and reproducible dataset artifacts from the same simulator state.
 \end{abstract}
 
 \section{Motivation}
@@ -138,9 +139,28 @@ The launch benchmark, \texttt{lumen-bench/2}, evaluates three fixed procedural t
 
 The forward baseline is intentionally simple: it advances the proximal end at full rate. It is useful as a reproducibility check and a floor for trained policies, not as a ceiling. Standard reinforcement-learning algorithms such as PPO and SAC can be applied through the Gymnasium interface \cite{schulman2017ppo,haarnoja2018sac,haarnoja2018applications}, while leaderboard submissions preserve per-task scorecards for comparison.
 
+To test the Gymnasium training path against the closest open RL comparator, a matched branch-navigation PPO run was executed for Lumen and CathSim. Both environments were trained for 50,000 PPO steps with seed 0 and evaluated for 30 deterministic held-out episodes. Lumen used \texttt{nav\_tree\_branch}. CathSim used \texttt{phantom3\_bca}. Raw target reach was counted separately from safe target reach. For Lumen, safe reach required target success without breaching the wall-penetration threshold. For CathSim, safe reach required target success without exceeding the 2.0 force threshold used in the external comparison harness.
+
+\begin{table}[H]
+  \centering
+  \caption{Matched branch-navigation PPO comparison after 50,000 training steps and 30 deterministic evaluation episodes. Safe success is the primary score because it preserves target reach while rejecting unsafe wall or force events.}
+  \label{tab:ppo_comparison}
+  \small
+  \begin{tabular}{llrrrrr}
+    \toprule
+    Environment & Task & Raw success & Safe success & Unsafe events & Mean steps & Eval steps/s \\
+    \midrule
+    Lumen & \texttt{nav\_tree\_branch} & 1.00 & 1.00 & 0.00 & 58.0 & 79.7 \\
+    CathSim & \texttt{phantom3\_bca} & 1.00 & 0.07 & 0.93 & 36.8 & 12.1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The same external-comparison harness also ran 30-episode pilot policies across Lumen, CathSim, and the SOFA/stEVE Docker stack. In these pilot checks, Lumen forward and sweep policies reached 100\% raw success on all five native Lumen navigation tasks, with safe success on all forward-policy tasks and four of five sweep-policy tasks. CathSim forward and sweep pilots reached 0\% success on the two \texttt{phantom3} branch targets. SOFA/stEVE executed BasicWireNav and ArchVariety without crashes; its best pilot rates were 20\% success on BasicWireNav and 13.3\% success on ArchVariety. These pilot results are included as executable comparator evidence and are stored with raw per-episode records.
+
 \section{Comparison to CathSim and SOFA/BeamAdapter}
 
-CathSim, SOFA/BeamAdapter, and Lumen occupy related but distinct positions in the open endovascular-simulation landscape. CathSim is the closest open autonomous-catheterization benchmark reference, with MuJoCo-based robot/device simulation, force sensing, and reinforcement-learning tasks \cite{jianu2022cathsim,jianu2024cathsim}. SOFA/BeamAdapter is a mature flexible-instrument simulation surface for catheters, guidewires, and coils, and has been used as the basis for SOFA mechanical-thrombectomy navigation studies \cite{allard2007sofa,beamadapter,robertshaw2024mt}. Lumen is designed around a compact public benchmark where wall safety, image labels, and replayable datasets are first-class outputs.
+CathSim, SOFA/\allowbreak BeamAdapter, and Lumen occupy related but distinct positions in the open endovascular-simulation landscape. CathSim is the closest open autonomous-catheterization benchmark reference, with MuJoCo-based robot/device simulation, force sensing, and reinforcement-learning tasks \cite{jianu2022cathsim,jianu2024cathsim}. SOFA/\allowbreak BeamAdapter is a mature flexible-instrument simulation surface for catheters, guidewires, and coils, and has been used as the basis for SOFA mechanical-thrombectomy navigation studies \cite{allard2007sofa,beamadapter,robertshaw2024mt}. Lumen is designed around a compact public benchmark where wall safety, image labels, replayable datasets, and trained-agent scorecards are first-class outputs.
 
 \begin{table}[H]
   \centering
@@ -162,7 +182,7 @@ CathSim, SOFA/BeamAdapter, and Lumen occupy related but distinct positions in th
   \end{tabular}
 \end{table}
 
-The practical contribution is that Lumen packages wall-safety scoring, procedural task reproducibility, multi-modal labels, and replay artifacts into one public benchmark release that can be inspected outside the RL loop.
+The practical contribution is that Lumen packages wall-safety scoring, procedural task reproducibility, multi-modal labels, trained-agent evaluation, and replay artifacts into one public benchmark release that can be inspected outside the RL loop.
 
 \section{Availability}
 

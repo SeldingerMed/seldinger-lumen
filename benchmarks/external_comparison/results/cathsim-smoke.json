@@ -1,0 +1,125 @@
+{
+  "run_id": "cathsim-smoke",
+  "created_unix": 1784163643.468201,
+  "environment": "cathsim",
+  "task_specs": [
+    {
+      "name": "phantom3_bca",
+      "task_class": "branch_or_arch_navigation",
+      "target": "bca"
+    },
+    {
+      "name": "phantom3_lcca",
+      "task_class": "branch_or_arch_navigation",
+      "target": "lcca"
+    }
+  ],
+  "host": {
+    "python": "3.9.6",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cwd": "<repo>",
+    "argv": [
+      "benchmarks/external_comparison/common_bench.py",
+      "cathsim",
+      "--episodes",
+      "1",
+      "--max-steps",
+      "20",
+      "--policies",
+      "forward",
+      "--external-repo",
+      "<external-workdir>/repos/cathsim",
+      "--run-id",
+      "cathsim-smoke"
+    ]
+  },
+  "extra": {
+    "repo_commit": "adfabb2f291e31e6d656e66d0052269f38db01bd"
+  },
+  "episodes": [
+    {
+      "environment": "cathsim",
+      "task": "phantom3_bca",
+      "task_class": "branch_or_arch_navigation",
+      "policy": "forward",
+      "seed": 0,
+      "success": false,
+      "safe_success": false,
+      "steps": 20,
+      "total_reward": -1.4146869360725516,
+      "final_distance": 0.038681126986204406,
+      "max_penetration": null,
+      "max_contact_force": 1.0094288281153578,
+      "mean_contact_force": 0.2426873161861248,
+      "unsafe_event": false,
+      "crashed": false,
+      "elapsed_sec": 4.600875709,
+      "notes": {
+        "delta": 0.004,
+        "force_threshold": 2.0
+      },
+      "steps_per_second": 4.34699854222904
+    },
+    {
+      "environment": "cathsim",
+      "task": "phantom3_lcca",
+      "task_class": "branch_or_arch_navigation",
+      "policy": "forward",
+      "seed": 0,
+      "success": false,
+      "safe_success": false,
+      "steps": 20,
+      "total_reward": -1.176397852164706,
+      "final_distance": 0.02579997568189557,
+      "max_penetration": null,
+      "max_contact_force": 2.0920435237304043,
+      "mean_contact_force": 0.37783072104866544,
+      "unsafe_event": true,
+      "crashed": false,
+      "elapsed_sec": 4.527284208999999,
+      "notes": {
+        "delta": 0.004,
+        "force_threshold": 2.0
+      },
+      "steps_per_second": 4.417659478996496
+    }
+  ],
+  "aggregate": [
+    {
+      "environment": "cathsim",
+      "task": "phantom3_bca",
+      "policy": "forward",
+      "episodes": 1,
+      "success_rate": 0.0,
+      "safe_success_rate": 0.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 0.0,
+      "mean_steps_success": null,
+      "mean_steps_all": 20.0,
+      "mean_final_distance": 0.038681126986204406,
+      "mean_return": -1.4146869360725516,
+      "max_contact_force": 1.0094288281153578,
+      "mean_contact_force": 0.2426873161861248,
+      "steps_per_second": 4.34699854222904
+    },
+    {
+      "environment": "cathsim",
+      "task": "phantom3_lcca",
+      "policy": "forward",
+      "episodes": 1,
+      "success_rate": 0.0,
+      "safe_success_rate": 0.0,
+      "crash_rate": 0.0,
+      "unsafe_event_rate": 1.0,
+      "mean_steps_success": null,
+      "mean_steps_all": 20.0,
+      "mean_final_distance": 0.02579997568189557,
+      "mean_return": -1.176397852164706,
+      "max_contact_force": 2.0920435237304043,
+      "mean_contact_force": 0.37783072104866544,
+      "steps_per_second": 4.417659478996496
+    }
+  ]
+}

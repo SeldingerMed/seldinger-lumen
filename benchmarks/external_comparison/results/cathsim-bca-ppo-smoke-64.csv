@@ -1,0 +1,2 @@
+environment,task,task_class,policy,seed,success,safe_success,steps,total_reward,final_distance,max_penetration,max_contact_force,mean_contact_force,unsafe_event,crashed,elapsed_sec,notes,steps_per_second
+cathsim,phantom3_bca,branch_or_arch_navigation,ppo_trained,10000,False,False,80,-10.292571244263884,0.1261631725603655,,0.001834745425336553,0.00018066898570832625,False,False,5.8673871659557335,{'train_steps': 64},13.63468912775741

@@ -21,7 +21,9 @@ Post 2:
 
 > The benchmark target is not just "reach the branch."
 >
-> In Lumen, safe target reach is distinct from target reach with unsafe wall interaction. The simulator emits route progress, wall penetration, safety status, fluoroscopy, masks, keypoints, and replay metadata from the same scene.
+> In a matched 50k-step PPO branch-navigation comparison, Lumen and CathSim both reached 100% raw success, but Lumen preserved 100% safe success vs 6.7% for CathSim under the force threshold.
+>
+> The simulator emits route progress, wall penetration, safety status, fluoroscopy, masks, keypoints, and replay metadata from the same scene.
 >
 > https://github.com/SeldingerMed/seldinger-lumen
 
@@ -52,7 +54,7 @@ Technical:
 
 > Lumen is meant to be a stronger open benchmark substrate for autonomous endovascular navigation. The current release includes procedural stenotic/tortuous/branching vessels, wall-penetration and safe-success metrics, synthetic fluoro with CV labels, luminal RGB, replayable episode capture, and reduced-order modules for aneurysm inflow, flow diversion, clot, stentriever retrieval, and fragmentation.
 >
-> The important distinction: a policy that reaches the target after unsafe wall interaction is not scored as the same thing as safe target reach.
+> The important distinction: a policy that reaches the target after unsafe wall interaction is not scored as the same thing as safe target reach. In the launch comparison, Lumen hit 100% raw success and 100% safe success after 50k PPO steps on branch navigation; CathSim hit 100% raw success but 6.7% safe success under the force threshold.
 
 ## Reddit
 
@@ -70,6 +72,8 @@ Body:
 >
 > It also includes advanced state modules for aneurysm inflow, flow diversion, clot fields, stentriever retrieval, and fragmentation.
 >
+> In a matched branch-navigation PPO run, Lumen reached 100% raw success and 100% safe success over 30 held-out eval episodes. CathSim reached 100% raw success, but 6.7% safe success under the comparison force threshold.
+>
 > Repo: https://github.com/SeldingerMed/seldinger-lumen
 > Launch page/video/preprint: https://seldingermed.github.io/seldinger-lumen/
 >
@@ -80,6 +84,8 @@ Body:
 For "How is this different from CathSim?":
 
 > CathSim is the key prior open simulator and helped make autonomous catheterization easier to study. Lumen is aimed at the next benchmark layer: wall-safety scoring, deformable-wall semantics, paired state/image observations, synthetic CV labels, replayable dataset tooling, and modules for aneurysm/flow/clot/device state.
+>
+> In the launch PPO comparison, raw target reach tied at 100%, but Lumen preserved 100% safe success while CathSim fell to 6.7% safe success under the force threshold.
 
 For "Is this clinically validated?":
 

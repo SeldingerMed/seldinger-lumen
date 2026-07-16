@@ -1,0 +1,5 @@
+environment,task,task_class,policy,seed,success,safe_success,steps,total_reward,final_distance,max_penetration,max_contact_force,mean_contact_force,unsafe_event,crashed,elapsed_sec,notes,steps_per_second
+cathsim,phantom3_bca,branch_or_arch_navigation,forward,0,False,False,20,-1.4146869360725516,0.038681126986204406,,1.0094288281153578,0.2426873161861248,False,False,1.718142458,"{'delta': 0.004, 'force_threshold': 2.0}",11.640478300781274
+cathsim,phantom3_bca,branch_or_arch_navigation,forward,1,False,False,20,-1.4111461250295156,0.0404439564623111,,2.0920435237304043,0.37783072104866544,True,False,1.703352333999999,"{'delta': 0.004, 'force_threshold': 2.0}",11.741551997662048
+cathsim,phantom3_lcca,branch_or_arch_navigation,forward,0,False,False,20,-1.1817128057322457,0.02277181619971039,,1.0009380502484162,0.23872406955930697,False,False,1.7033065,"{'delta': 0.004, 'force_threshold': 2.0}",11.741867949191763
+cathsim,phantom3_lcca,branch_or_arch_navigation,forward,1,False,False,20,-1.1750226732901152,0.025125257888680887,,1.2262763549669302,0.23473248714971554,False,False,1.6925040000000013,"{'delta': 0.004, 'force_threshold': 2.0}",11.816811068097909

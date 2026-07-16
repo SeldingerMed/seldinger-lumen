@@ -178,6 +178,18 @@ title: Lumen
   </section>
 
   <section class="section">
+    <h2>Measured Benchmark Result</h2>
+    <p>
+      A matched branch-navigation PPO comparison trained Lumen and CathSim for 50,000 steps and evaluated each for 30 deterministic held-out episodes. Lumen reached 100% raw success and 100% safe success on <code>nav_tree_branch</code>. CathSim reached 100% raw success on <code>phantom3_bca</code>, but 6.7% safe success under the comparison force threshold.
+    </p>
+    <div class="grid-3">
+      <div class="metric"><strong>100%</strong> Lumen safe success across 30 PPO eval episodes.</div>
+      <div class="metric"><strong>6.7%</strong> CathSim safe success under the matched force threshold.</div>
+      <div class="metric"><strong>79.7 vs 12.1</strong> Eval steps/s for Lumen vs CathSim in the matched run.</div>
+    </div>
+  </section>
+
+  <section class="section">
     <h2>Real Simulator Captures</h2>
     <div class="grid-2">
       <div class="lumen-media"><img src="assets/launch/sensor-layer.png" alt="Lumen multimodal sensor layer"></div>
@@ -190,7 +202,7 @@ title: Lumen
   <section class="section">
     <h2>Why It Moves Beyond CathSim</h2>
     <p>
-      CathSim made open endovascular RL research easier to start. Lumen is aimed at the next benchmark layer: deformable-wall semantics, wall-safety scoring, paired image/state observations, dataset-grade labels, and endovascular modules that expose flow, aneurysm, clot, and device effects. The result is a stronger public substrate for agents that must optimize more than reaching a coordinate.
+      CathSim made open endovascular RL research easier to start. Lumen is aimed at the next benchmark layer: deformable-wall semantics, wall-safety scoring, paired image/state observations, dataset-grade labels, and endovascular modules that expose flow, aneurysm, clot, and device effects. In the matched PPO branch-navigation run, raw success tied at 100%, while Lumen preserved 100% safe success and CathSim fell to 6.7% safe success under the force threshold. The result is a stronger public substrate for agents that must optimize more than reaching a coordinate.
     </p>
   </section>
 
@@ -211,6 +223,8 @@ lumen validate lumen-episodes --require-cv-labels</code></pre>
     <ul>
       <li><a href="assets/launch/lumen-preprint.pdf">Read the launch preprint PDF</a></li>
       <li><a href="assets/launch/lumen-preprint-latex.zip">Download the LaTeX source ZIP</a></li>
+      <li><a href="assets/launch/benchmark/ppo-short-50k-lumen-cathsim-summary.csv">Download the matched PPO benchmark CSV</a></li>
+      <li><a href="assets/launch/benchmark/pilot-summary-lumen-cathsim-steve.csv">Download the Lumen/CathSim/stEVE pilot CSV</a></li>
       <li><a href="assets/launch/social-media-proposals.md">Open the launch post drafts</a></li>
       <li><a href="https://github.com/SeldingerMed/seldinger-lumen">Open the public repository</a></li>
     </ul>
