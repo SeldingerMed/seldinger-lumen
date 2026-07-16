@@ -86,6 +86,73 @@
         font-size: 22px;
       }
 
+      .motion-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 30;
+        pointer-events: none;
+        overflow: hidden;
+      }
+
+      .sweep {
+        position: absolute;
+        top: 120px;
+        left: -520px;
+        width: 520px;
+        height: 840px;
+        background: linear-gradient(90deg, transparent, rgba(104, 215, 225, 0.16), transparent);
+        transform: skewX(-16deg);
+        opacity: 0;
+      }
+
+      .ring {
+        position: absolute;
+        width: 300px;
+        height: 300px;
+        border: 2px solid rgba(104, 215, 225, 0.5);
+        border-radius: 50%;
+        opacity: 0;
+      }
+
+      #ring-a {
+        right: 268px;
+        top: 352px;
+      }
+
+      #ring-b {
+        left: 270px;
+        top: 384px;
+        border-color: rgba(112, 211, 141, 0.46);
+      }
+
+      .data-rail {
+        position: absolute;
+        right: 74px;
+        bottom: 92px;
+        display: grid;
+        grid-template-columns: repeat(7, 44px);
+        gap: 12px;
+        opacity: 0;
+      }
+
+      .data-rail i {
+        display: block;
+        height: 90px;
+        border: 1px solid rgba(104, 215, 225, 0.4);
+        background: linear-gradient(180deg, rgba(104, 215, 225, 0.12), rgba(112, 211, 141, 0.18));
+        transform-origin: bottom center;
+      }
+
+      .trace-label {
+        position: absolute;
+        left: 74px;
+        bottom: 100px;
+        width: 560px;
+        height: 2px;
+        background: #68d7e1;
+        opacity: 0;
+      }
+
       .scene-text {
         position: absolute;
         z-index: 10;
@@ -260,7 +327,17 @@
       <div class="topbar" data-layout-ignore></div>
       <div class="bottombar" data-layout-ignore></div>
       <div class="brand mono" data-layout-ignore>Lumen / Seldinger</div>
-      <div class="timecode mono" data-layout-ignore>open endovascular AI environment</div>
+      <div class="timecode mono" data-layout-ignore>open endovascular simulator</div>
+      <div class="motion-layer" data-layout-ignore>
+        <div id="sweep-a" class="sweep"></div>
+        <div id="sweep-b" class="sweep"></div>
+        <div id="ring-a" class="ring"></div>
+        <div id="ring-b" class="ring"></div>
+        <div id="trace-label" class="trace-label"></div>
+        <div id="data-rail" class="data-rail">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
 
       <video
         id="tree-video"
@@ -268,7 +345,7 @@
         data-start="0"
         data-duration="4.8"
         data-track-index="0"
-        src="assets/real-tree-navigation.mp4"
+        src="assets/real-tree-navigation-3d.mp4"
         muted
         playsinline
       ></video>
@@ -276,9 +353,9 @@
       <div id="scene-1" class="clip scene-text" data-start="0" data-duration="4.8" data-track-index="1">
         <div>
           <div class="eyebrow">real rollout</div>
-          <h1>Wall-safe endovascular RL, in the open.</h1>
+          <h1>Guidewire control inside the vessel.</h1>
         </div>
-        <p>Procedural vascular trees, tube-intrinsic contact, and safety-scored navigation from one replayable run.</p>
+        <p>Procedural vascular trees, centerline contact, and safety-scored navigation from one replayable run.</p>
         <div class="stats">
           <div class="stat"><b>0.0 mm</b><span>max wall penetration in this rollout</span></div>
           <div class="stat"><b>safe</b><span>branch target reached</span></div>
@@ -305,17 +382,23 @@
         <p class="mono"><span class="accent">obs</span>: image + masks + keypoints</p>
       </div>
 
-      <div id="physics" class="clip split-media" data-start="9.6" data-duration="4.4" data-track-index="4">
-        <img src="assets/real-aneurysm-flow-diversion.png" alt="" />
-        <img src="assets/real-stentriever-retrieval.png" alt="" />
-      </div>
+      <video
+        id="physics-video"
+        class="clip media left"
+        data-start="9.6"
+        data-duration="4.4"
+        data-track-index="4"
+        src="assets/real-physics-3d.mp4"
+        muted
+        playsinline
+      ></video>
 
       <div id="scene-3" class="clip scene-text right" data-start="9.6" data-duration="4.4" data-track-index="5">
         <div>
           <div class="eyebrow">coupled physics</div>
-          <h2>Flow, clot, aneurysm, and device effects are state.</h2>
+          <h2>Device physics are part of the state.</h2>
         </div>
-        <p>Reduced-order fast paths expose the hard clinical signals agents need: stasis, retrieval, fragmentation, aspiration, and flow recovery.</p>
+        <p>Fast paths expose the clinical signals agents need: stasis, retrieval, fragmentation, aspiration, and flow recovery.</p>
         <div class="stats">
           <div class="stat"><b>47.9%</b><span>lower peak sac inflow in this diverter trace</span></div>
           <div class="stat"><b>2 envs</b><span>independent retrieval vs fragmentation</span></div>
@@ -345,15 +428,26 @@
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
+      tl.to("#sweep-a", { opacity: 1, x: 2500, duration: 1.05, ease: "power2.out" }, 0.28);
+      tl.fromTo("#ring-a", { opacity: 0, scale: 0.34, rotation: -18 }, { opacity: 0.72, scale: 1, rotation: 18, duration: 0.7, ease: "power3.out" }, 0.85);
+      tl.to("#ring-a", { opacity: 0, scale: 1.32, duration: 0.42, ease: "power2.in" }, 1.55);
+      tl.fromTo("#trace-label", { opacity: 0, scaleX: 0, transformOrigin: "left center" }, { opacity: 1, scaleX: 1, duration: 0.45, ease: "power2.out" }, 1.08);
+      tl.to("#trace-label", { opacity: 0, scaleX: 1.18, duration: 0.32, ease: "power2.in" }, 4.2);
       tl.from("#scene-1 .stat", { opacity: 0, y: 28, duration: 0.45, stagger: 0.08, ease: "power2.out" }, 1.2);
 
       tl.from("#modalities", { opacity: 0, x: -120, filter: "blur(18px)", duration: 0.7, ease: "power3.out" }, 4.8);
       tl.from("#scene-2", { opacity: 0, x: 90, filter: "blur(16px)", duration: 0.65, ease: "power3.out" }, 4.98);
       tl.from("#scene-2 .rule", { scaleX: 0, transformOrigin: "left center", duration: 0.45, ease: "power2.out" }, 5.9);
+      tl.fromTo("#data-rail", { opacity: 0, y: 48 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 5.28);
+      tl.from("#data-rail i", { scaleY: 0.16, duration: 0.62, stagger: 0.05, ease: "power3.out" }, 5.45);
+      tl.to("#data-rail", { opacity: 0, y: -22, duration: 0.28, ease: "power2.in" }, 9.2);
 
-      tl.from("#physics", { opacity: 0, y: 60, filter: "blur(16px)", duration: 0.7, ease: "power3.out" }, 9.6);
+      tl.from("#physics-video", { opacity: 0, y: 60, filter: "blur(16px)", duration: 0.7, ease: "power3.out" }, 9.6);
       tl.from("#scene-3", { opacity: 0, x: 90, filter: "blur(16px)", duration: 0.65, ease: "power3.out" }, 9.78);
       tl.from("#scene-3 .stat", { opacity: 0, y: 26, duration: 0.45, stagger: 0.08, ease: "power2.out" }, 10.8);
+      tl.to("#sweep-b", { opacity: 1, x: 2500, duration: 0.95, ease: "power2.out" }, 9.62);
+      tl.fromTo("#ring-b", { opacity: 0, scale: 0.42, rotation: 14 }, { opacity: 0.62, scale: 1, rotation: -22, duration: 0.68, ease: "power3.out" }, 10.28);
+      tl.to("#ring-b", { opacity: 0, scale: 1.28, duration: 0.38, ease: "power2.in" }, 10.98);
 
       tl.from("#nav-mosaic", { opacity: 0, scale: 0.96, filter: "blur(14px)", duration: 0.7, ease: "power3.out" }, 14);
       tl.from("#scene-4", { opacity: 0, x: -80, filter: "blur(16px)", duration: 0.65, ease: "power3.out" }, 14.2);
