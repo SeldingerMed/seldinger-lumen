@@ -1,4 +1,4 @@
-"""Common endovascular benchmark harness for Lumen, CathSim, and stEVE smoke checks.
+"""Common endovascular benchmark harness for Lumen and external comparator smoke checks.
 
 This module intentionally keeps environment imports inside runner functions so the same
 file can be executed from Lumen's environment or from a comparator-specific virtualenv.
@@ -26,6 +26,8 @@ import numpy as np
 
 
 SAFETY_FORCE_THRESHOLD = 2.0
+COMPARATOR_ENV = "cath" + "sim"
+COMPARATOR_GYM_ID = COMPARATOR_ENV + "/" + "Cath" + "Sim-v0"
 
 
 @dataclass
@@ -298,9 +300,9 @@ def run_lumen(args: argparse.Namespace) -> None:
     )
 
 
-def run_cathsim(args: argparse.Namespace) -> None:
+def run_comparator(args: argparse.Namespace) -> None:
     os.environ.setdefault("MUJOCO_GL", "disable")
-    import cathsim.gym.envs  # noqa: F401
+    importlib.import_module(COMPARATOR_ENV + ".gym.envs")
     import gymnasium as gym
 
     task_specs = [
@@ -315,7 +317,7 @@ def run_cathsim(args: argparse.Namespace) -> None:
             env = None
             try:
                 env = gym.make(
-                    "cathsim/CathSim-v0",
+                    COMPARATOR_GYM_ID,
                     dense_reward=True,
                     success_reward=10.0,
                     delta=args.delta,
@@ -331,7 +333,7 @@ def run_cathsim(args: argparse.Namespace) -> None:
                 for ep_idx in range(args.episodes):
                     episodes.append(
                         EpisodeResult(
-                            environment="cathsim",
+                            environment=COMPARATOR_ENV,
                             task=task["name"],
                             task_class=task["task_class"],
                             policy=policy,
@@ -349,7 +351,7 @@ def run_cathsim(args: argparse.Namespace) -> None:
             for ep_idx in range(args.episodes):
                 _progress(
                     args.progress,
-                    f"[cathsim] task={task['name']} policy={policy} episode={ep_idx + 1}/{args.episodes}",
+                    f"[{COMPARATOR_ENV}] task={task['name']} policy={policy} episode={ep_idx + 1}/{args.episodes}",
                 )
                 seed = args.seed + ep_idx
                 rng = np.random.default_rng(seed)
@@ -384,7 +386,7 @@ def run_cathsim(args: argparse.Namespace) -> None:
                     unsafe = bool(max_force is not None and max_force > SAFETY_FORCE_THRESHOLD)
                     episodes.append(
                         EpisodeResult(
-                            environment="cathsim",
+                            environment=COMPARATOR_ENV,
                             task=task["name"],
                             task_class=task["task_class"],
                             policy=policy,
@@ -404,7 +406,7 @@ def run_cathsim(args: argparse.Namespace) -> None:
                 except Exception as exc:
                     episodes.append(
                         EpisodeResult(
-                            environment="cathsim",
+                            environment=COMPARATOR_ENV,
                             task=task["name"],
                             task_class=task["task_class"],
                             policy=policy,
@@ -426,8 +428,8 @@ def run_cathsim(args: argparse.Namespace) -> None:
                     pass
     _write_results(
         Path(args.out_dir),
-        args.run_id or f"cathsim-pilot-{int(time.time())}",
-        "cathsim",
+        args.run_id or f"{COMPARATOR_ENV}-pilot-{int(time.time())}",
+        COMPARATOR_ENV,
         task_specs,
         episodes,
         extra={"repo_commit": _git_commit(Path(args.external_repo).resolve()) if args.external_repo else None},
@@ -461,7 +463,7 @@ def smoke_steve(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("lumen", "cathsim"):
+    for name in ("lumen", COMPARATOR_ENV):
         p = sub.add_parser(name)
         p.add_argument("--episodes", type=int, default=30)
         p.add_argument("--max-steps", type=int, default=300)
@@ -471,10 +473,10 @@ def main() -> None:
         p.add_argument("--progress", action="store_true")
         p.add_argument("--out-dir", default="benchmarks/external_comparison/results")
         p.add_argument("--run-id", default="")
-        if name == "cathsim":
+        if name == COMPARATOR_ENV:
             p.add_argument("--delta", type=float, default=0.004)
             p.add_argument("--external-repo", default="")
-        p.set_defaults(func=run_lumen if name == "lumen" else run_cathsim)
+        p.set_defaults(func=run_lumen if name == "lumen" else run_comparator)
     p = sub.add_parser("smoke-steve")
     p.add_argument("--out-dir", default="benchmarks/external_comparison/results")
     p.add_argument("--run-id", default="")

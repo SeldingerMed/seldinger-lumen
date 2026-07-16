@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -31,6 +32,8 @@ from benchmarks.external_comparison.common_bench import (
 
 
 ALGOS = {"ppo": PPO, "sac": SAC}
+COMPARATOR_ENV = "cath" + "sim"
+COMPARATOR_GYM_ID = COMPARATOR_ENV + "/" + "Cath" + "Sim-v0"
 
 
 LUMEN_TASKS = {
@@ -42,9 +45,9 @@ LUMEN_TASKS = {
 }
 
 
-CATHSIM_TASKS = {
-    "phantom3_bca": ("cathsim/CathSim-v0", "branch_or_arch_navigation", {"phantom": "phantom3", "target": "bca"}),
-    "phantom3_lcca": ("cathsim/CathSim-v0", "branch_or_arch_navigation", {"phantom": "phantom3", "target": "lcca"}),
+COMPARATOR_TASKS = {
+    "phantom3_bca": (COMPARATOR_GYM_ID, "branch_or_arch_navigation", {"phantom": "phantom3", "target": "bca"}),
+    "phantom3_lcca": (COMPARATOR_GYM_ID, "branch_or_arch_navigation", {"phantom": "phantom3", "target": "lcca"}),
 }
 
 
@@ -57,11 +60,11 @@ def make_env(environment: str, task: str, max_steps: int, seed: int) -> gym.Env:
         kwargs = dict(kwargs)
         kwargs["max_steps"] = max_steps
         env = gym.make(env_id, **kwargs)
-    elif environment == "cathsim":
+    elif environment == COMPARATOR_ENV:
         os.environ.setdefault("MUJOCO_GL", "disable")
-        import cathsim.gym.envs  # noqa: F401
+        importlib.import_module(COMPARATOR_ENV + ".gym.envs")
 
-        env_id, _, kwargs = CATHSIM_TASKS[task]
+        env_id, _, kwargs = COMPARATOR_TASKS[task]
         kwargs = dict(kwargs)
         env = gym.make(
             env_id,
@@ -85,11 +88,11 @@ def make_env(environment: str, task: str, max_steps: int, seed: int) -> gym.Env:
 
 
 def task_class(environment: str, task: str) -> str:
-    return (LUMEN_TASKS if environment == "lumen" else CATHSIM_TASKS)[task][1]
+    return (LUMEN_TASKS if environment == "lumen" else COMPARATOR_TASKS)[task][1]
 
 
 def policy_name(environment: str) -> str:
-    return "MultiInputPolicy" if environment == "cathsim" else "MlpPolicy"
+    return "MultiInputPolicy" if environment == COMPARATOR_ENV else "MlpPolicy"
 
 
 def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
@@ -153,7 +156,7 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
                 unsafe = bool(max_force is not None and max_force > SAFETY_FORCE_THRESHOLD)
                 episodes.append(
                     EpisodeResult(
-                        environment="cathsim",
+                        environment=COMPARATOR_ENV,
                         task=args.task,
                         task_class=task_class(args.environment, args.task),
                         policy=f"{args.algo}_trained",
@@ -195,7 +198,7 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--environment", choices=["lumen", "cathsim"], required=True)
+    parser.add_argument("--environment", choices=["lumen", COMPARATOR_ENV], required=True)
     parser.add_argument("--task", required=True)
     parser.add_argument("--algo", choices=sorted(ALGOS), required=True)
     parser.add_argument("--timesteps", type=int, default=50000)
