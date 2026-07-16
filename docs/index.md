@@ -76,8 +76,7 @@ title: Lumen
     border: 1px solid var(--line);
     background: #05080c;
   }
-  .lumen-media img,
-  .lumen-media video {
+  .lumen-media img {
     display: block;
     width: 100%;
     height: auto;
@@ -141,10 +140,10 @@ title: Lumen
 <div class="lumen-page">
   <section class="lumen-hero">
     <div>
-      <div class="lumen-kicker">Open endovascular AI environment</div>
-      <h1>Wall-safe vascular navigation, in the open.</h1>
+      <div class="lumen-kicker">Open endovascular simulator</div>
+      <h1>Endovascular RL that scores the wall, not just the target.</h1>
       <p class="lumen-lede">
-        Lumen is an Apache-2.0 simulator for training and evaluating endovascular AI agents across deformable vascular anatomy, tube-intrinsic contact, synthetic fluoroscopy, luminal RGB, CV labels, and safety-scored Gymnasium benchmarks.
+        Lumen is an Apache-2.0 research environment for catheter and guidewire navigation. It pairs procedural vascular cases with wall-safety scoring, synthetic fluoroscopy, luminal RGB, masks, keypoints, replay metadata, and Gymnasium tasks.
       </p>
       <div class="lumen-actions">
         <a class="lumen-button primary" href="https://github.com/SeldingerMed/seldinger-lumen">GitHub</a>
@@ -153,34 +152,26 @@ title: Lumen
       </div>
     </div>
     <div class="lumen-media">
-      <img src="assets/launch/hero-frame.png" alt="Lumen wall-safe endovascular navigation rollout">
+      <img src="assets/launch/physics-layer.png" alt="Lumen simulator captures for flow, clot, aneurysm, and device state">
     </div>
   </section>
 
   <section class="section">
-    <div class="lumen-media">
-      <video controls playsinline poster="assets/launch/social-card.png">
-        <source src="assets/launch/lumen-launch.mp4" type="video/mp4">
-      </video>
-    </div>
-  </section>
-
-  <section class="section">
-    <h2>What Lumen Solves</h2>
+    <h2>What It Tracks</h2>
     <div class="grid-3">
-      <div class="metric"><strong>Wall safety is scored</strong> Target reach is separated from safe target reach, so unsafe wall interaction does not look like a clean success.</div>
-      <div class="metric"><strong>The lumen is state</strong> Contact, route progress, wall penetration, torsion, and friction hooks are emitted from the same simulation stack.</div>
-      <div class="metric"><strong>Images are first-class</strong> Fluoroscopy, masks, keypoints, labels, detector noise, and luminal RGB are generated from one scene.</div>
-      <div class="metric"><strong>Advanced use cases ship</strong> Flow diversion, aneurysm inflow traces, clot fields, retrieval, and fragmentation are exposed as simulator state.</div>
-      <div class="metric"><strong>Benchmarks are reproducible</strong> Cases, captures, episode sidecars, indexes, and splits are designed for reruns and comparison.</div>
-      <div class="metric"><strong>The stack is public</strong> The repository, launch video, screenshots, and preprint are available from this page.</div>
+      <div class="metric"><strong>Safe target reach</strong> A run can reach the target and still be marked unsafe if wall or force limits are exceeded.</div>
+      <div class="metric"><strong>Device route state</strong> Route progress, contact, penetration, torsion, and friction hooks are recorded during navigation.</div>
+      <div class="metric"><strong>Image outputs</strong> Fluoroscopy, masks, keypoints, detector noise, and luminal RGB come from the same case state.</div>
+      <div class="metric"><strong>Procedure modules</strong> Flow diversion, aneurysm inflow, clot fields, retrieval, and fragmentation are exposed as state.</div>
+      <div class="metric"><strong>Replayable cases</strong> Episode sidecars, captures, indexes, and splits are built for reruns and outside inspection.</div>
+      <div class="metric"><strong>Public package</strong> Code, benchmark summaries, preprint, screenshots, and launch video are linked here.</div>
     </div>
   </section>
 
   <section class="section">
-    <h2>Measured Benchmark Result</h2>
+    <h2>Benchmark Result</h2>
     <p>
-      A matched branch-navigation PPO comparison trained Lumen and CathSim for 50,000 steps and evaluated each for 30 deterministic held-out episodes. Lumen reached 100% raw success and 100% safe success on <code>nav_tree_branch</code>. CathSim reached 100% raw success on <code>phantom3_bca</code>, but 6.7% safe success under the comparison force threshold.
+      In a matched branch-navigation PPO run, both environments trained for 50,000 steps and were evaluated for 30 deterministic held-out episodes. Lumen reached 100% raw success and 100% safe success on <code>nav_tree_branch</code>. CathSim reached 100% raw success on <code>phantom3_bca</code>, but 6.7% safe success under the comparison force threshold.
     </p>
     <div class="grid-3">
       <div class="metric"><strong>100%</strong> Lumen safe success across 30 PPO eval episodes.</div>
@@ -197,13 +188,6 @@ title: Lumen
       <div class="lumen-media"><img src="assets/launch/nav-frame.png" alt="Lumen navigation benchmark rollouts"></div>
       <div class="lumen-media"><img src="assets/launch/benchmark-outro.png" alt="Lumen reproducible benchmark launch frame"></div>
     </div>
-  </section>
-
-  <section class="section">
-    <h2>Why It Moves Beyond CathSim</h2>
-    <p>
-      CathSim made open endovascular RL research easier to start. Lumen is aimed at the next benchmark layer: deformable-wall semantics, wall-safety scoring, paired image/state observations, dataset-grade labels, and endovascular modules that expose flow, aneurysm, clot, and device effects. In the matched PPO branch-navigation run, raw success tied at 100%, while Lumen preserved 100% safe success and CathSim fell to 6.7% safe success under the force threshold. The result is a stronger public substrate for agents that must optimize more than reaching a coordinate.
-    </p>
   </section>
 
   <section class="section">
