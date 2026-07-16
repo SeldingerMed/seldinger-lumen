@@ -76,7 +76,8 @@ title: Lumen
     border: 1px solid var(--line);
     background: #05080c;
   }
-  .lumen-media img {
+  .lumen-media img,
+  .lumen-media video {
     display: block;
     width: 100%;
     height: auto;
@@ -140,31 +141,36 @@ title: Lumen
 <div class="lumen-page">
   <section class="lumen-hero">
     <div>
-      <div class="lumen-kicker">Open endovascular simulator</div>
-      <h1>Endovascular RL that scores the wall, not just the target.</h1>
+      <div class="lumen-kicker">Lumen</div>
+      <h1>An open simulator for endovascular navigation research.</h1>
       <p class="lumen-lede">
-        Lumen is an Apache-2.0 research environment for catheter and guidewire navigation. It pairs procedural vascular cases with wall-safety scoring, synthetic fluoroscopy, luminal RGB, masks, keypoints, replay metadata, and Gymnasium tasks.
+        Lumen is an Apache-2.0 environment for catheter and guidewire navigation. It includes procedural vascular cases, safety-scored rollouts, synthetic fluoroscopy, luminal RGB, masks, keypoints, replay metadata, and Gymnasium tasks.
       </p>
       <div class="lumen-actions">
         <a class="lumen-button primary" href="https://github.com/SeldingerMed/seldinger-lumen">GitHub</a>
         <a class="lumen-button" href="assets/launch/lumen-preprint.pdf">Preprint PDF</a>
-        <a class="lumen-button" href="assets/launch/lumen-launch.mp4">Launch video</a>
       </div>
     </div>
     <div class="lumen-media">
-      <img src="assets/launch/physics-layer.png" alt="Lumen simulator captures for flow, clot, aneurysm, and device state">
+      <video
+        src="assets/launch/lumen-launch.mp4"
+        poster="assets/launch/physics-layer.png"
+        controls
+        muted
+        playsinline
+      ></video>
     </div>
   </section>
 
   <section class="section">
-    <h2>What It Tracks</h2>
+    <h2>What Is Included</h2>
     <div class="grid-3">
       <div class="metric"><strong>Safe target reach</strong> A run can reach the target and still be marked unsafe if wall or force limits are exceeded.</div>
       <div class="metric"><strong>Device route state</strong> Route progress, contact, penetration, torsion, and friction hooks are recorded during navigation.</div>
       <div class="metric"><strong>Image outputs</strong> Fluoroscopy, masks, keypoints, detector noise, and luminal RGB come from the same case state.</div>
       <div class="metric"><strong>Procedure modules</strong> Flow diversion, aneurysm inflow, clot fields, retrieval, and fragmentation are exposed as state.</div>
       <div class="metric"><strong>Replayable cases</strong> Episode sidecars, captures, indexes, and splits are built for reruns and outside inspection.</div>
-      <div class="metric"><strong>Public package</strong> Code, benchmark summaries, preprint, screenshots, and launch video are linked here.</div>
+      <div class="metric"><strong>Release files</strong> Code, benchmark summaries, preprint, screenshots, and launch materials are collected here.</div>
     </div>
   </section>
 
