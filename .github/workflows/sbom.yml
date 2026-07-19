@@ -1,0 +1,33 @@
+name: sbom
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # SPDX JSON via syft. Retained so that dependency composition at any
+      # given commit can be reconstructed later (FDA premarket cybersecurity
+      # guidance expects an SBOM per released device version).
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: sbom-${{ github.event.repository.name }}.spdx.json
+          upload-artifact: true
+          upload-artifact-retention: 90
+          upload-release-assets: true
