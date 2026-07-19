@@ -1,0 +1,33 @@
+# Gitleaks config for SeldingerMed repos.
+# Extends the default ruleset; allowlists below are documented false positives
+# verified by a full-history scan on 2026-07-19.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Committed HF Hub LFS upload logs. Contain expired presigned S3 URLs whose X-Amz-Credential is Hugging Face's own AWS access key id, not ours. No secret access key present."
+paths = [
+    '''Aneurysm Model/mirror/.*\.out$''',
+]
+
+[[allowlists]]
+description = "Docstrings and docs that name credential env vars without containing values."
+regexes = [
+    '''RUNPOD_S3_ACCESS_KEY''',
+    '''RUNPOD_S3_SECRET_KEY''',
+    '''RUNPOD_API_KEY''',
+]
+
+[[allowlists]]
+description = "Zenodo record metadata: 'key' fields hold filenames, not credentials."
+paths = [
+    '''parked/local_synthetic_dsa/zenodo_record_.*\.json$''',
+]
+
+[[allowlists]]
+description = "WebDataset '__key__' fields are sample identifiers, not credentials."
+regexTarget = "line"
+regexes = [
+    '''__key__''',
+]
