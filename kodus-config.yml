@@ -1,0 +1,39 @@
+version: 2.0
+
+# Managed in-repo. Requires "Kodus config file overrides web preferences"
+# to be enabled for this repo in Kodus settings, or this file is ignored.
+kodusConfigFileOverridesWebPreferences: true
+
+automatedReviewActive: true
+runOnDraft: false
+enableCommittableSuggestions: true
+codeReviewVersion: 'v2'
+
+reviewCadence:
+    type: 'auto_pause'
+    timeWindow: 15
+    pushesToTrigger: 3
+
+summary:
+    generatePRSummary: false
+
+suggestionControl:
+    severityLevelFilter: 'high'
+    applyFiltersToKodyRules: false
+
+# --- seldinger-lumen: public repo ---
+reviewOptions:
+    bug: true
+    security: true
+    business_logic: true
+    performance: true
+
+ignorePaths:
+    - 'yarn.lock'
+    - 'package-lock.json'
+    - '**/*.json'
+    - '.env'
+    - '**/dist/**'
+    - '**/build/**'
+    - '**/benchmarks/results/**'
+    - '**/*.csv'
