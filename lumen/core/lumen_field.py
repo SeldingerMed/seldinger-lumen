@@ -26,8 +26,24 @@ class LumenField:
         self.s = np.asarray(s_grid, dtype=float)
         self.theta = np.asarray(theta_grid, dtype=float)
         self.R = np.asarray(R, dtype=float)
+        if self.s.ndim != 1 or len(self.s) == 0:
+            raise ValueError("s_grid must be a non-empty 1-D array")
+        if self.theta.ndim != 1 or len(self.theta) == 0:
+            raise ValueError("theta_grid must be a non-empty 1-D array")
         if self.R.shape != (len(self.s), len(self.theta)):
             raise ValueError("R must have shape (len(s_grid), len(theta_grid))")
+        if not np.all(np.isfinite(self.s)):
+            raise ValueError("s_grid values must be finite")
+        if np.any(np.diff(self.s) <= 0.0):
+            raise ValueError("s_grid values must be strictly increasing")
+        if not np.all(np.isfinite(self.theta)):
+            raise ValueError("theta_grid values must be finite")
+        if len(self.theta) > 1 and np.any(np.diff(self.theta) <= 0.0):
+            raise ValueError("theta_grid values must be strictly increasing")
+        if not np.all(np.isfinite(self.R)):
+            raise ValueError("R values must be finite")
+        if np.any(self.R < 0.0):
+            raise ValueError("R values must be non-negative")
         # #15 — eval() wraps theta periodically, which is only correct if the grid
         # spans a full revolution. Reject a partial theta grid (silently wrong else).
         if len(self.theta) > 1:
