@@ -1,6 +1,7 @@
 """Asset schema round-trip + lumen-field behaviour."""
 
 import numpy as np
+import pytest
 
 from lumen.assets import procedural
 from lumen.assets.schema import Asset
@@ -54,9 +55,42 @@ def test_emitted_asset_is_procedural():
 def test_lumenfield_rejects_partial_theta_grid():
     # #15 — eval() wraps theta periodically; a partial theta grid (not a full 2π
     # revolution) would be silently wrong, so it must be rejected.
-    import pytest
     with pytest.raises(ValueError):
         LumenField(np.array([0.0, 1.0]), np.array([0.0, np.pi / 2]), np.ones((2, 2)))
     # a full revolution (endpoint-excluded) is accepted
     th = np.linspace(-np.pi, np.pi, 8, endpoint=False)
     LumenField(np.array([0.0, 1.0]), th, np.ones((2, 8)))
+
+
+@pytest.mark.parametrize(
+    "s_grid",
+    [
+        np.array([1.0, 0.0]),
+        np.array([0.0, 0.0]),
+        np.array([0.0, np.nan]),
+    ],
+)
+def test_lumenfield_rejects_invalid_station_grids(s_grid):
+    with pytest.raises(ValueError, match="s_grid values must be"):
+        LumenField(s_grid, np.array([0.0]), np.ones((2, 1)))
+
+
+@pytest.mark.parametrize(
+    "theta_grid",
+    [
+        np.array([np.pi, 0.0, -np.pi]),
+        np.array([-np.pi, -np.pi, 0.0]),
+        np.array([-np.pi, np.nan, 0.0]),
+    ],
+)
+def test_lumenfield_rejects_invalid_angle_grids(theta_grid):
+    with pytest.raises(ValueError, match="theta_grid values must be"):
+        LumenField(np.array([0.0, 1.0]), theta_grid, np.ones((2, 3)))
+
+
+@pytest.mark.parametrize("radius", [np.nan, np.inf, -1.0])
+def test_lumenfield_rejects_invalid_radius_values(radius):
+    R = np.array([[1.0], [radius]])
+
+    with pytest.raises(ValueError, match="R values must be"):
+        LumenField(np.array([0.0, 1.0]), np.array([0.0]), R)
