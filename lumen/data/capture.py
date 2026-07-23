@@ -116,11 +116,23 @@ class EpisodeRecorder:
             raise ValueError(                             # sim's body_positions concatenates all
                 f"EpisodeRecorder needs a single-env sim, got n_envs={sim.n_envs} "
                 "(body_positions would mix envs; tip/render would be wrong)")
+        try:
+            normalized_dt = float(dt)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("dt must be a finite positive number") from exc
+        if not np.isfinite(normalized_dt) or normalized_dt <= 0:
+            raise ValueError("dt must be a finite positive number")
+        if (
+            isinstance(substeps, (bool, np.bool_))
+            or not isinstance(substeps, (int, np.integer))
+            or substeps <= 0
+        ):
+            raise ValueError("substeps must be a positive integer")
         self.sim = sim
         self.frame = sim.contact_frame              # the Layer-0 centerline frame
         self.sensor, self.modality, self.lumen = sensor, modality, lumen
         self.every = max(1, int(every))
-        self.dt, self.substeps = dt, substeps
+        self.dt, self.substeps = normalized_dt, int(substeps)
         self.record_nodes = record_nodes
         # L1.3 lesson: a fixed vessel-sized C-arm, not a per-step device-sized one.
         self.carm = (sensor.default_carm(np.asarray(self.frame.points), axis=view_axis)
