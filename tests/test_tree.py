@@ -186,3 +186,10 @@ def test_negative_blend_len_rejected():
     asset = procedural.straight_tube(10.0, 1.0)
     with pytest.raises(ValueError, match="blend_len must be >= 0"):
         VascularTree(asset, blend_len=-1.0)
+
+
+@pytest.mark.parametrize("blend_len", [np.nan, np.inf])
+def test_non_finite_blend_len_rejected(blend_len):
+    asset = procedural.straight_tube(10.0, 1.0)
+    with pytest.raises(ValueError, match="blend_len must be >= 0 and finite"):
+        VascularTree(asset, blend_len=blend_len)
