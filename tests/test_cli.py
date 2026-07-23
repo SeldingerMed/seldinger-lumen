@@ -209,6 +209,26 @@ def test_demo_cli_help_mentions_manifest(capsys):
     assert "manifest.json" in out
 
 
+def test_demo_cli_exits_nonzero_when_rendering_fails(monkeypatch, capsys):
+    from lumen import workflows
+    from lumen.cli import main
+
+    failure = {
+        "ok": False,
+        "checks": {},
+        "media": {},
+        "navigation": {},
+        "problems": ["navigation render failed: RuntimeError: boom"],
+    }
+    monkeypatch.setattr(workflows, "render_demo_package", lambda *_args, **_kwargs: failure)
+
+    with pytest.raises(SystemExit) as seen:
+        main(["demo"])
+
+    assert seen.value.code == 1
+    assert json.loads(capsys.readouterr().out) == failure
+
+
 def test_demo_cli_writes_manifest_and_media(tmp_path, capsys):
     from lumen.cli import main
 
