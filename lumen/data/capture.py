@@ -118,7 +118,7 @@ class EpisodeRecorder:
                 "(body_positions would mix envs; tip/render would be wrong)")
         try:
             normalized_dt = float(dt)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("dt must be a finite positive number") from exc
         if not np.isfinite(normalized_dt) or normalized_dt <= 0:
             raise ValueError("dt must be a finite positive number")

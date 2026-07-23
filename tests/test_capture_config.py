@@ -11,7 +11,10 @@ class _StubSim:
     contact_frame = object()
 
 
-@pytest.mark.parametrize("dt", [0, -0.01, float("nan"), float("inf"), "invalid", None])
+@pytest.mark.parametrize(
+    "dt",
+    [0, -0.01, float("nan"), float("inf"), 10**400, "invalid", None],
+)
 def test_recorder_rejects_invalid_dt(dt):
     with pytest.raises(ValueError, match="dt must be a finite positive number"):
         EpisodeRecorder(_StubSim(), modality="none", dt=dt)
