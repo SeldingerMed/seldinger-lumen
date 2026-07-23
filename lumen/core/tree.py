@@ -60,8 +60,8 @@ class VascularTree:
             raise ValueError("asset has no edges")
         self.edges = [_Edge(e, asset) for e in asset.edges]
         blend_len = float(blend_len)
-        if blend_len < 0:
-            raise ValueError(f"blend_len must be >= 0, got {blend_len}")
+        if not np.isfinite(blend_len) or blend_len < 0:
+            raise ValueError(f"blend_len must be >= 0 and finite, got {blend_len}")
         self.blend_len = blend_len
         self._node_pos = {n.id: np.asarray(n.position_mm, float) for n in asset.nodes}
         # degree = how many edges touch a node; >1 marks a junction
