@@ -272,6 +272,8 @@ def demo_main(argv=None, prog=None) -> None:
         seed=args.seed,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
+    if not summary.get("ok", False):
+        raise SystemExit(1)
 
 
 def verify_demo_main(argv=None, prog=None) -> None:
