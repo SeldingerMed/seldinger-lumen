@@ -17,6 +17,7 @@ from __future__ import annotations
 import numpy as np
 
 from lumen.envs._actions import parse_nav_action
+from lumen.envs._validation import validate_action_scale
 from lumen.hardware import detect_device
 
 try:
@@ -42,7 +43,8 @@ class NavEnv:
         self.target_frac = target_frac
         self.target_s = target_frac * self.L
         self.rng = np.random.default_rng()
-        self.max_insertion, self.max_twist = max_insertion, max_twist
+        self.max_insertion = validate_action_scale(max_insertion, "max_insertion")
+        self.max_twist = validate_action_scale(max_twist, "max_twist")
         self.substeps, self.max_steps = substeps, max_steps
         self.success_tol = success_tol
         self.safety_max_pen = float(safety_max_pen)

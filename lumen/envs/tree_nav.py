@@ -21,6 +21,7 @@ import numpy as np
 from lumen.core.frame import CenterlineFrame
 from lumen.core.tree import VascularTree
 from lumen.envs._actions import parse_nav_action
+from lumen.envs._validation import validate_action_scale
 from lumen.hardware import detect_device
 
 try:
@@ -70,7 +71,8 @@ class TreeNavEnv:
         self.L = float(self.route_frame.length)
         self.R = float(np.asarray(self.tree.edges[self.route[0]].lf.R).mean())  # entry-edge ref scale
         self.target_s = float(np.clip(target_frac, 0.0, 1.0)) * self.L
-        self.max_insertion, self.max_twist = max_insertion, max_twist
+        self.max_insertion = validate_action_scale(max_insertion, "max_insertion")
+        self.max_twist = validate_action_scale(max_twist, "max_twist")
         self.substeps, self.max_steps = substeps, max_steps
         self.success_tol = success_tol
         self.safety_max_pen = float(safety_max_pen)
