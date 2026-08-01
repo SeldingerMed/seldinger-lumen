@@ -78,6 +78,8 @@ class CenterlineFrame:
         pts = np.asarray(points, dtype=float)
         if pts.ndim != 2 or pts.shape[1] != 3 or len(pts) < 2:
             raise ValueError("centerline must be an (N>=2, 3) array")
+        if not np.isfinite(pts).all():
+            raise ValueError("centerline points must be finite")
         self.points = pts
         self.tangents = _tangents(pts)
         self.m1 = _rmf(pts, self.tangents)
