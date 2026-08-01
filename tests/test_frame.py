@@ -5,9 +5,18 @@ work out by hand.
 """
 
 import numpy as np
+import pytest
 
 from lumen.assets import procedural
 from lumen.core.frame import CenterlineFrame
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_centerline_rejects_non_finite_points(value):
+    points = np.array([[0.0, 0.0, 0.0], [value, 0.0, 1.0]])
+
+    with pytest.raises(ValueError, match="centerline points must be finite"):
+        CenterlineFrame(points)
 
 
 def test_straight_tube_projection():
