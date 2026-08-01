@@ -21,7 +21,7 @@ import numpy as np
 from lumen.core.frame import CenterlineFrame
 from lumen.core.tree import VascularTree
 from lumen.envs._actions import parse_nav_action
-from lumen.envs._validation import validate_action_scale
+from lumen.envs._validation import validate_action_scale, validate_boolean
 from lumen.hardware import detect_device
 
 try:
@@ -54,6 +54,10 @@ class TreeNavEnv:
                  max_twist=1.0, substeps=4, max_steps=60, success_tol=2.5,
                  safety_max_pen=0.3, blend_len=4.0, terminate_on_unsafe: bool = False,
                  device=None):
+        terminate_on_unsafe = validate_boolean(
+            terminate_on_unsafe,
+            "terminate_on_unsafe",
+        )
         self.asset = asset
         self.tree = VascularTree(asset, blend_len=blend_len)
         self.start_node = asset.device_spawn.node_id
@@ -76,7 +80,7 @@ class TreeNavEnv:
         self.substeps, self.max_steps = substeps, max_steps
         self.success_tol = success_tol
         self.safety_max_pen = float(safety_max_pen)
-        self.terminate_on_unsafe = bool(terminate_on_unsafe)
+        self.terminate_on_unsafe = terminate_on_unsafe
         self.device = device or detect_device()
         if _HAS_GYM:
             self.action_space = spaces.Box(-1.0, 1.0, (2,), np.float32)
