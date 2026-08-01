@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 
 from lumen.envs._actions import parse_nav_action
-from lumen.envs._validation import validate_action_scale
+from lumen.envs._validation import validate_action_scale, validate_boolean
 from lumen.hardware import detect_device
 
 try:
@@ -31,6 +31,10 @@ class NavEnv:
     def __init__(self, asset=None, target_frac=0.7, max_insertion=2.0,
                  max_twist=1.0, substeps=4, max_steps=40, success_tol=2.5,
                  safety_max_pen=0.3, terminate_on_unsafe: bool = False, device=None):
+        terminate_on_unsafe = validate_boolean(
+            terminate_on_unsafe,
+            "terminate_on_unsafe",
+        )
         from lumen.assets import procedural
         from lumen.core.frame import CenterlineFrame
         self.asset = asset or procedural.straight_tube(length=80.0, radius=2.0)
@@ -48,7 +52,7 @@ class NavEnv:
         self.substeps, self.max_steps = substeps, max_steps
         self.success_tol = success_tol
         self.safety_max_pen = float(safety_max_pen)
-        self.terminate_on_unsafe = bool(terminate_on_unsafe)
+        self.terminate_on_unsafe = terminate_on_unsafe
         self.device = device or detect_device()
         if _HAS_GYM:
             self.action_space = spaces.Box(-1.0, 1.0, (2,), np.float32)
