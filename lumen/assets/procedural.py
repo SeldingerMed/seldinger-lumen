@@ -81,6 +81,41 @@ def _normalized_axis(axis) -> np.ndarray:
     return values / norm
 
 
+def _positive_finite_parameter(name: str, value: float) -> float:
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{name} must be a positive finite number")
+    try:
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive finite number") from exc
+    if not np.isfinite(parsed) or parsed <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return parsed
+
+
+def _bifurcation_parameters(
+    trunk: float,
+    branch: float,
+    radius: float,
+    angle_deg: float,
+    n: int,
+) -> tuple[float, float, float, float, int]:
+    trunk = _positive_finite_parameter("trunk", trunk)
+    branch = _positive_finite_parameter("branch", branch)
+    radius = _positive_finite_parameter("radius", radius)
+    if isinstance(angle_deg, (bool, np.bool_)):
+        raise ValueError("angle_deg must be a finite number")
+    try:
+        angle_deg = float(angle_deg)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError("angle_deg must be a finite number") from exc
+    if not np.isfinite(angle_deg):
+        raise ValueError("angle_deg must be a finite number")
+    if isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, np.integer)) or n < 8:
+        raise ValueError("n must be an integer >= 8")
+    return trunk, branch, radius, angle_deg, int(n)
+
+
 def _edge_from_polyline(edge_id, a, b, pts, lf) -> Edge:
     return Edge(
         id=edge_id, node_a=a, node_b=b,
@@ -154,6 +189,9 @@ def bifurcation(trunk: float = 50.0, branch: float = 50.0, radius: float = 2.0,
     overlap blending lands when contact narrowphase needs it.
     """
     from lumen.core.lumen_field import LumenField
+    trunk, branch, radius, angle_deg, n = _bifurcation_parameters(
+        trunk, branch, radius, angle_deg, n
+    )
     ang = np.radians(angle_deg)
     zt = np.linspace(0.0, trunk, n)
     trunk_pts = np.stack([np.zeros(n), np.zeros(n), zt], axis=1)
