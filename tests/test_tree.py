@@ -70,6 +70,29 @@ def test_straight_tube_is_a_degenerate_tree():
     assert pr.edge_id == "e0" and abs(pr.R - 2.0) < 1e-6 and pr.gap > 0
 
 
+def test_straight_tube_normalizes_a_valid_axis():
+    asset = procedural.straight_tube(length=10.0, axis=(0.0, 3.0, 4.0))
+
+    assert asset.nodes[-1].position_mm == pytest.approx((0.0, 6.0, 8.0))
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [
+        (0.0, 0.0, 0.0),
+        (1.0, 2.0),
+        (1.0, 2.0, 3.0, 4.0),
+        (np.nan, 0.0, 1.0),
+        (np.inf, 0.0, 1.0),
+        ("bad", 0.0, 1.0),
+        (10**400, 0.0, 1.0),
+    ],
+)
+def test_straight_tube_rejects_invalid_axes(axis):
+    with pytest.raises(ValueError, match="axis must be a finite nonzero 3-vector"):
+        procedural.straight_tube(axis=axis)
+
+
 def test_project_edge_s_batches_flow_geometry_without_per_node_project_loop():
     asset = procedural.bifurcation(angle_deg=35.0)
     tree = VascularTree(asset)

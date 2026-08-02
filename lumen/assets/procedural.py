@@ -68,6 +68,19 @@ def _validate_fraction(name: str, value: float) -> None:
         raise ValueError(f"{name} must be in [0, 1]")
 
 
+def _normalized_axis(axis) -> np.ndarray:
+    try:
+        values = np.asarray(axis, dtype=float)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError("axis must be a finite nonzero 3-vector") from exc
+    if values.shape != (3,) or not np.all(np.isfinite(values)):
+        raise ValueError("axis must be a finite nonzero 3-vector")
+    norm = float(np.linalg.norm(values))
+    if not np.isfinite(norm) or norm <= 0.0:
+        raise ValueError("axis must be a finite nonzero 3-vector")
+    return values / norm
+
+
 def _edge_from_polyline(edge_id, a, b, pts, lf) -> Edge:
     return Edge(
         id=edge_id, node_a=a, node_b=b,
@@ -80,8 +93,7 @@ def straight_tube(length: float = 100.0, radius: float = 2.0, n: int = 64,
                   axis=(0.0, 0.0, 1.0)) -> Asset:
     """A single straight tube of constant radius."""
     from lumen.core.lumen_field import LumenField
-    axis = np.asarray(axis, dtype=float)
-    axis = axis / np.linalg.norm(axis)
+    axis = _normalized_axis(axis)
     t = np.linspace(0.0, length, n)
     pts = t[:, None] * axis[None, :]
     lf = LumenField.cylinder(length, radius, n=n)
