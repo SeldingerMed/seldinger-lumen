@@ -42,7 +42,9 @@ class Volume:
         self.spacing_mm = _triple(self.spacing_mm, "spacing_mm")
         self.origin_mm = _triple(self.origin_mm, "origin_mm")
         if any(s <= 0 for s in self.spacing_mm):
-            raise ValueError(f"spacing_mm values must be positive, got {self.spacing_mm}")
+            raise ValueError(
+                f"spacing_mm values must be positive and finite, got {self.spacing_mm}"
+            )
 
     @property
     def mask(self):
@@ -63,8 +65,11 @@ class PlanarImage:
         spacing = np.asarray(self.pixel_spacing_mm, dtype=float).reshape(-1)
         if len(spacing) != 2:
             raise ValueError("pixel_spacing_mm must have two values")
-        if np.any(spacing <= 0):
-            raise ValueError(f"pixel_spacing_mm values must be positive, got {tuple(spacing)}")
+        if not np.isfinite(spacing).all() or np.any(spacing <= 0):
+            raise ValueError(
+                "pixel_spacing_mm values must be positive and finite, "
+                f"got {tuple(spacing)}"
+            )
         self.pixel_spacing_mm = tuple(float(x) for x in spacing)
         self.origin_mm = _triple(self.origin_mm, "origin_mm")
         direction = np.asarray(self.direction, dtype=float).reshape(-1)
@@ -102,6 +107,8 @@ def _triple(value, name: str) -> tuple[float, float, float]:
     arr = np.asarray(value, dtype=float).reshape(-1)
     if len(arr) != 3:
         raise ValueError(f"{name} must have three values")
+    if not np.isfinite(arr).all():
+        raise ValueError(f"{name} values must be finite, got {tuple(arr)}")
     return tuple(float(x) for x in arr)
 
 
@@ -1948,8 +1955,14 @@ def _validate_box(box: BoxAnnotation) -> None:
         raise ValueError(f"box coordinates must be finite, got {box}")
     if box.x_max <= box.x_min or box.y_max <= box.y_min:
         raise ValueError(f"box must have positive width and height, got {box}")
-    if box.radius_mm is not None and box.radius_mm <= 0:
-        raise ValueError(f"radius_mm must be positive when provided, got {box.radius_mm}")
+    if box.order is not None and not np.isfinite(float(box.order)):
+        raise ValueError(f"order must be finite when provided, got {box.order}")
+    if box.radius_mm is not None and (
+        not np.isfinite(float(box.radius_mm)) or box.radius_mm <= 0
+    ):
+        raise ValueError(
+            f"radius_mm must be positive and finite when provided, got {box.radius_mm}"
+        )
 
 
 def _box_center_radius_px(box: BoxAnnotation) -> tuple[np.ndarray, float]:
