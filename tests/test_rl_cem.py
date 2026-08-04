@@ -18,6 +18,22 @@ def _straight():
     return np.asarray(pts), float(np.asarray(lumen.R).mean()), lumen
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("pop", 0),
+        ("pop", 1.5),
+        ("pop", True),
+        ("iters", 0),
+        ("iters", 1.5),
+        ("iters", True),
+    ],
+)
+def test_cem_rejects_non_positive_or_non_integer_counts(field, value):
+    with pytest.raises(ValueError, match=rf"{field} must be a positive integer"):
+        train_cem(**{field: value})
+
+
 def test_cem_learns_to_navigate():
     vessel, R, lumen = _straight()
     # small/fast run for CI; learning still shows clearly on the straight task

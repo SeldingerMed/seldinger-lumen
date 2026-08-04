@@ -110,10 +110,19 @@ def train_cem(vessel=None, R=None, lumen_field=None, anatomies=None, pop=64,
     policy dimension is taken from env.obs_dim. `warm_start=(idx, val)` seeds the
     progress feature. (When env_factory is passed, target_frac/max_insertion are that
     factory's concern — the ones here are ignored.) Returns (best_theta, history)."""
-    if pop <= 0:
-        raise ValueError(f"pop must be greater than 0, got {pop}")
-    if iters <= 0:
-        raise ValueError(f"iters must be greater than 0, got {iters}")
+    if (
+        isinstance(pop, (bool, np.bool_))
+        or not isinstance(pop, (int, np.integer))
+        or pop <= 0
+    ):
+        raise ValueError(f"pop must be a positive integer, got {pop}")
+    if (
+        isinstance(iters, (bool, np.bool_))
+        or not isinstance(iters, (int, np.integer))
+        or iters <= 0
+    ):
+        raise ValueError(f"iters must be a positive integer, got {iters}")
+    pop, iters = int(pop), int(iters)
     if not (0 < elite_frac < 1):
         raise ValueError(f"elite_frac must be between 0 and 1 (exclusive), got {elite_frac}")
     if anatomies is not None:
