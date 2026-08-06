@@ -128,10 +128,16 @@ class EpisodeRecorder:
             or substeps <= 0
         ):
             raise ValueError("substeps must be a positive integer")
+        if (
+            isinstance(every, (bool, np.bool_))
+            or not isinstance(every, (int, np.integer))
+            or every <= 0
+        ):
+            raise ValueError("every must be a positive integer")
         self.sim = sim
         self.frame = sim.contact_frame              # the Layer-0 centerline frame
         self.sensor, self.modality, self.lumen = sensor, modality, lumen
-        self.every = max(1, int(every))
+        self.every = int(every)
         self.dt, self.substeps = normalized_dt, int(substeps)
         self.record_nodes = record_nodes
         # L1.3 lesson: a fixed vessel-sized C-arm, not a per-step device-sized one.
