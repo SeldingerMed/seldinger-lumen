@@ -6,6 +6,7 @@ import zlib
 
 from lumen.assets.imaging import (asset_from_box_annotations, asset_from_mask,
                                   asset_from_planar_mask, asset_planar_import_report,
+                                  BoxAnnotation, PlanarImage, Volume, _validate_box,
                                   load_dicom_frame,
                                   load_box_annotations, load_npz_volume,
                                   load_planar_array, segment_threshold)
@@ -136,6 +137,34 @@ def _coco_uncompressed_rle(mask) -> dict:
             run = 1
     counts.append(run)
     return {"size": [int(data.shape[0]), int(data.shape[1])], "counts": counts}
+
+
+def test_imaging_metadata_rejects_non_finite_physical_geometry():
+    volume = np.zeros((2, 2, 2), dtype=np.uint8)
+    planar = np.zeros((2, 2), dtype=np.uint8)
+
+    for spacing in ((float("nan"), 1.0, 1.0), (1.0, float("inf"), 1.0)):
+        with np.testing.assert_raises_regex(ValueError, "spacing_mm values must be finite"):
+            Volume(volume, spacing_mm=spacing)
+    with np.testing.assert_raises_regex(ValueError, "origin_mm values must be finite"):
+        Volume(volume, origin_mm=(0.0, float("-inf"), 0.0))
+
+    for spacing in ((float("nan"), 1.0), (1.0, float("inf"))):
+        with np.testing.assert_raises_regex(
+            ValueError, "pixel_spacing_mm values must be positive and finite"
+        ):
+            PlanarImage(planar, pixel_spacing_mm=spacing)
+    with np.testing.assert_raises_regex(ValueError, "origin_mm values must be finite"):
+        PlanarImage(planar, origin_mm=(float("nan"), 0.0, 0.0))
+
+
+def test_box_annotations_reject_non_finite_order_and_radius():
+    with np.testing.assert_raises_regex(ValueError, "order must be finite"):
+        _validate_box(BoxAnnotation(0.0, 0.0, 2.0, 2.0, order=float("nan")))
+    with np.testing.assert_raises_regex(
+        ValueError, "radius_mm must be positive and finite"
+    ):
+        _validate_box(BoxAnnotation(0.0, 0.0, 2.0, 2.0, radius_mm=float("inf")))
 
 
 def test_npz_volume_can_be_thresholded_and_imported_as_branching_asset(tmp_path):
