@@ -26,15 +26,24 @@ def test_recorder_rejects_invalid_substeps(substeps):
         EpisodeRecorder(_StubSim(), modality="none", substeps=substeps)
 
 
+@pytest.mark.parametrize("every", [0, -1, 1.5, True, "2", None])
+def test_recorder_rejects_invalid_every(every):
+    with pytest.raises(ValueError, match="every must be a positive integer"):
+        EpisodeRecorder(_StubSim(), modality="none", every=every)
+
+
 def test_recorder_normalizes_valid_numeric_timing_values():
     recorder = EpisodeRecorder(
         _StubSim(),
         modality="none",
         dt=np.float32(0.01),
         substeps=np.int64(3),
+        every=np.int64(2),
     )
 
     assert recorder.dt == pytest.approx(0.01)
     assert recorder.substeps == 3
+    assert recorder.every == 2
     assert isinstance(recorder.dt, float)
     assert isinstance(recorder.substeps, int)
+    assert isinstance(recorder.every, int)
