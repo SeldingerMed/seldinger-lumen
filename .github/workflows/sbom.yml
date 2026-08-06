@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # SPDX JSON via syft. Retained so that dependency composition at any
       # given commit can be reconstructed later (FDA premarket cybersecurity
