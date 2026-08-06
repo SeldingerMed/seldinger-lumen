@@ -93,6 +93,33 @@ def test_straight_tube_rejects_invalid_axes(axis):
         procedural.straight_tube(axis=axis)
 
 
+@pytest.mark.parametrize(
+    ("parameter", "value", "message"),
+    [
+        ("trunk", 0.0, "trunk must be a positive finite number"),
+        ("trunk", np.inf, "trunk must be a positive finite number"),
+        ("branch", -1.0, "branch must be a positive finite number"),
+        ("branch", np.nan, "branch must be a positive finite number"),
+        ("radius", 0.0, "radius must be a positive finite number"),
+        ("radius", True, "radius must be a positive finite number"),
+        ("angle_deg", np.inf, "angle_deg must be a finite number"),
+        ("angle_deg", True, "angle_deg must be a finite number"),
+        ("n", 7, "n must be an integer >= 8"),
+        ("n", 8.5, "n must be an integer >= 8"),
+        ("n", True, "n must be an integer >= 8"),
+    ],
+)
+def test_bifurcation_rejects_invalid_parameters(parameter, value, message):
+    with pytest.raises(ValueError, match=message):
+        procedural.bifurcation(**{parameter: value})
+
+
+def test_bifurcation_accepts_numpy_integer_sample_count():
+    asset = procedural.bifurcation(n=np.int64(12))
+
+    assert all(len(edge.centerline_mm) == 12 for edge in asset.edges)
+
+
 def test_project_edge_s_batches_flow_geometry_without_per_node_project_loop():
     asset = procedural.bifurcation(angle_deg=35.0)
     tree = VascularTree(asset)
