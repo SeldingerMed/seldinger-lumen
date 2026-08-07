@@ -48,6 +48,21 @@ def test_measure_throughput_rejects_nonpositive_sizes():
         measure_throughput(sim, steps=0)
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"steps": True}, "steps must be an integer"),
+        ({"steps": 1.5}, "steps must be an integer"),
+        ({"warmup": True}, "warmup must be an integer"),
+        ({"warmup": 1.5}, "warmup must be an integer"),
+        ({"warmup": -1}, "warmup must be nonnegative"),
+    ],
+)
+def test_measure_throughput_rejects_invalid_sizes(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        measure_throughput(object(), **kwargs)
+
+
 def test_batching_amortizes_on_the_host_path():
     # plain navigation (no flow/clot) -> _step_host. Batching must drive the per-env
     # cost WELL below the single-env cost; a per-env host round-trip would flatten it.
