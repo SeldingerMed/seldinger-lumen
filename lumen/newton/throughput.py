@@ -16,6 +16,7 @@ falling as the batch grows; ``test_throughput`` pins exactly that property.
 
 from __future__ import annotations
 
+import operator
 import time
 
 import warp as wp
@@ -32,8 +33,22 @@ def measure_throughput(sim, steps: int = 20, warmup: int = 2, dt: float = 2.5e-2
     Returns a dict: ``n_envs``, ``device``, ``env_steps_per_s``, ``ms_per_step``,
     ``us_per_env_step``.
     """
+    if isinstance(steps, bool):
+        raise ValueError(f"steps must be an integer; got {steps}")
+    try:
+        steps = operator.index(steps)
+    except TypeError as exc:
+        raise ValueError(f"steps must be an integer; got {steps}") from exc
     if steps <= 0:                           # else the derived metrics divide by zero
         raise ValueError(f"steps must be positive; got {steps}")
+    if isinstance(warmup, bool):
+        raise ValueError(f"warmup must be an integer; got {warmup}")
+    try:
+        warmup = operator.index(warmup)
+    except TypeError as exc:
+        raise ValueError(f"warmup must be an integer; got {warmup}") from exc
+    if warmup < 0:
+        raise ValueError(f"warmup must be nonnegative; got {warmup}")
     if sim.n_envs <= 0:
         raise ValueError(f"sim.n_envs must be positive; got {sim.n_envs}")
     for _ in range(warmup):                  # absorb Warp JIT compile + first-touch allocs
