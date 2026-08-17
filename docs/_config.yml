@@ -1,4 +1,4 @@
 title: Lumen
-description: Open, differentiable, GPU-parallel simulation for endovascular AI.
+description: Lumen simulates a catheter inside a deformable vessel and scores reaching the target separately from reaching it without injuring the wall.
 theme: jekyll-theme-cayman
 show_downloads: false

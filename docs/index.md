@@ -142,9 +142,9 @@ title: Lumen
   <section class="lumen-hero">
     <div>
       <div class="lumen-kicker">Lumen</div>
-      <h1>An open simulator for endovascular navigation research.</h1>
+      <h1>Open simulation for endovascular navigation.</h1>
       <p class="lumen-lede">
-        Lumen is an Apache-2.0 environment for catheter and guidewire navigation. It includes procedural vascular cases, safety-scored rollouts, synthetic fluoroscopy, luminal RGB, masks, keypoints, replay metadata, and Gymnasium tasks.
+        Lumen simulates a catheter and guidewire inside a deformable vessel, and scores whether the tool reached its target separately from whether it got there without injuring the wall — because a path that tears a vessel is not a success. Apache-2.0, GPU-parallel, and differentiable, with procedural vascular anatomy, synthetic fluoroscopy, luminal RGB, CV labels, and Gymnasium tasks.
       </p>
       <div class="lumen-actions">
         <a class="lumen-button primary" href="https://github.com/SeldingerMed/seldinger-lumen">GitHub</a>

@@ -1,8 +1,8 @@
 # Lumen
 
-**Open simulation for wall-safe endovascular RL and dataset generation.**
+**Lumen simulates a catheter inside a deformable vessel, and scores whether it reached the target separately from whether it got there without injuring the wall.**
 
-Lumen is an Apache-2.0 research environment for catheter and guidewire navigation. It combines procedural vascular cases, tube-intrinsic contact, synthetic fluoroscopy, luminal RGB, CV labels, replayable datasets, Gymnasium environments, and benchmark scoring that separates raw target reach from safe target reach.
+Most navigation benchmarks stop at "did the tool arrive." That hides the failure mode clinicians actually care about: a route that reaches the lesion by dragging a guidewire along an artery wall. Lumen is an Apache-2.0, GPU-parallel, differentiable research environment for catheter and guidewire navigation that keeps those two outcomes apart — with procedural vascular anatomy, tube-intrinsic contact, synthetic fluoroscopy, luminal RGB, CV labels, replayable datasets, and Gymnasium environments.
 
 Launch page, preprint, benchmark summaries, screenshots, and video link:
 https://seldingermed.github.io/seldinger-lumen/
