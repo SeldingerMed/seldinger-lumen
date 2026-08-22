@@ -1,6 +1,6 @@
 # Lumen
 
-**Train endovascular navigation policies against the vessel wall, not just the target.**
+**Train endovascular navigation against the vessel wall, not just the target.**
 
 Lumen is an Apache-2.0 simulation and RL environment for catheter and guidewire navigation. It combines deformable vascular anatomy, finite-radius contact, synthetic imaging, replayable episodes, and Gymnasium tasks in one GPU-parallel solver.
 
