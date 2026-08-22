@@ -532,7 +532,7 @@ title: Lumen | Endovascular simulation
       <div>
         <div class="section-label"><span>01</span> Endovascular simulation</div>
         <h1>Target reached. <em>Wall respected.</em></h1>
-        <p class="hero-copy">Train catheter and guidewire policies in deformable vascular anatomy. Lumen separates target reach from wall-safe reach, renders matched imaging, and records every episode for replay.</p>
+        <p class="hero-copy">Open simulation and RL for catheter and guidewire navigation. Deformable anatomy, imaging generated from the same case, and episodes you can replay.</p>
         <div class="hero-actions">
           <a class="button primary" href="https://github.com/SeldingerMed/seldinger-lumen">Run Lumen <span>↗</span></a>
           <a class="button" href="assets/launch/lumen-preprint.pdf">Read preprint <span>↓</span></a>
@@ -566,9 +566,9 @@ title: Lumen | Endovascular simulation
       <div class="section-intro">
         <div>
           <div class="section-label"><span>03</span> System</div>
-          <h2 class="section-heading">Shared simulation state.</h2>
+          <h2 class="section-heading">One stack, many views.</h2>
         </div>
-        <p>The solver, sensors, observations, and episode record share one state. Change the anatomy, device, or sensor without rebuilding the stack.</p>
+        <p>Mechanics, sensors, observations, and episode records share one state. Swap anatomy, device, or sensor without rebuilding the pipeline.</p>
       </div>
       <dl class="capability-list">
         <div><span class="index">01</span><dt>Mechanics</dt><dd>Fixed-port guidewire and catheter actuation, deformable walls, finite-radius contact, torsion, friction, flow, clot, retrieval, and flow diversion.</dd></div>

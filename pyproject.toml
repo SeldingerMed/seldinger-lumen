@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "seldinger-lumen"          # import name stays `lumen`; distribution matches the repo
 version = "0.0.0"
-description = "Procedural endovascular simulation, CV labels, and RL benchmarks for Lumen"
+description = "Endovascular simulation and RL with deformable vessels, matched imaging, and replayable episodes"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -60,7 +60,7 @@ lumen-calibrate = "lumen.cli:calibrate_main"
 lumen-import-mask = "lumen.cli:import_mask_main"
 
 [tool.setuptools.packages.find]
-include = ["lumen*"]
+include = ["lumen*", "tools"]
 
 [tool.setuptools.package-data]
 lumen = ["py.typed"]
