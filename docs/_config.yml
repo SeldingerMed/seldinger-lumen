@@ -1,4 +1,4 @@
 title: Lumen
-description: Lumen simulates a catheter inside a deformable vessel and scores reaching the target separately from reaching it without injuring the wall.
+description: Open endovascular simulation and RL with deformable vessels, matched imaging, and replayable evaluation.
 theme: jekyll-theme-cayman
 show_downloads: false

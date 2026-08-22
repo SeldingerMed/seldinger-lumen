@@ -1,11 +1,10 @@
 # Lumen
 
-**Lumen simulates a catheter inside a deformable vessel, and scores whether it reached the target separately from whether it got there without injuring the wall.**
+**Train endovascular navigation policies against the vessel wall, not just the target.**
 
-Most navigation benchmarks stop at "did the tool arrive." That hides the failure mode clinicians actually care about: a route that reaches the lesion by dragging a guidewire along an artery wall. Lumen is an Apache-2.0, GPU-parallel, differentiable research environment for catheter and guidewire navigation that keeps those two outcomes apart — with procedural vascular anatomy, tube-intrinsic contact, synthetic fluoroscopy, luminal RGB, CV labels, replayable datasets, and Gymnasium environments.
+Lumen is an Apache-2.0 simulation and RL environment for catheter and guidewire navigation. It combines deformable vascular anatomy, finite-radius contact, synthetic imaging, replayable episodes, and Gymnasium tasks in one GPU-parallel solver.
 
-Launch page, preprint, benchmark summaries, screenshots, and video link:
-https://seldingermed.github.io/seldinger-lumen/
+[Launch page](https://seldingermed.github.io/seldinger-lumen/) · [Preprint](https://seldingermed.github.io/seldinger-lumen/assets/launch/lumen-preprint.pdf) · [Solver coverage](docs/SOLVER_SUPPORT.md)
 
 ![Lumen advanced simulator captures](docs/assets/launch/physics-layer.png)
 
@@ -47,15 +46,14 @@ obs, info = env.reset()
 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
 
-## What Is Included
+## Core systems
 
-- Procedural stenotic, tortuous, and branching vascular cases.
-- Tube-intrinsic contact with wall penetration and safety status.
-- Synthetic fluoroscopy, masks, keypoints, detector noise, and luminal RGB.
-- Flow-diverter, aneurysm-inflow, clot, retrieval, and fragmentation modules.
-- Dataset capture, validation, indexing, splitting, and materialization tooling.
-
-Solver feature coverage is tracked in [docs/SOLVER_SUPPORT.md](docs/SOLVER_SUPPORT.md).
+- Procedural stenotic, tortuous, aneurysmal, and branching vessels.
+- Fixed-port guidewire and coaxial catheter actuation with rotation, latency, backlash, and motion limits.
+- Deformable wall mechanics, finite-radius contact, anisotropic friction, flow, clot, retrieval, and flow diversion.
+- Synthetic fluoroscopy, luminal RGB, masks, keypoints, noise, latency, and dropout.
+- Dataset capture, validation, replay, indexing, splitting, and materialization.
+- Privileged, tracked, and raw-image observation contracts for RL.
 
 ## Citation
 
