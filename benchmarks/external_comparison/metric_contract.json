@@ -42,6 +42,9 @@
     "train_steps": 600000,
     "seeds": 6,
     "eval_episodes_per_seed_task": 100,
+    "evaluation_seed_policy": "common_frozen",
+    "evaluation_seed_start": 10000,
+    "episode_attribution": ["training_seed", "model_id", "seed"],
     "purpose": "Preregistered PPO/SAC self-assessment across matched task classes."
   },
   "safety_endpoints": {

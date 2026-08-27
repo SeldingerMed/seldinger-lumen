@@ -14,6 +14,22 @@ exists.
 Future runs follow the preregistered contract and are reported unconditionally,
 including null, failed, blocked, and unfavorable outcomes.
 
+The SB3 runner accepts a comma-separated `--seeds` schedule and evaluates every
+independently trained model before writing one unconditional result artifact. The
+preregistered main schedule is seeds `0..5`, 600,000 training steps, and 100
+evaluation episodes per seed/task; single-seed smoke runs remain supported.
+
+Evaluation seeds use one common frozen block beginning at 10,000 for every trained
+model. Each episode records both its evaluation seed and its training seed/model
+identity; aggregate rows remain per trained model rather than pooling seed runs.
+
+If a training seed fails, the runner still emits its full evaluation block as failed
+rows with the planned model identity, so seed failures cannot disappear from the
+aggregate.
+
+Per-seed records distinguish environment/model-init/train/save/evaluate failures
+and retain total elapsed time separately from training time.
+
 ## 2026-07-15
 
 Comparator sources:

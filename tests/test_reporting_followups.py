@@ -62,6 +62,10 @@ def test_external_contract_and_csv_keep_emitted_return_and_wall_fields():
     assert contract["required_metrics"]["statistics_protocol"]["primary_estimator"] == (
         "fractional_interquartile_mean"
     )
+    assert contract["main_budget"]["evaluation_seed_policy"] == "common_frozen"
+    assert contract["main_budget"]["episode_attribution"] == [
+        "training_seed", "model_id", "seed"
+    ]
 
     summary = _load_module(
         "summary_followup_test",
