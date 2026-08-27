@@ -17,7 +17,7 @@ def _command_table():
     return {
         "hardware": ("Print backend hardware/software status.", hardware_main),
         "doctor": ("Diagnose install/backend readiness and print next steps.", doctor_main),
-        "benchmark": ("Run the canonical navigation benchmark.", benchmark_main),
+        "benchmark": ("Run the canonical or scaled navigation benchmark.", benchmark_main),
         "play": ("Watch a scene: roll out a policy and write an animation.", play_main),
         "demo": ("Write a compact demo media bundle.", demo_main),
         "verify-demo": ("Verify a generated demo media bundle.", verify_demo_main),
@@ -195,6 +195,8 @@ def benchmark_main(argv=None, prog=None) -> None:
     parser.add_argument("--episodes", type=int, default=100,
                         help="Episodes per task for the scaled suite.")
     args = parser.parse_args(argv)
+    if args.suite == "scaled" and args.episodes <= 0:
+        parser.error("--episodes must be a positive integer")
     os.makedirs(args.results_dir, exist_ok=True)
     if args.suite == "scaled":
         from lumen.bench_protocol import evaluate_generalization

@@ -973,6 +973,23 @@ def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch, capsys):
     assert saved["notes"] == seen["notes"]
 
 
+
+
+def test_benchmark_cli_rejects_nonpositive_scaled_episode_count(capsys):
+    from lumen.cli import benchmark_main
+
+    with pytest.raises(SystemExit) as exc_info:
+        benchmark_main(["--suite", "scaled", "--episodes", "0"])
+
+    assert exc_info.value.code == 2
+    assert "--episodes must be a positive integer" in capsys.readouterr().err
+
+
+def test_umbrella_help_describes_canonical_and_scaled_benchmark():
+    from lumen.cli import _command_table
+
+    assert "canonical or scaled" in _command_table()["benchmark"][0]
+
 def test_validate_cli_checks_case_bundles_and_fails_invalid_ones(tmp_path, capsys):
     from lumen.cli import validate_main
 
