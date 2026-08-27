@@ -38,10 +38,10 @@ The reference point is CathSim, the most-cited open endovascular RL simulator
   contact geometry are the *same* shared field `R(s,θ,t)` — they cannot desync.
 - **Richer intraluminal physics.** Anisotropic fiber-aligned friction, instrument
   torsion, a finite-extent Ogden clot with progressive damage / stent-retriever
-  capture, and a 1-D flow pressure field.
-- **Safety-scored benchmark.** `safe_success_rate` (target reached *without* breaching
-  a wall-penetration threshold) ranks above raw success. `lumen play` reports the same
-  numbers, so a rollout that "succeeds" by perforating the wall is visibly unsafe.
+- **Native safety accounting.** Lumen records device-surface penetration and wall load
+  in simulator units, while external environments retain their native force/contact
+  traces. These endpoint names and curves are reported separately; no cross-environment
+  safety rate is claimed without matched physical calibration and force–injury validation.
 - **CV-ready data pipeline.** `capture → validate → index → split → materialize-batch`,
   with a versioned `Episode` standard, deterministic leak-free train/val/test splits,
   and free segmentation/keypoint labels.

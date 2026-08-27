@@ -8,6 +8,13 @@ random, forward, and sweep policies to verify adapters and metric extraction. Ma
 paper-facing runs use PPO and SAC with CathSim-style budgets: 600,000 training steps,
 six seeds, and 100 frozen-policy evaluation episodes per seed/task.
 
+Safety is reported by native endpoint, not a shared `safe_success` field. Lumen
+emits device-surface penetration and wall-load curves in simulator units; CathSim
+emits its native contact-force curve; stEVE has no classified safety endpoint in this
+harness. Cross-environment safety rates are intentionally withheld until matched
+device/anatomy/material, solver-unit, and phantom or ex-vivo force--injury
+calibration exists. Every preregistered run is retained regardless of outcome.
+
 Example pilot commands:
 
 ```bash

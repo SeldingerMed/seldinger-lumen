@@ -111,12 +111,19 @@ def _target_xy(env, a0, a1):
 
 
 def _wall_penetration(env) -> float:
-    """Deepest wall penetration, using local branch radius when the scene is a tree."""
-    tree = getattr(env, "tree", None)
+    """Deepest device-surface overlap in native simulator length units."""
+    surface_penetration = getattr(getattr(env, "sim", None), "surface_penetration", None)
+    if callable(surface_penetration):
+        values = np.asarray(surface_penetration(), dtype=float)
+        return float(np.nanmax(values)) if values.size else 0.0
     pos = np.asarray(env.sim.body_positions())
-    if tree is not None:
-        return max(0.0, max(float(pr.r - pr.R) for pr in (tree.project(p) for p in pos)))
-    return max(0.0, float(env.sim.node_radii().max()) - float(env.R))
+    device_radius = float(getattr(
+        env.sim, "device_radius", getattr(env, "device_radius_mm", 0.0)
+    ))
+    if getattr(env, "tree", None) is not None:
+        return max(0.0, max(float(pr.r + device_radius - pr.R)
+                             for pr in (env.tree.project(p) for p in pos)))
+    return max(0.0, float(env.sim.node_radii().max()) + device_radius - float(env.R))
 
 
 def render_frame(env, size: int = 480, pad: float = 0.14) -> np.ndarray:

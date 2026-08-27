@@ -34,7 +34,8 @@ def run_leaderboard(policy=proportional_policy, policy_name="proportional-baseli
     tasks = [
         {"case": t["name"], "tier": t["tier"], "episodes": t["episodes"],
          "success_rate": t["success_rate"], "safe_success_rate": t["safe_success_rate"],
-         "unsafe_success_rate": t.get("unsafe_success_rate", 0.0),
+         "unsafe_success_rate": t["unsafe_success_rate"],
+         "crash_rate": t["crash_rate"],
          "mean_steps": t["mean_steps"], "max_pen": t["max_pen"],
          "mean_return": t["mean_return"]}
         for t in card.per_task
@@ -43,7 +44,8 @@ def run_leaderboard(policy=proportional_policy, policy_name="proportional-baseli
             "n_cases": len(tasks),
             "success_rate": card.overall["success_rate"],
             "safe_success_rate": card.overall["safe_success_rate"],
-            "unsafe_success_rate": card.overall.get("unsafe_success_rate", 0.0),
+            "unsafe_success_rate": card.overall["unsafe_success_rate"],
+            "crash_rate": card.overall["crash_rate"],
             "max_pen": card.overall["max_pen"],
             "mean_return": card.overall["mean_return"],
             "cases": tasks}

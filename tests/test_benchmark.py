@@ -58,10 +58,12 @@ def test_scorecard_round_trips_and_skips_foreign_suite_versions(tmp_path):
                    per_task=[
                        {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                         "success_rate": 1.0, "safe_success_rate": 1.0,
+                        "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                         "max_pen": 0.0, "mean_return": 1.0}
                        for t in SUITE
                    ],
                    overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                            "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                             "max_pen": 0.0, "mean_return": 1.0})
     sc.save(tmp_path / "x.json")
     assert Scorecard.load(tmp_path / "x.json").overall == sc.overall      # round-trip
@@ -93,10 +95,12 @@ def test_scorecard_validation_reports_submission_schema_errors():
                            per_task=[
                                {"name": t.name, "tier": "easy", "episodes": t.episodes,
                                 "success_rate": 1.0, "safe_success_rate": 1.0,
+                                "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                                 "max_pen": 0.0, "mean_return": 1.0}
                                for t in SUITE
                            ],
                            overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                                    "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                                     "max_pen": 0.0, "mean_return": 1.0})
     with pytest.raises(ValueError, match="per_task\\[2\\].tier"):
         validate_scorecard(wrong_tier)
@@ -105,10 +109,12 @@ def test_scorecard_validation_reports_submission_schema_errors():
                                  per_task=[
                                      {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                                       "success_rate": 1.0, "safe_success_rate": 0.0,
+                                      "unsafe_success_rate": 1.0, "crash_rate": 0.0,
                                       "max_pen": 0.0, "mean_return": 1.0}
                                      for t in SUITE
                                  ],
                                  overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                                          "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                                           "max_pen": 0.0, "mean_return": 1.0})
     with pytest.raises(ValueError, match="overall.safe_success_rate"):
         validate_scorecard(inflated_overall)
@@ -117,13 +123,13 @@ def test_scorecard_validation_reports_submission_schema_errors():
                              per_task=[
                                  {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                                   "success_rate": 1.0, "safe_success_rate": 0.5,
-                                  "unsafe_success_rate": 0.0, "max_pen": 0.0,
-                                  "mean_return": 1.0}
+                                  "unsafe_success_rate": 0.0, "crash_rate": 0.0,
+                                  "max_pen": 0.0, "mean_return": 1.0}
                                  for t in SUITE
                              ],
                              overall={"success_rate": 1.0, "safe_success_rate": 0.5,
-                                      "unsafe_success_rate": 0.0, "max_pen": 0.0,
-                                      "mean_return": 1.0})
+                                      "unsafe_success_rate": 0.0, "crash_rate": 0.0,
+                                      "max_pen": 0.0, "mean_return": 1.0})
     with pytest.raises(ValueError, match="unsafe_success_rate"):
         validate_scorecard(wrong_unsafe)
 
@@ -131,14 +137,48 @@ def test_scorecard_validation_reports_submission_schema_errors():
                              per_task=[
                                  {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                                   "success_rate": 1.0, "safe_success_rate": 1.0,
+                                  "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                                   "max_pen": 0.0, "mean_return": 1.0}
                                  for t in SUITE
                              ],
                              overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                                      "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                                       "max_pen": 0.0, "mean_return": 1.0},
                              provenance="patient(private)")
     with pytest.raises(ValueError, match="provenance"):
         validate_scorecard(patient_card)
+
+
+def test_v3_scorecard_requires_unsafe_and_crash_rates():
+    def make_card(missing):
+        def metrics():
+            values = {
+                "success_rate": 1.0,
+                "safe_success_rate": 1.0,
+                "unsafe_success_rate": 0.0,
+                "crash_rate": 0.0,
+                "max_pen": 0.0,
+                "mean_return": 1.0,
+            }
+            values.pop(missing)
+            return values
+
+        return Scorecard(
+            name=f"missing-{missing}",
+            suite_version=SUITE_VERSION,
+            per_task=[
+                {"name": t.name, "tier": t.tier, "episodes": t.episodes, **metrics()}
+                for t in SUITE
+            ],
+            overall=metrics(),
+        )
+
+    for field in ("unsafe_success_rate", "crash_rate"):
+        with pytest.raises(ValueError) as exc_info:
+            validate_scorecard(make_card(field))
+        message = str(exc_info.value)
+        assert f"overall.{field}" in message
+        assert f"per_task[0].{field}" in message
 
 
 def test_scorecard_rejections_explain_why_submissions_are_skipped(tmp_path):
@@ -176,28 +216,63 @@ def test_run_episode_reports_finite_metrics():
     pytest.importorskip("newton")
     env = SUITE[0].make_env()
     out = run_episode(env, forward_policy, seed=0)
-    assert set(out) == {"success", "safe_success", "steps", "max_pen", "return", "clinical"}
+    assert set(out) == {
+        "success", "safe_success", "steps", "max_pen", "return",
+        "wall_load_max", "wall_load_curve", "wall_pressure_curve",
+        "wall_impulse_curve", "wall_load_impulse", "clinical",
+        "crashed", "diverged",
+    }
     assert out["success"] and out["steps"] > 0 and np.isfinite(out["return"])
     assert out["clinical"]["tip_target"]["success"] is True
     assert out["clinical"]["wall_safety"]["max_penetration"] >= 0.0
+    assert not out["crashed"] and not out["diverged"]
+
+
+def test_run_episode_propagates_divergence_as_crash():
+    class DivergedEnv:
+        R = 2.0
+        target_s = 10.0
+        success_tol = 2.5
+        safety_max_pen = 0.3
+
+        def reset(self, *, seed=None):
+            return np.zeros(5, dtype=np.float32), {}
+
+        def step(self, action):
+            return (
+                np.zeros(5, dtype=np.float32),
+                -100.0,
+                True,
+                False,
+                {"dist": 1e6, "max_pen": 0.0, "diverged": True, "success": False},
+            )
+
+    out = run_episode(DivergedEnv(), lambda obs: np.array([0.0], dtype=np.float32), seed=0)
+    assert out["crashed"] and out["diverged"]
+    assert not out["safe_success"]
+
 
 
 def test_leaderboard_ranks_clinically_safe_success_before_unsafe_target_hits(tmp_path):
     unsafe = Scorecard(name="unsafe-fast", suite_version=SUITE_VERSION, per_task=[
                            {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                             "success_rate": 1.0, "safe_success_rate": 0.0,
+                            "unsafe_success_rate": 1.0, "crash_rate": 0.0,
                             "max_pen": 2.0, "mean_return": 100.0}
                            for t in SUITE
                        ],
                        overall={"success_rate": 1.0, "safe_success_rate": 0.0,
+                                "unsafe_success_rate": 1.0, "crash_rate": 0.0,
                                 "max_pen": 2.0, "mean_return": 100.0})
     safe = Scorecard(name="safe-partial", suite_version=SUITE_VERSION, per_task=[
                          {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                           "success_rate": 0.8, "safe_success_rate": 0.8,
+                          "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                           "max_pen": 0.0, "mean_return": 20.0}
                          for t in SUITE
                      ],
                      overall={"success_rate": 0.8, "safe_success_rate": 0.8,
+                              "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                               "max_pen": 0.0, "mean_return": 20.0})
     unsafe.save(tmp_path / "unsafe.json")
     safe.save(tmp_path / "safe.json")
@@ -209,18 +284,22 @@ def test_leaderboard_uses_return_as_deterministic_final_tiebreak(tmp_path):
     low = Scorecard(name="aaa-low-return", suite_version=SUITE_VERSION, per_task=[
                         {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                          "success_rate": 1.0, "safe_success_rate": 1.0,
+                         "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                          "max_pen": 0.0, "mean_return": 1.0}
                         for t in SUITE
                     ],
                     overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                             "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                              "max_pen": 0.0, "mean_return": 1.0})
     high = Scorecard(name="zzz-high-return", suite_version=SUITE_VERSION, per_task=[
                          {"name": t.name, "tier": t.tier, "episodes": t.episodes,
                           "success_rate": 1.0, "safe_success_rate": 1.0,
+                          "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                           "max_pen": 0.0, "mean_return": 2.0}
                          for t in SUITE
                      ],
                      overall={"success_rate": 1.0, "safe_success_rate": 1.0,
+                              "unsafe_success_rate": 0.0, "crash_rate": 0.0,
                               "max_pen": 0.0, "mean_return": 2.0})
     low.save(tmp_path / "a.json")
     high.save(tmp_path / "z.json")

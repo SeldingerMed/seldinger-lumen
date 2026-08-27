@@ -180,7 +180,7 @@ class TubeVBDSolver(SolverVBD):
                 wp.launch(
                     kernel=accumulate_tube_barrier,
                     dim=color_group.size,
-                    inputs=[color_group, self._tube_wire_mask, state_in.body_q,
+                    inputs=[color_group, self._tube_wire_mask, self._tube_body_radius, state_in.body_q,
                             state_in.body_qd,
                             self._tube_P, self._tube_Tg, self._tube_M1,
                             self._tube_cum_s, self._tube_M,
@@ -197,7 +197,7 @@ class TubeVBDSolver(SolverVBD):
                 wp.launch(
                     kernel=accumulate_tree_barrier,
                     dim=color_group.size,
-                    inputs=[color_group, self._tree_wire_mask, state_in.body_q,
+                    inputs=[color_group, self._tree_wire_mask, self._tree_body_radius, state_in.body_q,
                             state_in.body_qd,
                             self._tree_P, self._tree_Tg, self._tree_M1, self._tree_cum_s,
                             self._tree_vstart, self._tree_vcount, self._tree_smax,
@@ -379,7 +379,7 @@ class TubeVBDSolver(SolverVBD):
                          barrier_mode="compliant", deformable_wall=False,
                          hgo_params=None, n_s=40, n_th=16,
                          mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
-                         lumen_field=None, n_envs=1, n_per_env=None):
+                         lumen_field=None, n_envs=1, n_per_env=None, body_radii=None):
         """barrier_mode: 'compliant' (fast tier) | 'log' (bounded IPC option).
 
         R is the base lumen radius: a scalar (cylinder) OR, via ``lumen_field`` (a
@@ -435,6 +435,14 @@ class TubeVBDSolver(SolverVBD):
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tube_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
+        if body_radii is None:
+            body_radii = _np.zeros(self.model.body_count, dtype=_np.float32)
+        body_radii = _np.asarray(body_radii, dtype=_np.float32)
+        if body_radii.shape != (self.model.body_count,) or not _np.isfinite(body_radii).all():
+            raise ValueError("body_radii must be finite with one entry per model body")
+        if (body_radii < 0.0).any():
+            raise ValueError("body_radii must be non-negative")
+        self._tube_body_radius = _wp.array(body_radii, dtype=_wp.float32, device=dev)
         self._tube_enabled = True
 
     def set_coaxial_coupling(self, gw_body_ids, cath_body_ids, r_inner,
@@ -488,7 +496,7 @@ class TubeVBDSolver(SolverVBD):
                          barrier_mode="compliant", n_s=40, n_th=16,
                          mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
                          actuation_centerline=None, deformable_wall=False, hgo_params=None,
-                         n_envs=1, n_per_env=None):
+                         n_envs=1, n_per_env=None, body_radii=None):
         """Multi-edge (vascular-tree) contact: each wire node contacts its nearest edge,
         with R branch-blended across junctions (the §3.5.2 work, pre-baked into the grid
         here so the kernel stays simple). `deformable_wall=True` gives each env×edge
@@ -568,6 +576,14 @@ class TubeVBDSolver(SolverVBD):
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tree_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
+        if body_radii is None:
+            body_radii = _np.zeros(self.model.body_count, dtype=_np.float32)
+        body_radii = _np.asarray(body_radii, dtype=_np.float32)
+        if body_radii.shape != (self.model.body_count,) or not _np.isfinite(body_radii).all():
+            raise ValueError("body_radii must be finite with one entry per model body")
+        if (body_radii < 0.0).any():
+            raise ValueError("body_radii must be non-negative")
+        self._tree_body_radius = _wp.array(body_radii, dtype=_wp.float32, device=dev)
         self._tree_enabled = True
         # base actuation (centerline-following insertion) follows the route polyline if
         # given (so the base can be pushed past a junction into a branch), else the entry

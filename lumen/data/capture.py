@@ -68,7 +68,11 @@ def _clinical_step_signals(sim, frame, nodes, R):
         if wl.size:
             kin["wall_force_max"] = float(np.nanmax(wl))
             kin["wall_force_sum"] = float(np.nansum(wl))
-    if R:
+    surface_penetration = getattr(sim, "surface_penetration", None)
+    if callable(surface_penetration):
+        penetration = np.asarray(surface_penetration(), dtype=float)
+        kin["max_penetration"] = float(np.nanmax(penetration)) if penetration.size else 0.0
+    elif R:
         kin["max_penetration"] = float(max(0.0, sim.node_radii().max() - R))
     if getattr(sim, "tree", None) is not None:
         try:

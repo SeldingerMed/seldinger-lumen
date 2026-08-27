@@ -53,7 +53,7 @@ class TreeNavEnv:
     def __init__(self, asset, target_node=None, target_frac=1.0, max_insertion=2.0,
                  max_twist=1.0, substeps=4, max_steps=60, success_tol=2.5,
                  safety_max_pen=0.3, blend_len=4.0, terminate_on_unsafe: bool = False,
-                 device=None):
+                 device=None, device_radius_mm=0.2):
         terminate_on_unsafe = validate_boolean(
             terminate_on_unsafe,
             "terminate_on_unsafe",
@@ -82,6 +82,9 @@ class TreeNavEnv:
         self.safety_max_pen = float(safety_max_pen)
         self.terminate_on_unsafe = terminate_on_unsafe
         self.device = device or detect_device()
+        self.device_radius_mm = float(device_radius_mm)
+        if not np.isfinite(self.device_radius_mm) or self.device_radius_mm <= 0.0:
+            raise ValueError("device_radius_mm must be finite and positive")
         if _HAS_GYM:
             self.action_space = spaces.Box(-1.0, 1.0, (2,), np.float32)
             self.observation_space = spaces.Box(-np.inf, np.inf, (5,), np.float32)
@@ -111,7 +114,7 @@ class TreeNavEnv:
         out = np.asarray(pts, float).copy()
         for i, p in enumerate(out):
             pr = self.tree.project(p)
-            limit = max(0.0, float(pr.R) - float(margin_mm))
+            limit = max(0.0, float(pr.R) - float(margin_mm) - self.device_radius_mm)
             if pr.r > limit:
                 out[i] = p - pr.e_r * (pr.r - limit)
         return out
@@ -167,7 +170,7 @@ class TreeNavEnv:
         rs = self.route_frame.project(pos[-1])           # progress + θ along the route polyline
         tip = projs[-1]
         max_r = max(pr.r for pr in projs)
-        max_pen = max(0.0, max(pr.r - pr.R for pr in projs))   # deepest penetration (vs LOCAL R)
+        max_pen = max(0.0, max(pr.r + self.device_radius_mm - pr.R for pr in projs))
         # on_route from PROXIMITY to the route polyline (rs.r), not the nearest-edge id:
         # min-r ownership can flip across the junction band (the documented project()
         # ceiling), but the tip's radial distance from the route path is stable — a tip in
@@ -198,12 +201,14 @@ class TreeNavEnv:
             # the base follows the WHOLE route polyline so insertion can push past the
             # junction into the target branch (not just up the trunk).
             self.sim = NewtonGuidewireSim(np.asarray(self.route_frame.points), self.R,
-                                          self._device_points(), radius=0.2, kappa=3e3, d_hat=0.3,
-                                          vbd_iterations=8, device=self.device, tree=self.tree,
+                                          self._device_points(), radius=self.device_radius_mm,
+                                          kappa=3e3, d_hat=0.3, vbd_iterations=8,
+                                          device=self.device, tree=self.tree,
                                           route_centerline=np.asarray(self.route_frame.points))
         else:
             self.sim.reset()
         self.steps = 0
+        self._wall_load_impulse = 0.0
         self._prev = abs(self._features()["s"] - self.target_s)
         return self._obs(self._features()), {}
 
@@ -216,7 +221,11 @@ class TreeNavEnv:
         obs = self._obs(f)
         if not (np.isfinite(obs).all() and np.isfinite([f["s"], f["r"], f["max_r"]]).all()):
             return np.zeros(5, np.float32), -100.0, True, False, {
-                "route_s": 0.0, "dist": 1e6, "max_r": 0.0, "success": False, "diverged": True}
+                "route_s": 0.0, "dist": 1e6, "max_r": 0.0, "max_pen": 0.0,
+                "wall_load_max": 0.0, "wall_load_sum": 0.0,
+                "wall_pressure_max": 0.0, "wall_load_impulse": 0.0,
+                "wall_load_units": "sim_units",
+                "success": False, "diverged": True}
         dist = abs(f["s"] - self.target_s)
         progress = self._prev - dist
         # gate progress when the tip is OFF the route (don't reward advancing the wrong
@@ -231,9 +240,25 @@ class TreeNavEnv:
             reward += 10.0
         if unsafe:
             reward -= 10.0
+        load_grid = (
+            np.asarray(self.sim.wall_load_grid(), dtype=float)
+            if hasattr(self.sim, "wall_load_grid") else np.zeros(0, dtype=float)
+        )
+        wall_load_max = float(load_grid.max()) if load_grid.size else 0.0
+        wall_load_sum = float(load_grid.sum()) if load_grid.size else 0.0
+        wall_pressure_max = (
+            float(self.sim.wall_pressure_max())
+            if hasattr(self.sim, "wall_pressure_max") else 0.0
+        )
+        self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (
+            wall_load_sum * 5e-3 * self.substeps
+        )
         info = {"route_s": f["s"], "dist": dist, "max_r": f["max_r"],
-                "max_pen": f["max_pen"], "success": success, "safe_success": safe_success,
-                "unsafe": unsafe,
-                "edge": f["edge"], "off_route": not f["on_route"],
+                "max_pen": f["max_pen"], "wall_load_max": wall_load_max,
+                "wall_load_sum": wall_load_sum, "wall_pressure_max": wall_pressure_max,
+                "wall_load_impulse": float(self._wall_load_impulse),
+                "wall_load_units": "sim_units",
+                "success": success, "safe_success": safe_success,
+                "unsafe": unsafe, "edge": f["edge"], "off_route": not f["on_route"],
                 "twist": twist, "tip_roll": self._tip_roll()}
         return obs, float(reward), terminated, self.steps >= self.max_steps, info

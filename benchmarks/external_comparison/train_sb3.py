@@ -27,7 +27,6 @@ from benchmarks.external_comparison.common_bench import (
     _git_commit,
     _host_snapshot,
     _write_results,
-    SAFETY_FORCE_THRESHOLD,
 )
 
 
@@ -108,14 +107,31 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
         max_pen = 0.0
         final_distance = None
         forces: list[float] = []
+        penetration_curve: list[float] = []
+        wall_load_curve: list[float] = []
+        wall_pressure_curve: list[float] = []
+        wall_impulse_curve: list[float] = []
+        diverged = False
         try:
             for _ in range(args.max_steps):
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, terminated, truncated, info = env.step(action)
                 steps += 1
                 total_reward += float(reward)
+                diverged = diverged or bool(info.get("diverged", False))
                 if args.environment == "lumen":
-                    max_pen = max(max_pen, float(info.get("max_pen", 0.0)))
+                    pen = float(info.get("max_pen", 0.0))
+                    max_pen = max(max_pen, pen)
+                    penetration_curve.append(pen)
+                    wall_load = _as_float(info.get("wall_load_max"))
+                    if wall_load is not None:
+                        wall_load_curve.append(wall_load)
+                    wall_pressure = _as_float(info.get("wall_pressure_max"))
+                    if wall_pressure is not None:
+                        wall_pressure_curve.append(wall_pressure)
+                    wall_impulse = _as_float(info.get("wall_load_impulse"))
+                    if wall_impulse is not None:
+                        wall_impulse_curve.append(wall_impulse)
                     final_distance = _as_float(info.get("dist"))
                     success = success or bool(info.get("success", False))
                 else:
@@ -127,11 +143,20 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
                             np.linalg.norm(np.asarray(info["head_pos"]) - np.asarray(info["target_pos"]))
                         )
                         success = success or final_distance <= 0.004
-                    success = success or bool(terminated and final_distance is not None and final_distance <= 0.004)
+                    success = success or bool(
+                        terminated and final_distance is not None and final_distance <= 0.004
+                    )
                 if terminated or truncated:
                     break
             if args.environment == "lumen":
                 unsafe = max_pen > 0.3
+                episode_notes = {
+                    "train_steps": args.timesteps,
+                    "safety_max_pen": 0.3,
+                    "wall_load_units": "sim_units",
+                }
+                if diverged:
+                    episode_notes["failure_reason"] = "sim_diverged"
                 episodes.append(
                     EpisodeResult(
                         environment="lumen",
@@ -140,20 +165,36 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
                         policy=f"{args.algo}_trained",
                         seed=seed,
                         success=success,
-                        safe_success=bool(success and not unsafe),
                         steps=steps,
                         total_reward=total_reward,
                         final_distance=final_distance,
+                        native_safety_pass=bool(success and not unsafe and not diverged),
+                        safety_endpoint="surface_penetration_sim_units",
+                        safety_value=max_pen,
+                        safety_curve=penetration_curve,
+                        wall_load_max=max(wall_load_curve) if wall_load_curve else None,
+                        wall_load_curve=wall_load_curve,
+                        wall_pressure_curve=wall_pressure_curve,
+                        wall_impulse_curve=wall_impulse_curve,
+                        wall_load_impulse=(
+                            wall_impulse_curve[-1] if wall_impulse_curve else None
+                        ),
                         max_penetration=max_pen,
                         unsafe_event=unsafe,
+                        crashed=diverged,
                         elapsed_sec=time.perf_counter() - start,
-                        notes={"train_steps": args.timesteps},
+                        notes=episode_notes,
                     )
                 )
             else:
+                comparator_notes = {
+                    "train_steps": args.timesteps,
+                    "safety_classification": "unclassified_pending_physical_calibration",
+                }
+                if diverged:
+                    comparator_notes["failure_reason"] = "sim_diverged"
                 max_force = max(forces) if forces else None
                 mean_force = float(np.mean(forces)) if forces else None
-                unsafe = bool(max_force is not None and max_force > SAFETY_FORCE_THRESHOLD)
                 episodes.append(
                     EpisodeResult(
                         environment=COMPARATOR_ENV,
@@ -162,15 +203,19 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
                         policy=f"{args.algo}_trained",
                         seed=seed,
                         success=success,
-                        safe_success=bool(success and not unsafe),
                         steps=steps,
                         total_reward=total_reward,
                         final_distance=final_distance,
+                        native_safety_pass=None,
+                        safety_endpoint="contact_force_native_units",
+                        safety_value=max_force,
+                        safety_curve=forces,
                         max_contact_force=max_force,
                         mean_contact_force=mean_force,
-                        unsafe_event=unsafe,
+                        unsafe_event=None,
+                        crashed=diverged,
                         elapsed_sec=time.perf_counter() - start,
-                        notes={"train_steps": args.timesteps},
+                        notes=comparator_notes,
                     )
                 )
         except Exception as exc:
@@ -182,10 +227,15 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
                     policy=f"{args.algo}_trained",
                     seed=seed,
                     success=False,
-                    safe_success=False,
                     steps=steps,
                     total_reward=total_reward,
                     final_distance=final_distance,
+                    native_safety_pass=None,
+                    safety_endpoint=(
+                        "surface_penetration_sim_units"
+                        if args.environment == "lumen" else "contact_force_native_units"
+                    ),
+                    safety_value=None,
                     crashed=True,
                     elapsed_sec=time.perf_counter() - start,
                     notes={"exception": repr(exc), "train_steps": args.timesteps},

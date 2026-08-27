@@ -1,5 +1,19 @@
 # External Comparison Run Log
 
+## 2026-08-27 methodology correction
+
+The 2026-07-15 pilot and short PPO records are historical and remain unchanged for
+provenance. Their `safe_success` fields used different native endpoints: Lumen used
+centerline penetration in simulator units, while CathSim used native contact force. Those
+rates are not cross-environment comparable and must not be presented as one safety
+comparison. The corrected contract reports endpoint names, values, and per-step curves
+separately; CathSim safety pass/unsafe status remains unclassified until matched
+device/anatomy/material, solver-unit, and phantom or ex-vivo force--injury calibration
+exists.
+
+Future runs follow the preregistered contract and are reported unconditionally,
+including null, failed, blocked, and unfavorable outcomes.
+
 ## 2026-07-15
 
 Comparator sources:
