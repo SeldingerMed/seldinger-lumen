@@ -49,6 +49,7 @@ lumen doctor
 ```bash
 lumen play stenotic --out lumen-run
 lumen benchmark lumen-bench
+lumen anatomy --validate
 lumen render-fluoro lumen-fluoro.png
 lumen capture lumen-episodes
 lumen validate lumen-episodes --require-cv-labels

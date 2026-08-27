@@ -16,6 +16,7 @@ from lumen.hardware import describe
 def _command_table():
     return {
         "hardware": ("Print backend hardware/software status.", hardware_main),
+        "anatomy": ("List and validate the open procedural anatomy pack.", anatomy_main),
         "doctor": ("Diagnose install/backend readiness and print next steps.", doctor_main),
         "benchmark": ("Run the canonical or scaled navigation benchmark.", benchmark_main),
         "play": ("Watch a scene: roll out a policy and write an animation.", play_main),
@@ -64,6 +65,37 @@ def hardware_main(argv=None, prog=None) -> None:
         prog=prog, description="Print Lumen backend hardware/software status.")
     parser.parse_args(argv)
     print(json.dumps(describe(), indent=2))
+
+
+def anatomy_main(argv=None, prog=None) -> None:
+    from lumen.assets import (
+        ANATOMY_PACK,
+        anatomy_pack_manifest,
+        get_anatomy,
+        validate_anatomy_pack,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog=prog, description="List and validate the open procedural anatomy pack."
+    )
+    parser.add_argument("case", nargs="?", choices=[case.case_id for case in ANATOMY_PACK])
+    parser.add_argument("--validate", action="store_true",
+                        help="Materialize every case and validate its metadata.")
+    args = parser.parse_args(argv)
+    manifest = validate_anatomy_pack() if args.validate else anatomy_pack_manifest()
+    if args.case:
+        case = next(item for item in manifest["cases"] if item["case_id"] == args.case)
+        payload = {"pack": manifest["version"], "case": case}
+        if args.validate:
+            asset = get_anatomy(args.case)
+            payload["materialized"] = {
+                "nodes": len(asset.nodes),
+                "edges": len(asset.edges),
+                "provenance": asset.provenance,
+            }
+    else:
+        payload = manifest
+    print(json.dumps(payload, indent=2))
 
 
 def _installed_version(distribution_name: str) -> str | None:

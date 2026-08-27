@@ -100,6 +100,10 @@ There are now two seams to the private world, both firewall-guarded:
 `lumen.data.schema.Episode` (a captured intervention — kinematics + paired
 observation + outcome, `lumen-episode/0`). A patient pipeline in `seldinger-ml`
 emits both (with `provenance="patient(private)"`) and keeps them out of this repo.
+
+The public anatomy pack is `lumen.assets.anatomy_pack`. It is a registry of
+reproducible procedural cases with explicit Apache-2.0/license and provenance
+metadata; `validate_anatomy_pack()` materializes every case at the release boundary.
 Real-data HGO calibration, clot models, the GNN flow surrogate, and trained
 policies all stay private and layer *on top of* this core.
 
