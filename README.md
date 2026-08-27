@@ -31,6 +31,10 @@ It evaluates the same policy on frozen procedural train and held-out case IDs,
 reports raw/native-safe/crash rates for each split, and records the train-minus-held-out
 generalization gap in `forward-baseline-heldout.json`.
 
+Canonical scorecards also include episode-level `lumen-stats/1` summaries: fractional
+interquartile means, ordinary means, and deterministic 95% percentile-bootstrap
+intervals with recorded seeds and resample counts.
+
 ## Install
 
 ```bash

@@ -262,6 +262,8 @@ class TestExternalComparisonContract:
         assert rows["lumen"]["native_safety_pass_rate"] == 1.0
         assert rows["external"]["native_safety_pass_rate"] is None
         assert rows["lumen"]["safety_endpoint"] != rows["external"]["safety_endpoint"]
+        assert rows["lumen"]["statistics"]["protocol"] == "lumen-stats/1"
+        assert rows["lumen"]["statistics"]["metrics"]["success_rate"]["n"] == 1
 
 
 def test_lumen_comparator_marks_divergence_as_crashed(tmp_path, monkeypatch):

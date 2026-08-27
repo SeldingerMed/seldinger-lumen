@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
+from lumen.bench_stats import summarize_metrics, validate_statistics
 
 from lumen.bench import BenchTask, evaluate_task
 
@@ -59,9 +60,9 @@ class ScaledSuite:
     def __post_init__(self):
         if self.version != SCALED_SUITE_VERSION:
             raise ValueError(f"version must be {SCALED_SUITE_VERSION!r}")
+        if not self.train or not self.heldout:
+            raise ValueError("scaled suite must contain non-empty train and heldout splits")
         tasks = self.train + self.heldout
-        if not tasks:
-            raise ValueError("scaled suite must contain tasks")
         if any(not isinstance(task, SplitTask) for task in tasks):
             raise ValueError("scaled suite tasks must be SplitTask instances")
         if any(task.split != "train" for task in self.train):
@@ -162,18 +163,31 @@ def make_scaled_suite(episodes_per_task: int = DEFAULT_EPISODES_PER_TASK) -> Sca
 
 
 def _evaluate_split(tasks: tuple[SplitTask, ...], policy) -> dict:
+    if not tasks:
+        raise ValueError("split must contain at least one task")
     rows = []
+    episode_metrics = {metric: [] for metric in SUMMARY_METRICS}
+    have_episode_metrics = True
     for spec in tasks:
         result = evaluate_task(
             BenchTask(spec.name, spec.tier, spec.make_env, episodes=spec.episodes, seed=spec.seed),
             policy,
         )
+        values = result.pop("_episode_metrics", None)
+        if not isinstance(values, dict) or any(metric not in values for metric in SUMMARY_METRICS):
+            have_episode_metrics = False
+        else:
+            for metric in SUMMARY_METRICS:
+                episode_metrics[metric].extend(values[metric])
         rows.append({**result, "split": spec.split, "case_id": spec.case_id, "seed": spec.seed})
     summary = {
         metric: float(np.mean([row[metric] for row in rows]))
         for metric in SUMMARY_METRICS
     }
-    return {"tasks": rows, **summary}
+    statistics = summarize_metrics(episode_metrics, seed=min(task.seed for task in tasks))
+    if not have_episode_metrics:
+        statistics = {}
+    return {"tasks": rows, **summary, "statistics": statistics}
 
 
 @dataclass
@@ -187,6 +201,7 @@ class GeneralizationReport:
     heldout: dict
     generalization_gap: dict
     provenance: str = "procedural"
+    statistics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -209,6 +224,20 @@ def validate_report(report: GeneralizationReport) -> GeneralizationReport:
         errors.append(f"suite_version must be {SCALED_SUITE_VERSION!r}")
     if report.provenance != "procedural":
         errors.append("provenance must be 'procedural'")
+    statistics = report.statistics
+    if statistics:
+        if not isinstance(statistics, dict):
+            errors.append("statistics must be a mapping")
+        else:
+            for split_name in ("train", "heldout"):
+                split_statistics = statistics.get(split_name)
+                if not split_statistics:
+                    errors.append(f"statistics.{split_name} must be present")
+                    continue
+                try:
+                    validate_statistics(split_statistics, expected_metrics=SUMMARY_METRICS)
+                except ValueError as exc:
+                    errors.append(f"statistics.{split_name}: {exc}")
 
     manifest = report.manifest
     manifest_by_case = {}
@@ -339,6 +368,9 @@ def evaluate_generalization(
         metric: train[metric] - heldout[metric]
         for metric in SUMMARY_METRICS
     }
+    statistics = {}
+    if train.get("statistics") and heldout.get("statistics"):
+        statistics = {"train": train["statistics"], "heldout": heldout["statistics"]}
     return validate_report(
         GeneralizationReport(
             name=name,
@@ -347,5 +379,6 @@ def evaluate_generalization(
             train=train,
             heldout=heldout,
             generalization_gap=gap,
+            statistics=statistics,
         )
     )

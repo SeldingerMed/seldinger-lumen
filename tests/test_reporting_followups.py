@@ -50,6 +50,7 @@ def test_lumen_reset_exception_is_a_failed_native_pass(tmp_path, monkeypatch):
     assert episode["native_safety_pass"] is False
     assert episode["crashed"] is True
     assert payload["aggregate"][0]["native_safety_pass_rate"] == 0.0
+    assert payload["aggregate"][0]["statistics"]["protocol"] == "lumen-stats/1"
 
 
 def test_external_contract_and_csv_keep_emitted_return_and_wall_fields():
@@ -58,6 +59,9 @@ def test_external_contract_and_csv_keep_emitted_return_and_wall_fields():
     )
     assert "mean_return" in contract["required_metrics"]["higher_is_better"]
     assert "mean_return_loss" not in json.dumps(contract)
+    assert contract["required_metrics"]["statistics_protocol"]["primary_estimator"] == (
+        "fractional_interquartile_mean"
+    )
 
     summary = _load_module(
         "summary_followup_test",

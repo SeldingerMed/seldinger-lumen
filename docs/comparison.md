@@ -43,6 +43,9 @@ The reference point is CathSim, the most-cited open endovascular RL simulator
   in simulator units, while external environments retain their native force/contact
   traces. These endpoint names and curves are reported separately; no cross-environment
   safety rate is claimed without matched physical calibration and force–injury validation.
+- **Uncertainty accounting.** Benchmark outputs use the frozen `lumen-stats/1`
+  episode-level fractional IQM and 95% percentile-bootstrap protocol, with all seeds
+  and resample counts recorded.
 - **CV-ready data pipeline.** `capture → validate → index → split → materialize-batch`,
   with a versioned `Episode` standard, deterministic leak-free train/val/test splits,
   and free segmentation/keypoint labels.
