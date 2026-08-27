@@ -166,6 +166,24 @@ def _mean(values: list[float]) -> float | None:
     return float(np.mean(vals)) if vals else None
 
 
+
+def _statistics_protocol(values: dict[str, list[float]], seed: int) -> dict:
+    """Use the shared IQM/bootstrap protocol without requiring package installation."""
+    try:
+        from lumen.bench_stats import summarize_metrics
+    except ModuleNotFoundError:
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location(
+            "lumen_bench_stats_fallback", root / "lumen" / "bench_stats.py"
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load the shared statistics protocol")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        summarize_metrics = module.summarize_metrics
+    return summarize_metrics(values, seed=seed)
+
 def _aggregate(episodes: list[EpisodeResult]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str, str], list[EpisodeResult]] = {}
     for ep in episodes:
@@ -181,6 +199,35 @@ def _aggregate(episodes: list[EpisodeResult]) -> list[dict[str, Any]]:
                          if single_endpoint and ep.unsafe_event is not None]
         safety_values = [ep.safety_value for ep in eps
                          if single_endpoint and ep.safety_value is not None]
+        statistics_values = {
+            "success_rate": [float(ep.success) for ep in eps],
+            "crash_rate": [float(ep.crashed) for ep in eps],
+            "mean_return": [ep.total_reward for ep in eps],
+            "mean_steps_all": [ep.steps for ep in eps],
+            "steps_per_second": [ep.steps_per_second for ep in eps],
+        }
+        if native_pass:
+            statistics_values["native_safety_pass_rate"] = [float(value) for value in native_pass]
+        if native_unsafe:
+            statistics_values["native_unsafe_event_rate"] = [
+                float(value) for value in native_unsafe
+            ]
+        if safety_values:
+            statistics_values["max_safety_value"] = safety_values
+        wall_load_values = [ep.wall_load_max for ep in eps if ep.wall_load_max is not None]
+        if wall_load_values:
+            statistics_values["max_wall_load"] = wall_load_values
+        wall_pressure_values = [
+            max(ep.wall_pressure_curve) for ep in eps if ep.wall_pressure_curve
+        ]
+        if wall_pressure_values:
+            statistics_values["max_wall_pressure"] = wall_pressure_values
+        wall_impulse_values = [
+            ep.wall_load_impulse for ep in eps if ep.wall_load_impulse is not None
+        ]
+        if wall_impulse_values:
+            statistics_values["wall_load_impulse"] = wall_impulse_values
+        statistics = _statistics_protocol(statistics_values, seed=min(ep.seed for ep in eps))
         rows.append(
             {
                 "environment": env,
@@ -220,6 +267,7 @@ def _aggregate(episodes: list[EpisodeResult]) -> list[dict[str, Any]]:
                     [ep.wall_load_impulse for ep in eps if ep.wall_load_impulse is not None]
                 ),
                 "steps_per_second": _mean([ep.steps_per_second for ep in eps]),
+                "statistics": statistics,
             }
         )
     return rows

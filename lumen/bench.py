@@ -24,6 +24,8 @@ curves in simulator units plus ``clinical`` metrics from
 cross-environment calibrated endpoints.
 The leaderboard ranks Lumen-native safe target success first, then raw target
 success, then wall safety, then return as a deterministic efficiency tie-break.
+Generated scorecards carry ``lumen-stats/1`` episode-level IQMs, means, and 95%
+percentile bootstrap intervals with the seed and resample count recorded.
 """
 
 from __future__ import annotations
@@ -36,10 +38,19 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, compute_clinical_metrics
+from lumen.bench_stats import summarize_metrics, validate_statistics
 from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_nav
 
 SUITE_VERSION = "lumen-bench/3"
 SAFETY_MAX_PEN = 0.3
+STAT_METRICS = (
+    "success_rate",
+    "safe_success_rate",
+    "unsafe_success_rate",
+    "crash_rate",
+    "mean_return",
+    "max_pen",
+)
 
 
 def forward_policy(obs):
@@ -152,7 +163,6 @@ def run_episode(env, policy, seed) -> dict:
         "diverged": diverged,
     }
 
-
 def evaluate_task(task: BenchTask, policy) -> dict:
     """Run a task's seeded episodes and aggregate the per-task metrics."""
     env = task.make_env()
@@ -162,8 +172,18 @@ def evaluate_task(task: BenchTask, policy) -> dict:
     safe_won = [e for e in eps if e["safe_success"]]
     unsafe_won = [e for e in eps if e["success"] and not e["safe_success"]]
     crashed = [e for e in eps if e["crashed"]]
+    episode_metrics = {
+        "success_rate": [float(e["success"]) for e in eps],
+        "safe_success_rate": [float(e["safe_success"]) for e in eps],
+        "unsafe_success_rate": [
+            float(e["success"] and not e["safe_success"]) for e in eps
+        ],
+        "crash_rate": [float(e["crashed"]) for e in eps],
+        "mean_return": [e["return"] for e in eps],
+        "max_pen": [e["max_pen"] for e in eps],
+    }
     return {
-        "name": task.name, "tier": task.tier, "episodes": task.episodes,
+        "name": task.name, "tier": task.tier, "episodes": task.episodes, "seed": task.seed,
         "success_rate": len(won) / len(eps),
         "safe_success_rate": len(safe_won) / len(eps),
         "unsafe_success_rate": len(unsafe_won) / len(eps),
@@ -178,6 +198,8 @@ def evaluate_task(task: BenchTask, policy) -> dict:
             default=0.0,
         ),
         "wall_load_impulse": float(np.mean([e["wall_load_impulse"] for e in eps])),
+        "statistics": summarize_metrics(episode_metrics, seed=task.seed),
+        "_episode_metrics": episode_metrics,
     }
 
 
@@ -191,6 +213,7 @@ class Scorecard:
     overall: dict
     provenance: str = "procedural"
     notes: dict = field(default_factory=dict)
+    statistics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -231,6 +254,11 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
         errors.append("name must be a non-empty string")
     if card.provenance != "procedural":
         errors.append(f"provenance must be 'procedural', got {card.provenance!r}")
+    if card.statistics:
+        try:
+            validate_statistics(card.statistics, expected_metrics=STAT_METRICS)
+        except ValueError as exc:
+            errors.append(str(exc))
     if card.suite_version != SUITE_VERSION:
         errors.append(f"suite_version must be {SUITE_VERSION!r}, got {card.suite_version!r}")
     expected_names = [t.name for t in suite]
@@ -261,6 +289,12 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
                     errors.append(f"per_task[{i}].tier must be {expected.tier!r}")
                 if task.get("episodes") != expected.episodes:
                     errors.append(f"per_task[{i}].episodes must be {expected.episodes}")
+            task_statistics = task.get("statistics")
+            if task_statistics:
+                try:
+                    validate_statistics(task_statistics, expected_metrics=STAT_METRICS)
+                except ValueError as exc:
+                    errors.append(f"per_task[{i}].{exc}")
             for key in ("success_rate", "safe_success_rate",
                         "unsafe_success_rate", "crash_rate"):
                 if not _rate_ok(task.get(key)):
@@ -314,7 +348,20 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
     scorecard also retains native wall-load, pressure-proxy, and impulse curves;
     none is a calibrated SI injury endpoint.
     """
-    per = [evaluate_task(t, policy) for t in suite]
+    raw_per = [evaluate_task(t, policy) for t in suite]
+    per = []
+    all_episode_metrics = {metric: [] for metric in STAT_METRICS}
+    have_episode_metrics = True
+    for task in raw_per:
+        episode_metrics = task.get("_episode_metrics")
+        if not isinstance(episode_metrics, dict) or any(
+            metric not in episode_metrics for metric in STAT_METRICS
+        ):
+            have_episode_metrics = False
+        else:
+            for metric in STAT_METRICS:
+                all_episode_metrics[metric].extend(episode_metrics[metric])
+        per.append({key: value for key, value in task.items() if key != "_episode_metrics"})
     overall = {
         "success_rate": float(np.mean([t["success_rate"] for t in per])),
         "safe_success_rate": float(np.mean([t["safe_success_rate"] for t in per])),
@@ -326,8 +373,9 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
         "wall_load_impulse": float(np.mean([t["wall_load_impulse"] for t in per])),
         "crash_rate": float(np.mean([t["crash_rate"] for t in per])),
     }
+    statistics = summarize_metrics(all_episode_metrics, seed=0) if have_episode_metrics else {}
     return Scorecard(name=name, suite_version=SUITE_VERSION, per_task=per, overall=overall,
-                     notes=notes or {})
+                     notes=notes or {}, statistics=statistics)
 
 
 def _safe_success_for_ranking(card: Scorecard) -> float:

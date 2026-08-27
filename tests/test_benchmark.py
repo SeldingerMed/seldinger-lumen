@@ -38,6 +38,9 @@ def test_forward_baseline_scores_the_whole_suite():
     assert tree["mean_steps"] > sc.per_task[0]["mean_steps"]   # ...the tree still costs more steps
     assert all(np.isfinite([t["safe_success_rate"], t["max_pen"], t["mean_return"]]).all()
                for t in sc.per_task)
+    assert sc.statistics["protocol"] == "lumen-stats/1"
+    assert sc.statistics["metrics"]["success_rate"]["n"] == 15
+    assert sc.per_task[0]["statistics"]["metrics"]["mean_return"]["n"] == 5
 
 
 def test_a_better_policy_outranks_the_baseline_on_the_leaderboard(tmp_path):

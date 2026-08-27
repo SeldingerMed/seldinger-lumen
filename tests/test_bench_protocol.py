@@ -38,6 +38,8 @@ def test_scaled_suite_rejects_invalid_episode_count_and_split_container():
         ScaledSuite(train=(task,), heldout=(
             SplitTask("other", "heldout", "other-id", "easy", lambda: None, 1, 1),
         ))
+    with pytest.raises(ValueError, match="non-empty train and heldout"):
+        ScaledSuite(train=(), heldout=(task,))
 
 
 def _fake_task_result(task):
@@ -53,6 +55,14 @@ def _fake_task_result(task):
         "crash_rate": 0.0,
         "mean_return": 10.0 if train else 4.0,
         "max_pen": 0.2 if train else 0.4,
+        "_episode_metrics": {
+            "success_rate": [success] * task.episodes,
+            "safe_success_rate": [success - 0.1] * task.episodes,
+            "unsafe_success_rate": [0.1] * task.episodes,
+            "crash_rate": [0.0] * task.episodes,
+            "mean_return": [10.0 if train else 4.0] * task.episodes,
+            "max_pen": [0.2 if train else 0.4] * task.episodes,
+        },
     }
 
 
@@ -61,6 +71,8 @@ def test_evaluate_generalization_reports_split_means_gaps_and_round_trips(tmp_pa
 
     monkeypatch.setattr(protocol, "evaluate_task", lambda task, _policy: _fake_task_result(task))
     report = evaluate_generalization(lambda _obs: 0, name="fake", episodes_per_task=3)
+    assert report.statistics["train"]["metrics"]["success_rate"]["iqm"] == pytest.approx(0.8)
+    assert report.statistics["heldout"]["metrics"]["success_rate"]["n"] == 9
 
     assert report.name == "fake"
     assert report.train["success_rate"] == pytest.approx(0.8)

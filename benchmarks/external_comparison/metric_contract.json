@@ -108,7 +108,16 @@
       "mean_contact_force",
       "max_contact_force",
       "path_ratio"
-    ]
+    ],
+    "statistics_protocol": {
+      "id": "lumen-stats/1",
+      "primary_estimator": "fractional_interquartile_mean",
+      "interval": "percentile_bootstrap",
+      "confidence": 0.95,
+      "resamples": 10000,
+      "unit_of_resampling": "episode",
+      "seed_policy": "fixed and recorded per metric"
+    }
   },
   "preregistration": {
     "reporting_policy": "unconditional",
