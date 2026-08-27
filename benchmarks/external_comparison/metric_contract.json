@@ -81,12 +81,12 @@
   "required_metrics": {
     "higher_is_better": [
       "success_rate",
-      "steps_per_second"
+      "steps_per_second",
+      "mean_return"
     ],
     "lower_is_better": [
       "mean_steps_success",
       "mean_final_distance",
-      "mean_return_loss",
       "crash_rate"
     ],
     "native_endpoint_metrics": {

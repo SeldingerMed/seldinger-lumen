@@ -230,7 +230,9 @@ def evaluate_model(args: argparse.Namespace, model: Any) -> list[EpisodeResult]:
                     steps=steps,
                     total_reward=total_reward,
                     final_distance=final_distance,
-                    native_safety_pass=None,
+                    native_safety_pass=(
+                        False if args.environment == "lumen" else None
+                    ),
                     safety_endpoint=(
                         "surface_penetration_sim_units"
                         if args.environment == "lumen" else "contact_force_native_units"

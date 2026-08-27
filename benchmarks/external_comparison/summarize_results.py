@@ -28,6 +28,8 @@ KEYS = [
     "max_contact_force",
     "mean_contact_force",
     "max_wall_load",
+    "max_wall_pressure",
+    "wall_load_impulse",
     "steps_per_second",
 ]
 

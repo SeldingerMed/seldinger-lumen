@@ -356,7 +356,7 @@ def run_lumen(args: argparse.Namespace) -> None:
                             steps=0,
                             total_reward=0.0,
                             final_distance=None,
-                            native_safety_pass=None,
+                            native_safety_pass=False,
                             safety_endpoint="surface_penetration_sim_units",
                             safety_value=None,
                             crashed=True,
