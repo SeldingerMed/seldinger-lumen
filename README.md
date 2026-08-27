@@ -21,6 +21,16 @@ provenance and must not be reinterpreted under the new contract.
 
 The full preprint and benchmark summaries are linked from the [launch page](https://seldingermed.github.io/seldinger-lumen/).
 
+The scaled protocol is an explicit disjoint-case check:
+
+```bash
+lumen benchmark bench_results --suite scaled --episodes 100
+```
+
+It evaluates the same policy on frozen procedural train and held-out case IDs,
+reports raw/native-safe/crash rates for each split, and records the train-minus-held-out
+generalization gap in `forward-baseline-heldout.json`.
+
 ## Install
 
 ```bash
