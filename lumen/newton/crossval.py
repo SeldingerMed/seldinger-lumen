@@ -67,10 +67,11 @@ def crossval_contact_force(kappa=2.0e3, d_hat=0.3, R=2.0, mode="compliant"):
         bqd = wp.array(np.zeros((1, 6), dtype=np.float32), dtype=wp.spatial_vector)
         cg = wp.array(np.array([0], dtype=np.int32), dtype=wp.int32)
         wm = wp.array(np.array([1], dtype=np.int32), dtype=wp.int32)
+        body_radius = wp.zeros(1, dtype=wp.float32)
         wf = wp.zeros(n_s * n_th, dtype=wp.float32); ld = wp.zeros(n_s * n_th, dtype=wp.float32)
         bf = wp.zeros(1, dtype=wp.vec3); bh = wp.zeros(1, dtype=wp.mat33)
         wp.launch(accumulate_tube_barrier, dim=1,
-                  inputs=[cg, wm, bq, bqd, P, Tg, M1, cum_s, M, r0_grid, float(f.length),
+                  inputs=[cg, wm, body_radius, bq, bqd, P, Tg, M1, cum_s, M, r0_grid, float(f.length),
                           n_s, n_th, 1, wf, kappa, d_hat, md, 0.0, 0.0, 0.0, 5e-3],
                   outputs=[bf, bh, ld])
         fn_kernel = abs(float(bf.numpy()[0][0]))          # radial (-x) component magnitude
@@ -94,16 +95,18 @@ def crossval_hgo_stress(params: HGOParams | None = None):
 
 def crossval_penetration_free(R=2.0, force=400.0):
     """Accurate vs fast tier under the SAME contact load: the accurate-tier IPC
-    reference is penetration-free (every node stays inside the wall), while the
-    compliant fast tier allows penetration ≤ d_hat by design. Returns both peak
-    penetrations (r − R, clamped at 0). Requires only numpy for the accurate side;
+    reference is penetration-free (every device surface stays inside the wall),
+    while the compliant fast tier allows penetration ≤ d_hat by design. Returns
+    both peak surface-overlap values. Requires only numpy for the accurate side;
     the fast side needs warp+newton (callers skip if absent)."""
     from lumen.accurate.ipc import IPCTubeReference, IPCParams
     M, n = 40, 11
     cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
     # accurate tier: rod near the +x wall, pushed outward by `force`
     x0 = np.stack([np.full(n, 1.5), np.zeros(n), np.linspace(20, 40, n)], axis=1)
-    ref = IPCTubeReference(cl, R, IPCParams(d_hat=0.3, kappa=1.0e2))
+    device_radius = 0.2
+    ref = IPCTubeReference(cl, R, IPCParams(d_hat=0.3, kappa=1.0e2),
+                           device_radius=device_radius)
     _, info = ref.solve(x0, F=np.array([force, 0.0, 0.0]), iters=600)
     acc_pen = max(-info["min_gap"], 0.0)              # >0 only if it penetrated (it won't)
 
@@ -116,12 +119,12 @@ def crossval_penetration_free(R=2.0, force=400.0):
         pass
     else:
         dev = np.stack([np.full(n, 1.6), np.zeros(n), np.linspace(30, 50, n)], axis=1)
-        sim = NewtonGuidewireSim(cl, R, dev, radius=0.2, kappa=3e3, d_hat=0.3,
+        sim = NewtonGuidewireSim(cl, R, dev, radius=device_radius, kappa=3e3, d_hat=0.3,
                                  vbd_iterations=12, device="cpu")
         peak = 0.0
         for _ in range(60):
             sim.step(dt=2.5e-2, substeps=5, preload=(force, 0.0, 0.0))
-            peak = max(peak, float((sim.node_radii() - R).max()))
+            peak = max(peak, float(sim.surface_penetration().max()))
         fast_pen = peak
     return {"accurate_penetration": acc_pen, "fast_penetration": fast_pen,
             "accurate_min_gap": info["min_gap"], "penetration_free": info["penetration_free"]}
@@ -142,9 +145,9 @@ def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
     and accurate (penetration-free log-barrier) tiers are *designed* to differ by the
     compliant penetration, so the claim is that the fast tier tracks the oracle to within
     that band, not that the two response curves overlay. The validated properties:
-      * the oracle is monotone and penetration-free (r_acc <= R at every load);
-      * both are held in the lumen band and CONVERGE to the wall under load;
-      * at high load the fast tier sits within the compliant band d_hat of the oracle;
+      * the oracle is monotone and penetration-free (r_acc + ρ <= R at every load);
+      * both device surfaces are held in the lumen band and CONVERGE to the wall under load;
+      * at high load the fast surface sits within the compliant band d_hat of the oracle;
       * `fast_monotone` / `fast_max_drop` REPORT the fast tier's response, which can be
         genuinely non-monotone — the VBD cable buckles/redistributes under load, and how
         much is architecture-dependent (Warp CPU codegen), so these are diagnostics, NOT
@@ -161,20 +164,24 @@ def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
     M, n = 40, 11
     cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
     x0 = np.stack([np.full(n, 1.5), np.zeros(n), np.linspace(30, 50, n)], axis=1)  # identical seed
+    device_radius = 0.2
 
     acc, fast = [], []
     for F in forces:
-        ref = IPCTubeReference(cl, R, IPCParams(d_hat=d_hat, kappa=kappa_acc))
+        ref = IPCTubeReference(cl, R, IPCParams(d_hat=d_hat, kappa=kappa_acc),
+                               device_radius=device_radius)
         x, _ = ref.solve(x0.copy(), F=np.array([float(F), 0.0, 0.0]), iters=600)
-        acc.append(float(np.linalg.norm(x[:, :2], axis=1).max()))      # deepest contact radius
+        acc.append(float(np.linalg.norm(x[:, :2], axis=1).max()))      # centerline radius
 
-        sim = NewtonGuidewireSim(cl, R, x0.copy(), radius=0.2, kappa=kappa_fast, d_hat=d_hat,
+        sim = NewtonGuidewireSim(cl, R, x0.copy(), radius=device_radius, kappa=kappa_fast, d_hat=d_hat,
                                  vbd_iterations=12, device="cpu")
         for _ in range(80):
             sim.step(dt=2.5e-2, substeps=5, preload=(float(F), 0.0, 0.0))
-        fast.append(float(sim.node_radii().max()))
+        fast.append(float(sim.node_radii().max()))                    # centerline radius
 
     acc, fast = np.array(acc), np.array(fast)
+    acc_surface = acc + device_radius
+    fast_surface = fast + device_radius
     fast_max_drop = float(min(0.0, np.min(np.diff(fast)))) if fast.size > 1 else 0.0
     props = {
         "accurate_monotone": bool(np.all(np.diff(acc) >= -1e-3)),   # quasi-static -> clean
@@ -182,10 +189,17 @@ def crossval_indentation_response(R=2.0, forces=(50.0, 150.0, 300.0, 500.0),
         # cable buckles under load by an architecture-dependent amount (Warp CPU codegen)
         "fast_monotone": bool(np.all(np.diff(fast) >= -1e-3)),
         "fast_max_drop": fast_max_drop,                  # most-negative step (0 if monotone)
-        "accurate_penetration_free": bool(np.all(acc <= R + 1e-6)),
-        "both_held": bool(acc.max() <= R + d_hat + 0.1 and fast.max() <= R + d_hat + 0.1),
-        "converge_to_wall": bool(acc[-1] > R - d_hat and fast[-1] > R - d_hat),
-        "fast_within_band_of_oracle": float(abs(fast[-1] - acc[-1])),   # at high load, should be < d_hat
+        "accurate_penetration_free": bool(np.all(acc_surface <= R + 1e-6)),
+        "both_held": bool(
+            acc_surface.max() <= R + d_hat + 0.1
+            and fast_surface.max() <= R + d_hat + 0.1
+        ),
+        "converge_to_wall": bool(
+            acc_surface[-1] > R - d_hat and fast_surface[-1] > R - d_hat
+        ),
+        "fast_within_band_of_oracle": float(
+            abs(fast_surface[-1] - acc_surface[-1])
+        ),   # at high load, should be < d_hat
     }
     return {"forces": forces, "accurate": acc, "fast": fast, "properties": props}
 

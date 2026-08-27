@@ -27,11 +27,12 @@ def _launch(cl, R0_grid, body_pos, n_s, n_th, d_hat=0.3, kappa=2e3):
     bqd = wp.array(np.zeros((1, 6), np.float32), dtype=wp.spatial_vector)
     cg = wp.array(np.array([0], np.int32), dtype=wp.int32)
     wm = wp.array(np.array([1], np.int32), dtype=wp.int32)
+    body_radius = wp.zeros(1, dtype=wp.float32)
     wf = wp.zeros(n_s * n_th, dtype=wp.float32)
     ld = wp.zeros(n_s * n_th, dtype=wp.float32)
     bf = wp.zeros(1, dtype=wp.vec3); bh = wp.zeros(1, dtype=wp.mat33)
     wp.launch(accumulate_tube_barrier, dim=1,
-              inputs=[cg, wm, bq, bqd, P, Tg, M1, cum_s, len(f.points), r0,
+              inputs=[cg, wm, body_radius, bq, bqd, P, Tg, M1, cum_s, len(f.points), r0,
                       float(f.length), n_s, n_th, 1, wf, kappa, d_hat, 0, 0.0, 0.0, 0.0, 5e-3],
               outputs=[bf, bh, ld])
     return f, np.array(bf.numpy()[0]), ld.numpy()

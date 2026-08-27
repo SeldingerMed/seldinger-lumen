@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 330" width="920" height="330" role="img" aria-label="benchmark: safe vs unsafe success">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 330" width="920" height="330" role="img" aria-label="benchmark: archived Lumen-native centerline safety success">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0c1018"/><stop offset="1" stop-color="#10161f"/>
@@ -14,7 +14,7 @@
   </defs>
 
   <rect width="920" height="330" rx="20" fill="url(#bg)"/>
-  <text x="40" y="48" class="title">Reaching the target isn't enough — reaching it without scraping the wall is</text>
+  <text x="40" y="48" class="title">Archived v2 Lumen-native metric: reaching the target isn't enough — reaching it without scraping the wall is</text>
 
   <!-- gridlines + y labels (0, .5, 1.0) baseline y=270 top y=90 -->
   <g stroke="#1c2735" stroke-width="1">
@@ -46,19 +46,19 @@
     <text x="474" y="296" class="task" text-anchor="middle">nav_stenotic</text>
     <text x="474" y="314" class="ax"   text-anchor="middle">medium · pen 0.000</text>
 
-    <!-- nav_tree_branch: safe 0, unsafe 1.0 -->
-    <rect x="618" y="266" width="52" height="4" rx="2" fill="#2dd4bf" opacity="0.4"/>
-    <rect x="678" y="90"  width="52" height="180" rx="5" fill="#f59e0b"/>
-    <text x="704" y="110" class="val" text-anchor="middle">1.0</text>
+    <!-- nav_tree_branch: native safe 1.0 -->
+    <rect x="618" y="90"  width="52" height="180" rx="5" fill="#2dd4bf"/>
+    <text x="644" y="110" class="val" text-anchor="middle">1.0</text>
+    <rect x="678" y="266" width="52" height="4" rx="2" fill="#f59e0b" opacity="0.4"/>
     <text x="674" y="296" class="task" text-anchor="middle">nav_tree_branch</text>
-    <text x="674" y="314" class="pen"  text-anchor="middle">hard · pen 1.325</text>
+    <text x="674" y="314" class="ax"   text-anchor="middle">hard · centerline pen 0.178</text>
   </g>
 
   <!-- legend -->
   <g transform="translate(40 72)">
     <rect x="0"   y="-12" width="14" height="14" rx="3" fill="#2dd4bf"/>
-    <text x="22"  y="0" class="ax">safe success</text>
+    <text x="22"  y="0" class="ax">native safe success</text>
     <rect x="170" y="-12" width="14" height="14" rx="3" fill="#f59e0b"/>
-    <text x="192" y="0" class="ax">reached only by breaching the wall</text>
+    <text x="192" y="0" class="ax">target reach after native centerline-penetration breach</text>
   </g>
 </svg>

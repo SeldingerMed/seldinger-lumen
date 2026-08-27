@@ -551,10 +551,10 @@ title: Lumen | Endovascular simulation
         <h2>Reach is only half the score.</h2>
       </div>
       <div>
-        <p class="benchmark-copy">In a matched branch-navigation PPO run, both environments trained for 50,000 steps and were evaluated for 30 deterministic held-out episodes. Lumen reached 100% raw success and 100% safe success on <code>nav_tree_branch</code>. CathSim reached 100% raw success on <code>phantom3_bca</code>, but 6.7% safe success under the comparison force threshold.</p>
-        <div class="metric-row" aria-label="Matched benchmark results">
-          <div class="metric"><strong>100%</strong><span>Lumen safe success<br>30 eval episodes</span></div>
-          <div class="metric"><strong>6.7%</strong><span>CathSim safe success<br>Matched threshold</span></div>
+        <p class="benchmark-copy">In a historical matched branch-navigation PPO run, both environments trained for 50,000 steps and were evaluated for 30 deterministic episodes. Both recorded 100% raw target reach on their native task. The safety traces are not commensurate: Lumen reported centerline penetration in simulator units and CathSim reported native contact force, so no cross-environment safety rate is claimed.</p>
+        <div class="metric-row" aria-label="Historical benchmark results">
+          <div class="metric"><strong>100%</strong><span>Lumen raw target reach<br>30 eval episodes</span></div>
+          <div class="metric"><strong>100%</strong><span>CathSim raw target reach<br>Native task</span></div>
           <div class="metric"><strong>6.6×</strong><span>Evaluation throughput<br>79.7 vs 12.1 steps/s</span></div>
         </div>
       </div>

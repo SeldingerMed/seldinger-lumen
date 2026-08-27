@@ -25,7 +25,6 @@ from typing import Any
 import numpy as np
 
 
-SAFETY_FORCE_THRESHOLD = 2.0
 COMPARATOR_ENV = "cath" + "sim"
 COMPARATOR_GYM_ID = COMPARATOR_ENV + "/" + "Cath" + "Sim-v0"
 
@@ -38,14 +37,22 @@ class EpisodeResult:
     policy: str
     seed: int
     success: bool
-    safe_success: bool
     steps: int
     total_reward: float
     final_distance: float | None
+    native_safety_pass: bool | None = None
+    safety_endpoint: str = "unavailable"
+    safety_value: float | None = None
+    safety_curve: list[float] | None = None
+    wall_load_max: float | None = None
+    wall_load_curve: list[float] | None = None
+    wall_pressure_curve: list[float] | None = None
+    wall_impulse_curve: list[float] | None = None
+    wall_load_impulse: float | None = None
     max_penetration: float | None = None
     max_contact_force: float | None = None
     mean_contact_force: float | None = None
-    unsafe_event: bool = False
+    unsafe_event: bool | None = None
     crashed: bool = False
     elapsed_sec: float = 0.0
     notes: dict[str, Any] = field(default_factory=dict)
@@ -142,7 +149,10 @@ def _write_results(
     csv_path = out_dir / f"{run_id}.csv"
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     with csv_path.open("w", newline="", encoding="utf-8") as f:
-        fieldnames = list(rows[0].keys()) if rows else list(asdict(EpisodeResult("", "", "", "", 0, False, False, 0, 0, None)).keys())
+        fieldnames = list(rows[0].keys()) if rows else list(asdict(EpisodeResult(
+            environment="", task="", task_class="", policy="", seed=0, success=False,
+            steps=0, total_reward=0.0, final_distance=None,
+        )).keys())
         if "steps_per_second" not in fieldnames:
             fieldnames.append("steps_per_second")
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
@@ -163,6 +173,14 @@ def _aggregate(episodes: list[EpisodeResult]) -> list[dict[str, Any]]:
     rows = []
     for (env, task, policy), eps in sorted(grouped.items()):
         successes = [ep for ep in eps if ep.success]
+        endpoints = {ep.safety_endpoint for ep in eps}
+        single_endpoint = len(endpoints) == 1
+        native_pass = [ep.native_safety_pass for ep in eps
+                       if single_endpoint and ep.native_safety_pass is not None]
+        native_unsafe = [ep.unsafe_event for ep in eps
+                         if single_endpoint and ep.unsafe_event is not None]
+        safety_values = [ep.safety_value for ep in eps
+                         if single_endpoint and ep.safety_value is not None]
         rows.append(
             {
                 "environment": env,
@@ -170,15 +188,37 @@ def _aggregate(episodes: list[EpisodeResult]) -> list[dict[str, Any]]:
                 "policy": policy,
                 "episodes": len(eps),
                 "success_rate": sum(ep.success for ep in eps) / len(eps),
-                "safe_success_rate": sum(ep.safe_success for ep in eps) / len(eps),
+                "native_safety_pass_rate": (
+                    sum(native_pass) / len(native_pass) if native_pass else None
+                ),
+                "safety_endpoint": endpoints.pop() if len(endpoints) == 1 else "mixed",
+                "max_safety_value": max(safety_values) if safety_values else None,
+                "mean_safety_value": _mean(safety_values),
                 "crash_rate": sum(ep.crashed for ep in eps) / len(eps),
-                "unsafe_event_rate": sum(ep.unsafe_event for ep in eps) / len(eps),
+                "native_unsafe_event_rate": (
+                    sum(native_unsafe) / len(native_unsafe) if native_unsafe else None
+                ),
                 "mean_steps_success": _mean([ep.steps for ep in successes]),
                 "mean_steps_all": _mean([ep.steps for ep in eps]),
-                "mean_final_distance": _mean([ep.final_distance for ep in eps if ep.final_distance is not None]),
+                "mean_final_distance": _mean(
+                    [ep.final_distance for ep in eps if ep.final_distance is not None]
+                ),
                 "mean_return": _mean([ep.total_reward for ep in eps]),
-                "max_contact_force": _mean([ep.max_contact_force for ep in eps if ep.max_contact_force is not None]),
-                "mean_contact_force": _mean([ep.mean_contact_force for ep in eps if ep.mean_contact_force is not None]),
+                "max_contact_force": _mean(
+                    [ep.max_contact_force for ep in eps if ep.max_contact_force is not None]
+                ),
+                "mean_contact_force": _mean(
+                    [ep.mean_contact_force for ep in eps if ep.mean_contact_force is not None]
+                ),
+                "max_wall_load": _mean(
+                    [ep.wall_load_max for ep in eps if ep.wall_load_max is not None]
+                ),
+                "max_wall_pressure": _mean(
+                    [max(ep.wall_pressure_curve) for ep in eps if ep.wall_pressure_curve]
+                ),
+                "wall_load_impulse": _mean(
+                    [ep.wall_load_impulse for ep in eps if ep.wall_load_impulse is not None]
+                ),
                 "steps_per_second": _mean([ep.steps_per_second for ep in eps]),
             }
         )
@@ -237,22 +277,44 @@ def run_lumen(args: argparse.Namespace) -> None:
                     obs, _ = env.reset(seed=seed)
                     total_reward = 0.0
                     max_pen = 0.0
-                    final_distance = None
+                    penetration_curve: list[float] = []
+                    wall_load_curve: list[float] = []
+                    wall_pressure_curve: list[float] = []
+                    wall_impulse_curve: list[float] = []
                     success = False
+                    final_distance = None
+                    diverged = False
                     steps = 0
                     for step_idx in range(args.max_steps):
                         action = _policy_action(policy, getattr(env, "action_space", None), rng, step_idx)
                         obs, reward, terminated, truncated, info = env.step(action)
                         steps += 1
                         total_reward += float(reward)
+                        diverged = diverged or bool(info.get("diverged", False))
                         if "max_pen" in info:
                             max_pen = max(max_pen, float(info["max_pen"]))
+                            penetration_curve.append(float(info["max_pen"]))
+                        wall_load = _as_float(info.get("wall_load_max"))
+                        if wall_load is not None:
+                            wall_load_curve.append(wall_load)
+                        wall_pressure = _as_float(info.get("wall_pressure_max"))
+                        if wall_pressure is not None:
+                            wall_pressure_curve.append(wall_pressure)
+                        wall_impulse = _as_float(info.get("wall_load_impulse"))
+                        if wall_impulse is not None:
+                            wall_impulse_curve.append(wall_impulse)
                         final_distance = _as_float(info.get("dist"))
                         success = success or bool(info.get("success", False))
                         if terminated or truncated:
                             break
                     safety_limit = float(getattr(env, "safety_max_pen", 0.3))
                     unsafe = max_pen > safety_limit
+                    episode_notes = {
+                        "safety_max_pen": safety_limit,
+                        "wall_load_units": "sim_units",
+                    }
+                    if diverged:
+                        episode_notes["failure_reason"] = "sim_diverged"
                     episodes.append(
                         EpisodeResult(
                             environment="lumen",
@@ -261,14 +323,25 @@ def run_lumen(args: argparse.Namespace) -> None:
                             policy=policy,
                             seed=seed,
                             success=success,
-                            safe_success=bool(success and not unsafe),
                             steps=steps,
                             total_reward=total_reward,
                             final_distance=final_distance,
+                            native_safety_pass=bool(success and not unsafe and not diverged),
+                            safety_endpoint="surface_penetration_sim_units",
+                            safety_value=max_pen,
+                            safety_curve=penetration_curve,
+                            wall_load_max=max(wall_load_curve) if wall_load_curve else None,
+                            wall_load_curve=wall_load_curve,
+                            wall_pressure_curve=wall_pressure_curve,
+                            wall_impulse_curve=wall_impulse_curve,
+                            wall_load_impulse=(
+                                wall_impulse_curve[-1] if wall_impulse_curve else None
+                            ),
                             max_penetration=max_pen,
                             unsafe_event=unsafe,
+                            crashed=diverged,
                             elapsed_sec=time.perf_counter() - start,
-                            notes={"safety_max_pen": safety_limit},
+                            notes=episode_notes,
                         )
                     )
                 except Exception as exc:
@@ -280,10 +353,12 @@ def run_lumen(args: argparse.Namespace) -> None:
                             policy=policy,
                             seed=seed,
                             success=False,
-                            safe_success=False,
                             steps=0,
                             total_reward=0.0,
                             final_distance=None,
+                            native_safety_pass=None,
+                            safety_endpoint="surface_penetration_sim_units",
+                            safety_value=None,
                             crashed=True,
                             elapsed_sec=time.perf_counter() - start,
                             notes={"exception": repr(exc)},
@@ -339,10 +414,12 @@ def run_comparator(args: argparse.Namespace) -> None:
                             policy=policy,
                             seed=args.seed + ep_idx,
                             success=False,
-                            safe_success=False,
                             steps=0,
                             total_reward=0.0,
                             final_distance=None,
+                            native_safety_pass=None,
+                            safety_endpoint="contact_force_native_units",
+                            safety_value=None,
                             crashed=True,
                             notes={"exception": repr(exc), "phase": "make_env"},
                         )
@@ -383,7 +460,6 @@ def run_comparator(args: argparse.Namespace) -> None:
                             break
                     max_force = max(forces) if forces else None
                     mean_force = float(np.mean(forces)) if forces else None
-                    unsafe = bool(max_force is not None and max_force > SAFETY_FORCE_THRESHOLD)
                     episodes.append(
                         EpisodeResult(
                             environment=COMPARATOR_ENV,
@@ -392,15 +468,21 @@ def run_comparator(args: argparse.Namespace) -> None:
                             policy=policy,
                             seed=seed,
                             success=success,
-                            safe_success=bool(success and not unsafe),
                             steps=steps,
                             total_reward=total_reward,
                             final_distance=final_distance,
+                            native_safety_pass=None,
+                            safety_endpoint="contact_force_native_units",
+                            safety_value=max_force,
+                            safety_curve=forces,
                             max_contact_force=max_force,
                             mean_contact_force=mean_force,
-                            unsafe_event=unsafe,
+                            unsafe_event=None,
                             elapsed_sec=time.perf_counter() - start,
-                            notes={"delta": args.delta, "force_threshold": SAFETY_FORCE_THRESHOLD},
+                            notes={
+                                "delta": args.delta,
+                                "safety_classification": "unclassified_pending_physical_calibration",
+                            },
                         )
                     )
                 except Exception as exc:
@@ -412,12 +494,13 @@ def run_comparator(args: argparse.Namespace) -> None:
                             policy=policy,
                             seed=seed,
                             success=False,
-                            safe_success=False,
                             steps=0,
                             total_reward=0.0,
                             final_distance=None,
+                            native_safety_pass=None,
+                            safety_endpoint="contact_force_native_units",
+                            safety_value=None,
                             crashed=True,
-                            elapsed_sec=time.perf_counter() - start,
                             notes={"exception": repr(exc)},
                         )
                     )

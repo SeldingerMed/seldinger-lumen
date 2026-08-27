@@ -11,16 +11,19 @@ gymnasium dependency — so anyone can reproduce a number and submit a scorecard
 
 Metrics per task (over a fixed set of seeded episodes):
   * ``success_rate``  — fraction of episodes whose tip reaches the target band.
-  * ``safe_success_rate`` — fraction that reach the target without a wall-safety breach.
-  * ``unsafe_success_rate`` — fraction that reach the target only by breaching wall safety.
+  * ``safe_success_rate`` — Lumen-native fraction reaching the target without
+    exceeding the device-surface overlap limit in simulator units.
+  * ``unsafe_success_rate`` — Lumen-native target reach after exceeding that limit.
   * ``mean_steps``    — mean steps on the successful episodes (efficiency; lower is better).
-  * ``max_pen``       — worst wall over-penetration seen (safety; lower is better).
+  * ``max_pen``       — worst device-surface overlap proxy seen (lower is better).
   * ``mean_return``   — mean episode reward.
-Each raw episode result also carries ``clinical`` metrics from
-``lumen.data.compute_clinical_metrics``: tip-target success, branch choice, wall
-safety, clot/flow fields when present, and catheter support when coaxial.
-The leaderboard ranks safe target success first, then raw target success, then wall
-safety, then return as a deterministic efficiency tie-break.
+  * ``crash_rate``    — fraction of episodes ended by a finite divergence guard.
+Each raw episode result also carries native wall-load, pressure-proxy, and impulse
+curves in simulator units plus ``clinical`` metrics from
+``lumen.data.compute_clinical_metrics``. These native safety fields are not
+cross-environment calibrated endpoints.
+The leaderboard ranks Lumen-native safe target success first, then raw target
+success, then wall safety, then return as a deterministic efficiency tie-break.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ import numpy as np
 from lumen.data import Episode, EpisodeMeta, Outcome, Step, compute_clinical_metrics
 from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_nav
 
-SUITE_VERSION = "lumen-bench/2"
+SUITE_VERSION = "lumen-bench/3"
 SAFETY_MAX_PEN = 0.3
 
 
@@ -65,9 +68,10 @@ SUITE = [
 
 
 def run_episode(env, policy, seed) -> dict:
-    """Roll one episode to termination/truncation and return generic + clinical metrics."""
+    """Roll one episode and retain native surface/load/pressure/impulse traces."""
     obs, _ = env.reset(seed=seed)
-    total_r, max_pen, success, steps = 0.0, 0.0, False, 0
+    total_r, max_pen, success, steps, diverged = 0.0, 0.0, False, 0, False
+    wall_load_curve, wall_pressure_curve, wall_impulse_curve = [], [], []
     R = float(getattr(env, "R", 0.0))
     safety_max_pen = float(getattr(env, "safety_max_pen", SAFETY_MAX_PEN))
     trace = []
@@ -78,33 +82,75 @@ def run_episode(env, policy, seed) -> dict:
         action = policy(obs)
         obs, r, terminated, truncated, info = env.step(action)
         total_r += float(r)
+        diverged = diverged or bool(info.get("diverged", False))
         steps += 1
         if "max_pen" in info:
             max_pen = max(max_pen, float(info["max_pen"]))
         else:
             max_pen = max(max_pen, max(0.0, float(info.get("max_r", 0.0)) - R))
+        for key, curve in (
+            ("wall_load_max", wall_load_curve),
+            ("wall_pressure_max", wall_pressure_curve),
+            ("wall_load_impulse", wall_impulse_curve),
+        ):
+            value = info.get(key)
+            if value is not None and np.isfinite(float(value)):
+                curve.append(float(value))
         success = success or bool(info.get("success", False))
         kin = {
             "tip_s": float(info.get("route_s", info.get("tip_s", 0.0))),
-            "max_penetration": float(info.get("max_pen", max(0.0, float(info.get("max_r", 0.0)) - R))),
+            "max_penetration": float(
+                info.get("max_pen", max(0.0, float(info.get("max_r", 0.0)) - R))
+            ),
         }
+        if "wall_load_max" in info:
+            kin["wall_load_max"] = float(info["wall_load_max"])
+        if "wall_pressure_max" in info:
+            kin["wall_pressure_max"] = float(info["wall_pressure_max"])
+        if "wall_load_impulse" in info:
+            kin["wall_load_impulse"] = float(info["wall_load_impulse"])
         if info.get("edge") is not None:
             kin["edge"] = info["edge"]
-        trace.append(Step(t=float(steps), action={"policy_action": np.asarray(action).reshape(-1).tolist()},
-                          kinematics=kin, obs_modality="none"))
+        trace.append(Step(
+            t=float(steps),
+            action={"policy_action": np.asarray(action).reshape(-1).tolist()},
+            kinematics=kin,
+            obs_modality="none",
+        ))
         if terminated or truncated:
             break
-    notes = {"target_s": float(getattr(env, "target_s", 0.0)),
-             "success_tol": float(getattr(env, "success_tol", 2.5)),
-             "perforation_penetration_threshold": safety_max_pen}
+    notes = {
+        "target_s": float(getattr(env, "target_s", 0.0)),
+        "success_tol": float(getattr(env, "success_tol", 2.5)),
+        "native_safety_endpoint": "surface_penetration_sim_units",
+        "perforation_penetration_threshold": safety_max_pen,
+        "wall_load_units": "sim_units",
+    }
     labels = {"target_edge": target_edge} if target_edge else {}
-    ep = Episode(meta=EpisodeMeta(labels=labels, notes=notes), steps=trace,
-                 outcome=Outcome(success=success, final_dist=float(info.get("dist", 0.0)),
-                                 steps=steps))
+    ep = Episode(
+        meta=EpisodeMeta(labels=labels, notes=notes),
+        steps=trace,
+        outcome=Outcome(
+            success=success, final_dist=float(info.get("dist", 0.0)), steps=steps
+        ),
+    )
     clinical = compute_clinical_metrics(ep)
-    safe_success = bool(success and not clinical["wall_safety"]["perforation_risk"])
-    return {"success": success, "safe_success": safe_success, "steps": steps,
-            "max_pen": max_pen, "return": total_r, "clinical": clinical}
+    safe_success = bool(success and not diverged and not clinical["wall_safety"]["perforation_risk"])
+    return {
+        "success": success,
+        "safe_success": safe_success,
+        "steps": steps,
+        "max_pen": max_pen,
+        "return": total_r,
+        "wall_load_max": max(wall_load_curve) if wall_load_curve else 0.0,
+        "wall_load_curve": wall_load_curve,
+        "wall_pressure_curve": wall_pressure_curve,
+        "wall_impulse_curve": wall_impulse_curve,
+        "wall_load_impulse": wall_impulse_curve[-1] if wall_impulse_curve else 0.0,
+        "clinical": clinical,
+        "crashed": diverged,
+        "diverged": diverged,
+    }
 
 
 def evaluate_task(task: BenchTask, policy) -> dict:
@@ -115,15 +161,23 @@ def evaluate_task(task: BenchTask, policy) -> dict:
     won = [e for e in eps if e["success"]]
     safe_won = [e for e in eps if e["safe_success"]]
     unsafe_won = [e for e in eps if e["success"] and not e["safe_success"]]
+    crashed = [e for e in eps if e["crashed"]]
     return {
         "name": task.name, "tier": task.tier, "episodes": task.episodes,
         "success_rate": len(won) / len(eps),
         "safe_success_rate": len(safe_won) / len(eps),
         "unsafe_success_rate": len(unsafe_won) / len(eps),
+        "crash_rate": len(crashed) / len(eps),
         "mean_steps": (float(np.mean([e["steps"] for e in won])) if won else None),
         "max_pen": max(e["max_pen"] for e in eps),
         "safety_max_pen": safety_max_pen,
         "mean_return": float(np.mean([e["return"] for e in eps])),
+        "max_wall_load": max(e["wall_load_max"] for e in eps),
+        "max_wall_pressure": max(
+            (max(e["wall_pressure_curve"]) for e in eps if e["wall_pressure_curve"]),
+            default=0.0,
+        ),
+        "wall_load_impulse": float(np.mean([e["wall_load_impulse"] for e in eps])),
     }
 
 
@@ -188,11 +242,10 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
     if not isinstance(card.overall, dict):
         errors.append("overall must be a dict")
     else:
-        for key in ("success_rate", "safe_success_rate"):
+        for key in ("success_rate", "safe_success_rate",
+                    "unsafe_success_rate", "crash_rate"):
             if not _rate_ok(card.overall.get(key)):
                 errors.append(f"overall.{key} must be a finite rate in [0, 1]")
-        if "unsafe_success_rate" in card.overall and not _rate_ok(card.overall.get("unsafe_success_rate")):
-            errors.append("overall.unsafe_success_rate must be a finite rate in [0, 1]")
         for key in ("max_pen", "mean_return"):
             if not _finite_number(card.overall.get(key)):
                 errors.append(f"overall.{key} must be finite")
@@ -208,17 +261,17 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
                     errors.append(f"per_task[{i}].tier must be {expected.tier!r}")
                 if task.get("episodes") != expected.episodes:
                     errors.append(f"per_task[{i}].episodes must be {expected.episodes}")
-            for key in ("success_rate", "safe_success_rate"):
+            for key in ("success_rate", "safe_success_rate",
+                        "unsafe_success_rate", "crash_rate"):
                 if not _rate_ok(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be a finite rate in [0, 1]")
-            if "unsafe_success_rate" in task:
-                if not _rate_ok(task.get("unsafe_success_rate")):
-                    errors.append(f"per_task[{i}].unsafe_success_rate must be a finite rate in [0, 1]")
-                elif (_rate_ok(task.get("success_rate")) and _rate_ok(task.get("safe_success_rate"))
-                      and not _close(task.get("unsafe_success_rate"),
-                                     float(task.get("success_rate")) - float(task.get("safe_success_rate")))):
-                    errors.append(f"per_task[{i}].unsafe_success_rate must equal "
-                                  "success_rate - safe_success_rate")
+            if (_rate_ok(task.get("success_rate")) and _rate_ok(task.get("safe_success_rate"))
+                    and _rate_ok(task.get("unsafe_success_rate"))
+                    and not _close(task.get("unsafe_success_rate"),
+                                   float(task.get("success_rate"))
+                                   - float(task.get("safe_success_rate")))):
+                errors.append(f"per_task[{i}].unsafe_success_rate must equal "
+                              "success_rate - safe_success_rate")
             for key in ("episodes", "max_pen", "mean_return"):
                 if not _finite_number(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be finite")
@@ -238,8 +291,10 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
                 "max_pen": expected_max_pen,
                 "mean_return": expected_return,
             }
-            if "unsafe_success_rate" in card.overall:
-                expected["unsafe_success_rate"] = expected_success - expected_safe
+            expected["unsafe_success_rate"] = expected_success - expected_safe
+            expected["crash_rate"] = float(np.mean([
+                float(t.get("crash_rate", np.nan)) for t in card.per_task
+            ]))
             for key, value in expected.items():
                 if not _close(card.overall.get(key), value):
                     errors.append(f"overall.{key} must equal aggregate per_task {value:.12g}")
@@ -252,11 +307,12 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
 
 
 def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
-    """Evaluate `policy` over the whole suite and return a Scorecard.
+    """Evaluate ``policy`` over the whole suite and return a Scorecard.
 
-    ``success_rate`` is raw target reach. ``safe_success_rate`` is the clinical
-    leaderboard metric: target reach with wall penetration below the safety limit.
-    Every tier is weighted equally; ``max_pen`` is the worst violation across tasks.
+    ``safe_success_rate`` is a Lumen-native metric: target reach with the
+    device-surface overlap proxy below the configured simulator-unit limit. The
+    scorecard also retains native wall-load, pressure-proxy, and impulse curves;
+    none is a calibrated SI injury endpoint.
     """
     per = [evaluate_task(t, policy) for t in suite]
     overall = {
@@ -265,6 +321,10 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
         "unsafe_success_rate": float(np.mean([t["unsafe_success_rate"] for t in per])),
         "max_pen": max(t["max_pen"] for t in per),
         "mean_return": float(np.mean([t["mean_return"] for t in per])),
+        "max_wall_load": max(t["max_wall_load"] for t in per),
+        "max_wall_pressure": max(t["max_wall_pressure"] for t in per),
+        "wall_load_impulse": float(np.mean([t["wall_load_impulse"] for t in per])),
+        "crash_rate": float(np.mean([t["crash_rate"] for t in per])),
     }
     return Scorecard(name=name, suite_version=SUITE_VERSION, per_task=per, overall=overall,
                      notes=notes or {})

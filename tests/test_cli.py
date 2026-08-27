@@ -919,7 +919,7 @@ def test_device_keypoint_mask_error_helper_is_exported():
     assert distances["tip"][0] > 0.0
 
 
-def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
+def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch, capsys):
     import lumen.bench as bench
     from lumen.cli import benchmark_main
 
@@ -933,6 +933,7 @@ def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
             "tier": "easy",
             "safe_success_rate": 1.0,
             "unsafe_success_rate": 0.0,
+            "crash_rate": 0.0,
             "success_rate": 1.0,
             "mean_steps": 3.0,
             "max_pen": 0.0,
@@ -940,6 +941,7 @@ def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
         overall = {
             "safe_success_rate": 1.0,
             "unsafe_success_rate": 0.0,
+            "crash_rate": 0.0,
             "success_rate": 1.0,
             "max_pen": 0.0,
             "mean_return": 42.0,
@@ -959,6 +961,7 @@ def test_benchmark_cli_writes_submission_notes(tmp_path, monkeypatch):
     monkeypatch.setattr(bench, "scorecard_rejections", lambda _results_dir: [])
 
     benchmark_main([str(tmp_path)])
+    assert "crash=0.00" in capsys.readouterr().out
 
     assert seen["name"] == "forward-baseline"
     assert seen["notes"] == {

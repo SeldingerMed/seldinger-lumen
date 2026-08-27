@@ -48,7 +48,17 @@ class NewtonGuidewireSim:
         from lumen.hardware import configure_backend_logging, detect_device
         configure_backend_logging()
         self.device = device or detect_device()      # cuda if available, else cpu
-        self.R, self.kappa, self.d_hat = R, kappa, d_hat
+        self.R = float(R)
+        self.device_radius = float(radius)
+        self.catheter_radius = float(catheter_radius) if catheter_points is not None else None
+        if not np.isfinite(self.device_radius) or self.device_radius <= 0.0:
+            raise ValueError("radius must be finite and positive")
+        if self.catheter_radius is not None and (
+            not np.isfinite(self.catheter_radius) or self.catheter_radius <= 0.0
+        ):
+            raise ValueError("catheter_radius must be finite and positive")
+        self.kappa, self.d_hat = kappa, d_hat
+        self._lumen_field = lumen_field
         self.n_envs = int(n_envs)
         # L0d.2a — optional COAXIAL microcatheter: a second rod (larger radius,
         # stiffer) sharing the lumen with the guidewire. Batched coaxial builds one
@@ -143,6 +153,10 @@ class NewtonGuidewireSim:
             self.solver = TubeVBDSolver(self.model, iterations=vbd_iterations)
         self.tree = tree
         self._tree_flow_is_field = tree is not None and flow is not None and self._flow_is_field
+        body_radii = np.zeros(self.model.body_count, dtype=np.float32)
+        body_radii[np.asarray(self.bodies, dtype=np.int32)] = self.device_radius
+        if self.coaxial:
+            body_radii[np.asarray(self.cath_bodies, dtype=np.int32)] = self.catheter_radius
         if tree is not None:                          # multi-edge vascular tree (batched contact)
             # the tree uses each edge's own lumen field for the base R0; a sim-level
             # lumen_field doesn't apply. FlowField is supported through env×edge graph
@@ -162,7 +176,8 @@ class NewtonGuidewireSim:
                                          mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
                                          actuation_centerline=route_centerline,
                                          deformable_wall=deformable_wall, hgo_params=hgo_params,
-                                         n_envs=self.n_envs, n_per_env=n_per_env_contact)
+                                         n_envs=self.n_envs, n_per_env=n_per_env_contact,
+                                         body_radii=body_radii)
         else:
             n_per_env_contact = self.n_per_env_contact
             self.solver.set_tube_contact(vessel_centerline, R, self._contact_bodies,
@@ -172,7 +187,8 @@ class NewtonGuidewireSim:
                                          hgo_params=hgo_params, mu_along=mu_along,
                                          mu_across=mu_across, gamma_fric_deg=gamma_fric_deg,
                                          lumen_field=lumen_field,
-                                         n_envs=self.n_envs, n_per_env=n_per_env_contact)
+                                         n_envs=self.n_envs, n_per_env=n_per_env_contact,
+                                         body_radii=body_radii)
         self.state_0 = self.model.state()
         self.state_1 = self.model.state()
         self.control = self.model.control()
@@ -674,6 +690,71 @@ class NewtonGuidewireSim:
         # for a tree, radius is measured against the nearest edge (junction-aware)
         proj = self.tree.project if self.tree is not None else self.contact_frame.project
         return np.array([proj(p).r for p in self.body_positions()])
+    def surface_penetration(self) -> np.ndarray:
+        """Return non-negative wall overlap for each guidewire centerline node.
+
+        The returned quantity is a geometric surface-overlap proxy in the solver's
+        length units, not a calibrated injury or force estimate.
+        """
+        positions = self.body_positions()
+        if self.tree is not None:
+            projections = [self.tree.project(p) for p in positions]
+            return np.maximum(
+                0.0,
+                np.asarray([float(pr.r) for pr in projections]) + self.device_radius
+                - np.asarray([float(pr.R) for pr in projections]),
+            )
+        projections = [self.contact_frame.project(p) for p in positions]
+        if self._lumen_field is None:
+            wall_radii = np.full(len(projections), self.R, dtype=float)
+        else:
+            wall_radii = np.asarray([
+                float(self._lumen_field.eval(float(pr.s), float(pr.theta)))
+                for pr in projections
+            ])
+        return np.maximum(
+            0.0,
+            np.asarray([float(pr.r) for pr in projections]) + self.device_radius - wall_radii,
+        )
+
+    def wall_load_grid(self) -> np.ndarray:
+        """Return the latest native barrier load grid in simulator units.
+
+        The load is accumulated by the barrier during the latest solver iteration.
+        It is intentionally not labelled as newtons: SI calibration requires matched
+        device/anatomy data outside this open core.
+        """
+        attr = "_tree_wall_load" if self.tree is not None else "_tube_wall_load"
+        load = getattr(self.solver, attr, None)
+        if load is None:
+            return np.zeros(0, dtype=float)
+        return np.asarray(load.numpy(), dtype=float).copy()
+
+    def wall_load_max(self) -> float:
+        load = self.wall_load_grid()
+        return float(load.max()) if load.size else 0.0
+    def wall_pressure_grid(self) -> np.ndarray:
+        """Return native wall-load divided by native wall-cell area.
+
+        This is a simulator-unit pressure proxy. It is not pascals until the wall
+        material, geometry, and solver scales have been calibrated against physical
+        measurements.
+        """
+        load = self.wall_load_grid()
+        wall = getattr(
+            self.solver, "_tree_wall" if self.tree is not None else "_wall", None
+        )
+        if wall is None or load.size == 0:
+            return np.zeros_like(load)
+        area = np.asarray(wall.cell_area, dtype=float)
+        if area.shape != load.shape:
+            raise RuntimeError("wall load and cell-area grids have incompatible shapes")
+        return load / np.maximum(area, np.finfo(float).tiny)
+
+    def wall_pressure_max(self) -> float:
+        pressure = self.wall_pressure_grid()
+        return float(pressure.max()) if pressure.size else 0.0
+
 
     def catheter_node_radii(self) -> np.ndarray:
         proj = self.tree.project if self.tree is not None else self.contact_frame.project

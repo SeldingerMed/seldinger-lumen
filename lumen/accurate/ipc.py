@@ -16,7 +16,7 @@ gives an always-available reference without a GPU/C++ build.
 
 Energy E(x) = ½ks·Σ(|eᵢ|−L0)²  (stretch)
             + ½kb·Σ|xᵢ₊₁−2xᵢ+xᵢ₋₁|²  (bending)
-            + Σ b(dᵢ)               (IPC contact, dᵢ = R−rᵢ the wall gap)
+            + Σ b(dᵢ)               (IPC contact, dᵢ = R−(rᵢ+ρ))
             − Σ F·xᵢ                (external load)
 with b(d) = −κ(d−d̂)²·ln(d/d̂) for 0<d<d̂, +∞ as d→0⁺ (the penetration-free guarantee).
 """
@@ -54,21 +54,25 @@ class IPCParams:
 class IPCTubeReference:
     """Penetration-free quasi-static rod-in-tube solve (the accurate-tier reference)."""
 
-    def __init__(self, centerline: np.ndarray, R, params: IPCParams | None = None):
+    def __init__(self, centerline: np.ndarray, R, params: IPCParams | None = None,
+                 *, device_radius: float = 0.0):
         self.frame = CenterlineFrame(centerline)
         self.R = R                                   # scalar lumen radius (or callable(s, theta)->R)
+        self.device_radius = float(device_radius)
+        if not np.isfinite(self.device_radius) or self.device_radius < 0.0:
+            raise ValueError("device_radius must be finite and non-negative")
         self.p = params or IPCParams()
 
     def _R_at(self, s, theta):
         return self.R(s, theta) if callable(self.R) else float(self.R)
 
     def _gaps(self, x):
-        """Per-node wall gap d=R−r and radial unit e_r (the contact geometry)."""
+        """Per-node device-surface wall gap and radial unit e_r."""
         d = np.empty(len(x))
         er = np.empty((len(x), 3))
         for i, xi in enumerate(x):
             pr = self.frame.project(xi)
-            d[i] = self._R_at(pr.s, pr.theta) - pr.r
+            d[i] = self._R_at(pr.s, pr.theta) - (pr.r + self.device_radius)
             er[i] = pr.e_r
         return d, er
 

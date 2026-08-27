@@ -216,8 +216,9 @@ def benchmark_main(argv=None, prog=None) -> None:
 
     print(f"\nleaderboard ({args.results_dir}):")
     for rank, c in enumerate(leaderboard(args.results_dir), 1):
-        print(f"  {rank}. {c.name:24} safe={c.overall.get('safe_success_rate', 0.0):.2f}  "
-              f"unsafe={c.overall.get('unsafe_success_rate', 0.0):.2f}  "
+        print(f"  {rank}. {c.name:24} safe={c.overall['safe_success_rate']:.2f}  "
+              f"unsafe={c.overall['unsafe_success_rate']:.2f}  "
+              f"crash={c.overall['crash_rate']:.2f}  "
               f"success={c.overall['success_rate']:.2f}  "
               f"max_pen={c.overall['max_pen']:.3f}  return={c.overall['mean_return']:.1f}")
     skipped = scorecard_rejections(args.results_dir)

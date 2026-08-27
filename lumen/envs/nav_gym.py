@@ -30,7 +30,8 @@ except Exception:                       # pragma: no cover - gym optional
 class NavEnv:
     def __init__(self, asset=None, target_frac=0.7, max_insertion=2.0,
                  max_twist=1.0, substeps=4, max_steps=40, success_tol=2.5,
-                 safety_max_pen=0.3, terminate_on_unsafe: bool = False, device=None):
+                 safety_max_pen=0.3, terminate_on_unsafe: bool = False, device=None,
+                 device_radius_mm=0.2):
         terminate_on_unsafe = validate_boolean(
             terminate_on_unsafe,
             "terminate_on_unsafe",
@@ -54,6 +55,9 @@ class NavEnv:
         self.safety_max_pen = float(safety_max_pen)
         self.terminate_on_unsafe = terminate_on_unsafe
         self.device = device or detect_device()
+        self.device_radius_mm = float(device_radius_mm)
+        if not np.isfinite(self.device_radius_mm) or self.device_radius_mm <= 0.0:
+            raise ValueError("device_radius_mm must be finite and positive")
         if _HAS_GYM:
             self.action_space = spaces.Box(-1.0, 1.0, (2,), np.float32)
             self.observation_space = spaces.Box(-np.inf, np.inf, (5,), np.float32)
@@ -75,15 +79,23 @@ class NavEnv:
         return float(lumen.eval(s, theta)) if lumen is not None else self.R
 
     def _contact_features(self):
+        device_radius = float(getattr(
+            self.sim, "device_radius", getattr(self, "device_radius_mm", 0.0)
+        ))
         if not hasattr(self.sim, "body_positions"):
-            # Legacy/object-level tests may provide only _tip(); initialized Newton sims use
-            # the body_positions path below for local-R-aware contact.
-            s, _, th, rmax = self._tip()
-            return float(rmax), max(0.0, float(rmax) - self._lumen_radius(s, th))
+            # Legacy/dummy adapters may provide only the existing tip tuple.
+            s, _, theta, rmax = self._tip()
+            return float(rmax), max(
+                0.0, float(rmax) + device_radius - self._lumen_radius(s, theta)
+            )
         projs = [self.frame.project(p) for p in self.sim.body_positions()]
         max_r = max((float(pr.r) for pr in projs), default=0.0)
         max_pen = max(
-            (max(0.0, float(pr.r) - self._lumen_radius(pr.s, pr.theta)) for pr in projs),
+            (
+                max(0.0, float(pr.r) + device_radius
+                     - self._lumen_radius(pr.s, pr.theta))
+                for pr in projs
+            ),
             default=0.0,
         )
         return max_r, max_pen
@@ -114,12 +126,13 @@ class NavEnv:
                                       0.25, 0.9)) * self.L
         if getattr(self, "sim", None) is None:
             self.sim = NewtonGuidewireSim(self.vessel, self.R, self._device_points(),
-                                          radius=0.2, kappa=3e3, d_hat=0.3,
+                                          radius=self.device_radius_mm, kappa=3e3, d_hat=0.3,
                                           lumen_field=self.lumen,
                                           vbd_iterations=8, device=self.device)
         else:
             self.sim.reset()                 # cheap state restore, no rebuild
         self.steps = 0
+        self._wall_load_impulse = 0.0
         self._prev_dist = abs(self._tip()[0] - self.target_s)
         return self._obs(), {}
 
@@ -132,18 +145,23 @@ class NavEnv:
         obs = self._obs()
         # #14 — NaN guard: a diverged sim must not emit NaN obs/reward (invalid JSON,
         # broken comparisons). End the episode with a finite penalty instead.
+        zeros = np.zeros(5, dtype=np.float32)
         if not (np.isfinite(obs).all() and np.isfinite([s, rmax]).all()):
-            zeros = np.zeros(5, dtype=np.float32)
             return zeros, -100.0, True, False, {
-                "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,        # L1: finite (JSON-safe)
-                "max_pen": 0.0, "success": False, "diverged": True}
+                "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,
+                "max_pen": 0.0, "wall_load_max": 0.0, "wall_load_sum": 0.0,
+                "wall_pressure_max": 0.0, "wall_load_impulse": 0.0,
+                "wall_load_units": "sim_units",
+                "success": False, "diverged": True}
         dist = abs(s - self.target_s)
         max_r, max_pen = self._contact_features()
         if not np.isfinite([max_r, max_pen]).all():
-            zeros = np.zeros(5, dtype=np.float32)
             return zeros, -100.0, True, False, {
                 "tip_s": 0.0, "dist": 1e6, "max_r": 0.0,
-                "max_pen": 0.0, "success": False, "diverged": True}
+                "max_pen": 0.0, "wall_load_max": 0.0, "wall_load_sum": 0.0,
+                "wall_pressure_max": 0.0, "wall_load_impulse": 0.0,
+                "wall_load_units": "sim_units",
+                "success": False, "diverged": True}
         contact_pen = max_pen
         reward = (self._prev_dist - dist) - 0.5 * contact_pen - 0.01
         self._prev_dist = dist
@@ -156,7 +174,24 @@ class NavEnv:
             reward += 10.0
         if unsafe:
             reward -= 10.0
+        load_grid = (
+            np.asarray(self.sim.wall_load_grid(), dtype=float)
+            if hasattr(self.sim, "wall_load_grid") else np.zeros(0, dtype=float)
+        )
+        wall_load_max = float(load_grid.max()) if load_grid.size else 0.0
+        wall_load_sum = float(load_grid.sum()) if load_grid.size else 0.0
+        wall_pressure_max = (
+            float(self.sim.wall_pressure_max())
+            if hasattr(self.sim, "wall_pressure_max") else 0.0
+        )
+        self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (
+            wall_load_sum * 5e-3 * self.substeps
+        )
         info = {"tip_s": s, "dist": dist, "max_r": max_r, "max_pen": max_pen,
+                "wall_load_max": wall_load_max, "wall_load_sum": wall_load_sum,
+                "wall_pressure_max": wall_pressure_max,
+                "wall_load_impulse": float(self._wall_load_impulse),
+                "wall_load_units": "sim_units",
                 "success": success, "safe_success": safe_success, "unsafe": unsafe,
                 "twist": twist, "tip_roll": self._tip_roll()}
         return obs, float(reward), terminated, truncated, info

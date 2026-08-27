@@ -34,7 +34,7 @@
 \maketitle
 
 \begin{abstract}
-Endovascular agents should be judged on more than whether a device reaches a target branch. They also need wall-safety accounting, reproducible cases, image observations, labels, and episode records that can be inspected after training. Lumen is an Apache-2.0 environment for this work. It provides procedural vascular cases, tube-intrinsic contact, Newton/Warp execution paths, Gymnasium navigation tasks, synthetic fluoroscopy, luminal image generation, and replayable computer-vision datasets. This preprint describes the public release, reports the \texttt{lumen-bench/2} launch benchmark, and adds a matched branch-navigation PPO comparison against CathSim. In the 50,000-step PPO comparison, Lumen achieved 100\% raw success and 100\% safe success across 30 held-out episodes. CathSim achieved 100\% raw success but 6.7\% safe success under the force threshold used in the comparison. The release is intended to make wall-safe navigation, simulator-derived labels, and reproducible endovascular RL results easier to audit.
+Endovascular agents should be judged on more than whether a device reaches a target branch. They also need wall-safety accounting, reproducible cases, image observations, labels, and episode records that can be inspected after training. Lumen is an Apache-2.0 environment for this work. It provides procedural vascular cases, tube-intrinsic contact, Newton/Warp execution paths, Gymnasium navigation tasks, synthetic fluoroscopy, luminal image generation, and replayable computer-vision datasets. This preprint describes the public release, reports the \texttt{lumen-bench/2} launch benchmark, and adds a matched branch-navigation PPO comparison against CathSim. In the 50,000-step PPO comparison, Lumen and CathSim each achieved 100\% raw success on their native tasks, with 79.7 versus 12.1 evaluation steps per second. The archived safety endpoints are not commensurate: Lumen used centerline penetration in simulator units, while CathSim used native contact force, so no cross-environment safety rate is claimed. The release is intended to make native safety telemetry, simulator-derived labels, and reproducible endovascular RL results easier to audit.
 \end{abstract}
 
 \section{Motivation}
@@ -104,8 +104,7 @@ These modules keep more of the procedure in the recorded state. Contact, flow, c
 
 \section{Benchmark Protocol and Results}
 
-The launch benchmark, \texttt{lumen-bench/2}, evaluates three fixed procedural tasks: \texttt{nav\_tube}, \texttt{nav\_stenotic}, and \texttt{nav\_tree\_branch}. Each task is run for five seeded episodes. The scorecard ranks safe target reach before raw target reach, then wall safety, then return. The safety threshold for the launch scorecard is a maximum wall penetration of 0.3 simulator units.
-
+The following subsection is a \textbf{archived v2 result}, retained only for provenance. The launch benchmark \texttt{lumen-bench/2} evaluated three fixed procedural tasks: \texttt{nav\_tube}, \texttt{nav\_stenotic}, and \texttt{nav\_tree\_branch}, with five seeded episodes per task. Its 0.3 simulator-unit threshold and reported 0.178 value used centerline-based penetration semantics. They are not current v3 scores and must not be reinterpreted after the finite-device-radius change. The v3 contract reports device-surface overlap and native wall-load curves in simulator units; a physical calibration remains unresolved.
 \begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/figure4_benchmark.png}
@@ -115,7 +114,7 @@ The launch benchmark, \texttt{lumen-bench/2}, evaluates three fixed procedural t
 
 \begin{table}[H]
   \centering
-  \caption{Launch benchmark result for the deterministic \texttt{forward-baseline} policy on \texttt{lumen-bench/2}. The scorecard is included with the release artifacts.}
+  \caption{Archived \texttt{lumen-bench/2} result for the deterministic \texttt{forward-baseline} policy. The scorecard is included with the release artifacts for provenance only; its centerline-based penetration semantics are superseded by v3.}
   \label{tab:benchmark}
   \begin{tabular}{llrrrrr}
     \toprule
@@ -132,24 +131,25 @@ The launch benchmark, \texttt{lumen-bench/2}, evaluates three fixed procedural t
 
 The forward baseline is intentionally simple: it advances the proximal end at full rate. It is useful as a reproducibility check and a floor for trained policies, not as a ceiling. Standard reinforcement-learning algorithms such as PPO and SAC can be applied through the Gymnasium interface \cite{schulman2017ppo,haarnoja2018sac,haarnoja2018applications}, while leaderboard submissions preserve per-task scorecards for comparison.
 
-To test the Gymnasium training path against the closest open RL comparator, a matched branch-navigation PPO run was executed for Lumen and CathSim. Both environments were trained for 50,000 PPO steps with seed 0 and evaluated for 30 deterministic held-out episodes. Lumen used \texttt{nav\_tree\_branch}. CathSim used \texttt{phantom3\_bca}. Raw target reach was counted separately from safe target reach. For Lumen, safe reach required target success without breaching the wall-penetration threshold. For CathSim, safe reach required target success without exceeding the 2.0 force threshold used in the external comparison harness.
+The historical launch comparison was a matched branch-navigation PPO run with 50,000 training steps, seed 0, and 30 deterministic episodes. Lumen used \texttt{nav\_tree\_branch}; CathSim used \texttt{phantom3\_bca}. Both recorded 100\% raw target reach on their native tasks. The safety observations are not commensurate: Lumen's archived result used centerline penetration in simulator units, whereas CathSim recorded contact force in its native units. The current comparison contract therefore reports both curves and endpoint labels but does not publish a cross-environment safety rate. The historical rows below are retained only for provenance and must not be read as a calibrated safety comparison.
 
 \begin{table}[H]
   \centering
-  \caption{Matched branch-navigation PPO comparison after 50,000 training steps and 30 deterministic evaluation episodes. Safe success is the primary score because it preserves target reach while rejecting unsafe wall or force events.}
+  \caption{Historical 50,000-step PPO run. Raw reach and throughput are shown; native safety endpoints are labelled but intentionally not collapsed into a cross-environment rate.}
   \label{tab:ppo_comparison}
   \small
-  \begin{tabular}{llrrrrr}
+  \begin{tabular}{llllr}
     \toprule
-    Environment & Task & Raw success & Safe success & Unsafe events & Mean steps & Eval steps/s \\
+    Environment & Task & Raw success & Native safety endpoint & Eval steps/s \\
     \midrule
-    Lumen & \texttt{nav\_tree\_branch} & 1.00 & 1.00 & 0.00 & 58.0 & 79.7 \\
-    CathSim & \texttt{phantom3\_bca} & 1.00 & 0.07 & 0.93 & 36.8 & 12.1 \\
+    Lumen & \texttt{nav\_tree\_branch} & 1.00 & centerline penetration (sim units) & 79.7 \\
+    CathSim & \texttt{phantom3\_bca} & 1.00 & contact force (native units) & 12.1 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The same external-comparison harness also ran 30-episode pilot policies across Lumen, CathSim, and the SOFA/stEVE Docker stack. In these checks, Lumen forward and sweep policies reached 100\% raw success on all five native Lumen navigation tasks, with safe success on all forward-policy tasks and four of five sweep-policy tasks. CathSim forward and sweep pilots reached 0\% success on the two \texttt{phantom3} branch targets. SOFA/stEVE executed BasicWireNav and ArchVariety without crashes; its best pilot rates were 20\% success on BasicWireNav and 13.3\% success on ArchVariety. The raw per-episode records are included with the release artifacts.
+The same external-comparison harness also ran 30-episode pilot policies across Lumen, CathSim, and the SOFA/stEVE Docker stack. These historical records retain each environment's native endpoint curves and labels; they do not provide a shared safety rate. Lumen forward and sweep policies reached 100\% raw success on all five native Lumen navigation tasks. CathSim forward and sweep pilots reached 0\% success on the two \texttt{phantom3} branch targets. SOFA/stEVE executed BasicWireNav and ArchVariety without crashes; its best pilot rates were 20\% and 13.3\%, respectively. The raw per-episode records are included with the release artifacts.
+
 
 \section{Comparison to CathSim and SOFA/BeamAdapter}
 
@@ -167,7 +167,7 @@ CathSim, SOFA/\allowbreak BeamAdapter, and Lumen occupy related but distinct pos
     \midrule
     Primary target & Wall-safe AI benchmark and data generation & Autonomous catheterization simulator and RL tasks & Flexible catheter/guidewire mechanics \\
     RL interface & Gymnasium tasks plus portable scorecards & PPO/SAC-style RL evaluation reported & Used by navigation studies; no common leaderboard \\
-    Safety metric & Safe success separated from unsafe reach & Contact/force simulation surface & SOFA-scene contact mechanics \\
+    Safety endpoint & Native surface-overlap and wall-load curves in simulator units; no cross-environment aggregate & Native contact-force curve; no calibrated shared threshold & SOFA-scene contact mechanics \\
     Imaging and labels & Fluoro, luminal RGB, masks, keypoints, noisy detector output & Visual simulation and segmentation surfaces & Scene-dependent rendering and mechanics \\
     Geometry & Replayable tube, stenotic, tortuous, and branch cases & Aorta/robot simulation assets & User-authored SOFA scenes and vascular models \\
     Release emphasis & Reproducible benchmark artifacts, CV-ready captures, Apache-2.0 & Open autonomous catheterization simulator & Open mechanics framework and plugin ecosystem \\
@@ -175,7 +175,7 @@ CathSim, SOFA/\allowbreak BeamAdapter, and Lumen occupy related but distinct pos
   \end{tabular}
 \end{table}
 
-The practical contribution is the packaging: wall-safety scoring, procedural task reproducibility, multi-modal labels, trained-agent evaluation, and replay artifacts are available in one public release.
+The practical contribution is the packaging: native endpoint reporting, procedural task reproducibility, multi-modal labels, trained-agent evaluation, and replay artifacts are available in one public release. A physical force--injury calibration and a shared cross-environment safety endpoint remain open validation work.
 
 \section{Availability}
 

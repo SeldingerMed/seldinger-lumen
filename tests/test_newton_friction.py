@@ -30,12 +30,13 @@ def _friction_force(gamma_deg, mu_along=0.1, mu_across=0.8):
     bqd = wp.array(np.array([[0, 0, 0, 0, 0, 1.0]], dtype=np.float32), dtype=wp.spatial_vector)
     cg = wp.array(np.array([0], dtype=np.int32), dtype=wp.int32)
     wm = wp.array(np.array([1], dtype=np.int32), dtype=wp.int32)
+    body_radius = wp.zeros(1, dtype=wp.float32)
     wfield = wp.zeros(n_s * n_th, dtype=wp.float32)
     load = wp.zeros(n_s * n_th, dtype=wp.float32)
     bf = wp.zeros(1, dtype=wp.vec3)
     bh = wp.zeros(1, dtype=wp.mat33)
     wp.launch(accumulate_tube_barrier, dim=1,
-              inputs=[cg, wm, bq, bqd, P, Tg, M1, cum_s, M, r0, float(f.length),
+              inputs=[cg, wm, body_radius, bq, bqd, P, Tg, M1, cum_s, M, r0, float(f.length),
                       n_s, n_th, 1, wfield, 2e3, 0.3, 0,
                       mu_along, mu_across, np.radians(gamma_deg), 5e-3],
               outputs=[bf, bh, load])

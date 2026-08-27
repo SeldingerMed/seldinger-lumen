@@ -10,7 +10,14 @@ Lumen is an Apache-2.0 simulation and RL environment for catheter and guidewire 
 
 ## Benchmark Snapshot
 
-In a matched branch-navigation PPO comparison using 50,000 training steps and 30 deterministic evaluation episodes, Lumen reached 100% raw success and 100% safe success on `nav_tree_branch`. CathSim reached 100% raw success on `phantom3_bca`, but 6.7% safe success under the comparison force threshold. Lumen evaluation throughput was 79.7 steps/s versus 12.1 steps/s in this run.
+The historical 50,000-step branch-navigation pilot measured 100% raw target reach in
+both native environments and 79.7 versus 12.1 evaluation steps/s for Lumen versus
+CathSim. Its safety fields are **not cross-environment comparable**: Lumen recorded
+centerline penetration in simulator units while CathSim recorded native contact force.
+The current benchmark contract reports those endpoints separately; no cross-environment
+safety claim is made until matched device/anatomy/material calibration and
+force–injury validation exist. The frozen pilot artifacts remain available for
+provenance and must not be reinterpreted under the new contract.
 
 The full preprint and benchmark summaries are linked from the [launch page](https://seldingermed.github.io/seldinger-lumen/).
 

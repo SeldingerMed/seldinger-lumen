@@ -119,6 +119,7 @@ def _barrier_dd(d: float, d_hat: float, kappa: float, mode: int):
 def accumulate_tube_barrier(
     color_group: wp.array(dtype=wp.int32),
     wire_mask: wp.array(dtype=wp.int32),
+    body_radius: wp.array(dtype=wp.float32),  # per-contact-body device surface radius
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
     P: wp.array(dtype=wp.vec3),               # centerline vertices
@@ -181,7 +182,7 @@ def accumulate_tube_barrier(
     cell = env * (n_s * n_th) + i_s * n_th + i_th
 
     R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: base R0(s,θ) + deformation
-    dwall = R_eff - r
+    dwall = R_eff - (r + body_radius[bid])     # clearance from device SURFACE to wall
     if dwall < d_hat:
         bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)
         body_forces[bid] = body_forces[bid] + bp * er
@@ -218,6 +219,7 @@ def accumulate_tube_barrier(
 def accumulate_tree_barrier(
     color_group: wp.array(dtype=wp.int32),
     wire_mask: wp.array(dtype=wp.int32),
+    body_radius: wp.array(dtype=wp.float32),  # per-contact-body device surface radius
     body_q: wp.array(dtype=wp.transform),
     body_qd: wp.array(dtype=wp.spatial_vector),
     P: wp.array(dtype=wp.vec3),               # all edges' centerline vertices, concatenated
@@ -297,7 +299,7 @@ def accumulate_tree_barrier(
     edge_cells = n_s * n_th
     cell = (env * n_edges + be) * edge_cells + i_s * n_th + i_th
     R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: blended base R0 + HGO deformation
-    dwall = R_eff - r
+    dwall = R_eff - (r + body_radius[bid])     # clearance from device SURFACE to wall
     if dwall < d_hat:
         bp, bpp = _barrier_dd(dwall, d_hat, kappa, mode)
         body_forces[bid] = body_forces[bid] + bp * er
