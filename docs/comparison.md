@@ -37,7 +37,8 @@ The reference point is CathSim, the most-cited open endovascular RL simulator
   Holzapfel–Gasser–Ogden anisotropic hyperelastic shell, and wall mechanics and
   contact geometry are the *same* shared field `R(s,θ,t)` — they cannot desync.
 - **Richer intraluminal physics.** Anisotropic fiber-aligned friction, instrument
-  torsion, a finite-extent Ogden clot with progressive damage / stent-retriever
+  torsion, a finite-extent Ogden clot with progressive damage, stent-retriever
+  interaction, and fragmentation.
 - **Native safety accounting.** Lumen records device-surface penetration and wall load
   in simulator units, while external environments retain their native force/contact
   traces. These endpoint names and curves are reported separately; no cross-environment
