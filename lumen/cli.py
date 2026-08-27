@@ -189,10 +189,35 @@ def benchmark_main(argv=None, prog=None) -> None:
                              scorecard_rejections)
 
     parser = argparse.ArgumentParser(
-        prog=prog, description="Run the canonical Lumen navigation benchmark.")
+        prog=prog, description="Run the canonical or scaled Lumen navigation benchmark.")
     parser.add_argument("results_dir", nargs="?", default="bench_results")
+    parser.add_argument("--suite", choices=("canonical", "scaled"), default="canonical")
+    parser.add_argument("--episodes", type=int, default=100,
+                        help="Episodes per task for the scaled suite.")
     args = parser.parse_args(argv)
     os.makedirs(args.results_dir, exist_ok=True)
+    if args.suite == "scaled":
+        from lumen.bench_protocol import evaluate_generalization
+
+        report = evaluate_generalization(
+            forward_policy,
+            "forward-baseline",
+            episodes_per_task=args.episodes,
+        )
+        path = os.path.join(args.results_dir, "forward-baseline-heldout.json")
+        report.save(path)
+        print(json.dumps({
+            "suite": report.suite_version,
+            "submission": report.name,
+            "episodes_per_task": args.episodes,
+            "train_success_rate": report.train["success_rate"],
+            "heldout_success_rate": report.heldout["success_rate"],
+            "generalization_gap": report.generalization_gap["success_rate"],
+            "train_safe_success_rate": report.train["safe_success_rate"],
+            "heldout_safe_success_rate": report.heldout["safe_success_rate"],
+            "json": path,
+        }, indent=2))
+        return
 
     sc = evaluate_policy(forward_policy, "forward-baseline", notes={
         "policy": "lumen.bench.forward_policy",
