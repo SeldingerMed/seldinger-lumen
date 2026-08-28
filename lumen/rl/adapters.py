@@ -59,13 +59,20 @@ def make_cleanrl_env(
     """Return the environment thunk expected by CleanRL's vector setup.
 
     The thunk wraps episode statistics, seeds both spaces with ``seed + idx``, and
-    leaves reset ownership to ``SyncVectorEnv``. Only worker zero records video.
+    leaves reset ownership to ``SyncVectorEnv``. Only worker zero records video;
+    requesting video from a headless environment raises ``ValueError``.
     """
     def thunk():
         import gymnasium
 
         env = _make_env(env_id, **kwargs)
         if capture_video and idx == 0:
+            if not getattr(env, "render_mode", None):
+                env.close()
+                raise ValueError(
+                    "capture_video requires an environment render_mode; "
+                    "Lumen environments are headless"
+                )
             env = gymnasium.wrappers.RecordVideo(env, str(video_dir))
         env = gymnasium.wrappers.RecordEpisodeStatistics(env)
         _seed_spaces(env, seed + idx)
