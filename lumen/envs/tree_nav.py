@@ -244,15 +244,23 @@ class TreeNavEnv:
             np.asarray(self.sim.wall_load_grid(), dtype=float)
             if hasattr(self.sim, "wall_load_grid") else np.zeros(0, dtype=float)
         )
-        wall_load_max = float(load_grid.max()) if load_grid.size else 0.0
+        if hasattr(self.sim, "wall_load_max"):
+            wall_load_max = float(self.sim.wall_load_max())
+        else:
+            wall_load_max = float(load_grid.max()) if load_grid.size else 0.0
         wall_load_sum = float(load_grid.sum()) if load_grid.size else 0.0
         wall_pressure_max = (
             float(self.sim.wall_pressure_max())
             if hasattr(self.sim, "wall_pressure_max") else 0.0
         )
-        self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (
-            wall_load_sum * 5e-3 * self.substeps
-        )
+        if hasattr(self.sim, "wall_load_impulse"):
+            self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (
+                float(self.sim.wall_load_impulse())
+            )
+        else:
+            self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (
+                wall_load_sum * 5e-3 * self.substeps
+            )
         info = {"route_s": f["s"], "dist": dist, "max_r": f["max_r"],
                 "max_pen": f["max_pen"], "wall_load_max": wall_load_max,
                 "wall_load_sum": wall_load_sum, "wall_pressure_max": wall_pressure_max,

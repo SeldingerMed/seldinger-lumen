@@ -326,6 +326,7 @@ class NewtonGuidewireSim:
 
     def reset(self):
         """Restore the initial state cheaply (no model/solver rebuild) — for RL."""
+        self.solver.reset_wall_load_stats()
         dev = self.device
         self.state_0.body_q = wp.array(self._init_body_q.copy(), dtype=wp.transform, device=dev)
         self.state_1.body_q = wp.array(self._init_body_q.copy(), dtype=wp.transform, device=dev)
@@ -389,6 +390,7 @@ class NewtonGuidewireSim:
 
         `insertion_cath`/`twist_cath` independently actuate the coaxial microcatheter
         (ignored when there is no catheter)."""
+        self.solver.reset_wall_load_stats()
         sub_dt = dt / substeps
         if self.flow is not None:
             # Always write the command so a zero scalar/array clears any prior
@@ -717,11 +719,12 @@ class NewtonGuidewireSim:
         )
 
     def wall_load_grid(self) -> np.ndarray:
-        """Return the latest native barrier load grid in simulator units.
+        """Return the latest converged substep's native barrier load grid.
 
-        The load is accumulated by the barrier during the latest solver iteration.
-        It is intentionally not labelled as newtons: SI calibration requires matched
-        device/anatomy data outside this open core.
+        The grid is in simulator units and is diagnostic state for the latest
+        substep. ``wall_load_max()``, ``wall_pressure_max()``, and
+        ``wall_load_impulse()`` accumulate over the complete public ``step()``.
+        SI calibration requires matched device/anatomy data outside this open core.
         """
         attr = "_tree_wall_load" if self.tree is not None else "_tube_wall_load"
         load = getattr(self.solver, attr, None)
@@ -730,8 +733,17 @@ class NewtonGuidewireSim:
         return np.asarray(load.numpy(), dtype=float).copy()
 
     def wall_load_max(self) -> float:
-        load = self.wall_load_grid()
+        """Return the peak native wall load over the complete public step."""
+        load = self.solver.wall_load_peak()
         return float(load.max()) if load.size else 0.0
+
+    def wall_load_impulse(self):
+        """Return the per-environment time-integrated native wall load."""
+        impulse = self.solver.wall_load_impulse()
+        if impulse.size == 1:
+            return float(impulse[0])
+        return impulse
+
     def wall_pressure_grid(self) -> np.ndarray:
         """Return native wall-load divided by native wall-cell area.
 
@@ -751,7 +763,8 @@ class NewtonGuidewireSim:
         return load / np.maximum(area, np.finfo(float).tiny)
 
     def wall_pressure_max(self) -> float:
-        pressure = self.wall_pressure_grid()
+        """Return the peak native wall-pressure proxy over the complete public step."""
+        pressure = self.solver.wall_pressure_peak()
         return float(pressure.max()) if pressure.size else 0.0
 
 

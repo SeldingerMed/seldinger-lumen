@@ -44,6 +44,8 @@ All notable changes to this project are documented here. The format follows
 - Cardiac pulsatility now uses one rectified waveform for pressure and lumen radius,
   updates wall cell areas with the radius, and resets phase/coupling state between
   episodes; the clot remains non-pulsatile.
+- Wall-load peaks, pressure peaks, and load impulses now accumulate across every
+  converged public-step substep on device before diagnostic synchronization.
 ### Fixed
 - Contact load was double-counted by the HGO wall and the clot; the wall now skips
   clot cells.

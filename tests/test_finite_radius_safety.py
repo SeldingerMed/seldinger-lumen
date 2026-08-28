@@ -87,6 +87,21 @@ class TestBarrierWallLoad:
             loads.append(float(np.asarray(sim.wall_load_grid()).sum()))
         assert loads[1] > loads[0]
 
+    def test_wall_stats_cover_public_step_and_reset_with_sim(self):
+        sim = _make_sim(1.7, 0.6)
+        dt, substeps = 2.5e-2, 2
+        sim.step(dt=dt, substeps=substeps)
+
+        final_load = np.asarray(sim.wall_load_grid(), dtype=float)
+        final_pressure = np.asarray(sim.wall_pressure_grid(), dtype=float)
+        assert sim.wall_load_max() >= float(final_load.max()) - 1.0e-5
+        assert sim.wall_pressure_max() >= float(final_pressure.max()) - 1.0e-3
+        assert sim.wall_load_impulse() >= float(final_load.sum()) * dt / substeps
+
+        sim.reset()
+        assert sim.wall_load_max() == pytest.approx(0.0)
+        assert sim.wall_load_impulse() == pytest.approx(0.0)
+
     def test_tree_barrier_load_grows_with_radius(self):
         asset = procedural.bifurcation(trunk=25.0, branch=15.0)
         thin = TreeNavEnv(asset, target_node="left_out", max_steps=2,
@@ -100,6 +115,9 @@ class TestBarrierWallLoad:
         load_thin = float(np.asarray(thin.sim.wall_load_grid()).sum())
         load_thick = float(np.asarray(thick.sim.wall_load_grid()).sum())
         assert load_thick > load_thin
+        tree_load = np.asarray(thick.sim.wall_load_grid(), dtype=float)
+        assert thick.sim.wall_load_max() >= float(tree_load.max())
+        assert thick.sim.wall_load_impulse() >= float(tree_load.sum()) * 2.5e-2 / 2
 
 
 class TestNavEnvNativeEndpoints:

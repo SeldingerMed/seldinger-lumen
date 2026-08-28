@@ -27,8 +27,12 @@ from newton._src.solvers.vbd.rigid_vbd_kernels import (
     update_duals_joint,
 )
 
-from lumen.newton.tube_barrier_kernel import (accumulate_coaxial_coupling,
-                                              accumulate_tree_barrier, accumulate_tube_barrier)
+from lumen.newton.tube_barrier_kernel import (
+    accumulate_coaxial_coupling,
+    accumulate_tree_barrier,
+    accumulate_tube_barrier,
+    accumulate_wall_load_stats,
+)
 
 
 class TubeVBDSolver(SolverVBD):
@@ -375,6 +379,64 @@ class TubeVBDSolver(SolverVBD):
                 device=self.device,
             )
 
+
+    def _configure_wall_load_stats(self, wall_load, cell_area, n_envs, cells_per_env):
+        self._wall_load = wall_load
+        self._wall_cell_area = cell_area
+        self._wall_n_envs = int(n_envs)
+        self._wall_cells_per_env = int(cells_per_env)
+        self._wall_load_peak = _wp.zeros(self._wall_n_envs, dtype=_wp.float32, device=self.device)
+        self._wall_pressure_peak = _wp.zeros(
+            self._wall_n_envs, dtype=_wp.float32, device=self.device
+        )
+        self._wall_load_impulse = _wp.zeros(
+            self._wall_n_envs, dtype=_wp.float32, device=self.device
+        )
+
+    def reset_wall_load_stats(self):
+        for name in ("_wall_load_peak", "_wall_pressure_peak", "_wall_load_impulse"):
+            array = getattr(self, name, None)
+            if array is not None:
+                array.zero_()
+
+    def _record_wall_load_stats(self, dt):
+        if not hasattr(self, "_wall_load_peak"):
+            return
+        _wp.launch(
+            kernel=accumulate_wall_load_stats,
+            dim=self._wall_n_envs,
+            inputs=[
+                self._wall_load,
+                self._wall_cell_area,
+                self._wall_cells_per_env,
+                float(dt),
+            ],
+            outputs=[
+                self._wall_load_peak,
+                self._wall_pressure_peak,
+                self._wall_load_impulse,
+            ],
+            device=self.device,
+        )
+
+    def wall_load_peak(self):
+        array = getattr(self, "_wall_load_peak", None)
+        if array is None:
+            return _np.zeros(0, dtype=float)
+        return _np.asarray(array.numpy(), dtype=float).copy()
+
+    def wall_pressure_peak(self):
+        array = getattr(self, "_wall_pressure_peak", None)
+        if array is None:
+            return _np.zeros(0, dtype=float)
+        return _np.asarray(array.numpy(), dtype=float).copy()
+
+    def wall_load_impulse(self):
+        array = getattr(self, "_wall_load_impulse", None)
+        if array is None:
+            return _np.zeros(0, dtype=float)
+        return _np.asarray(array.numpy(), dtype=float).copy()
+
     def set_tube_contact(self, centerline, R, wire_body_ids, kappa=2.0e3, d_hat=0.3,
                          barrier_mode="compliant", deformable_wall=False,
                          hgo_params=None, n_s=40, n_th=16,
@@ -432,6 +494,12 @@ class TubeVBDSolver(SolverVBD):
         self._wall = WallField(R0=R0_grid, s_max=s_max, n_s=n_s, n_th=n_th,
                                params=hgo_params, device=dev, n_envs=n_envs)
         self._tube_wall_load = self._wall.wall_load
+        self._configure_wall_load_stats(
+            self._tube_wall_load,
+            self._wall.cell_area_field,
+            self._tube_n_envs,
+            self._wall.n_cells,
+        )
         mask = _np.zeros(self.model.body_count, dtype=_np.int32)
         mask[_np.asarray(wire_body_ids, dtype=_np.int32)] = 1
         self._tube_wire_mask = _wp.array(mask, dtype=_wp.int32, device=dev)
@@ -567,6 +635,12 @@ class TubeVBDSolver(SolverVBD):
         self._tree_R0 = self._tree_wall.r0_field
         self._tree_w = self._tree_wall.w_field
         self._tree_wall_load = self._tree_wall.wall_load
+        self._configure_wall_load_stats(
+            self._tree_wall_load,
+            self._tree_wall.cell_area_field,
+            self._tree_n_envs,
+            self._tree_n_edges * self._tree_wall.n_cells,
+        )
         self._tree_deformable = bool(deformable_wall)
         self._tree_ns, self._tree_nth = int(n_s), int(n_th)
         self._tree_kappa, self._tree_d_hat = float(kappa), float(d_hat)
@@ -602,6 +676,7 @@ class TubeVBDSolver(SolverVBD):
 
     def step(self, state_in, state_out, control, contacts, dt):
         super().step(state_in, state_out, control, contacts, dt)
+        self._record_wall_load_stats(dt)
         # staggered HGO co-sim: relax the shared-R wall to the contact load it just saw
         if getattr(self, "_tube_enabled", False) and self._tube_deformable:
             self._wall.update_from_load()

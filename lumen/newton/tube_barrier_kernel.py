@@ -321,3 +321,30 @@ def accumulate_tree_barrier(
             c_t = mu * fn / (denom * dt)
             ident = wp.mat33(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
             body_hessian_ll[bid] = body_hessian_ll[bid] + c_t * (ident - wp.outer(er, er))
+
+
+@wp.kernel
+def accumulate_wall_load_stats(
+    wall_load: wp.array(dtype=wp.float32),
+    cell_area: wp.array(dtype=wp.float32),
+    cells_per_env: int,
+    dt: float,
+    wall_load_peak: wp.array(dtype=wp.float32),
+    wall_pressure_peak: wp.array(dtype=wp.float32),
+    wall_load_impulse: wp.array(dtype=wp.float32),
+):
+    """Accumulate one converged substep into per-environment wall statistics."""
+    env = wp.tid()
+    offset = env * cells_per_env
+    load_max = float(0.0)
+    pressure_max = float(0.0)
+    load_sum = float(0.0)
+    for cell_index in range(cells_per_env):
+        load = wp.max(wall_load[offset + cell_index], 0.0)
+        area = wp.max(cell_area[offset + cell_index], 1.0e-12)
+        load_max = wp.max(load_max, load)
+        pressure_max = wp.max(pressure_max, load / area)
+        load_sum += load
+    wall_load_peak[env] = wp.max(wall_load_peak[env], load_max)
+    wall_pressure_peak[env] = wp.max(wall_pressure_peak[env], pressure_max)
+    wall_load_impulse[env] += load_sum * dt
