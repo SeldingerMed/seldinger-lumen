@@ -76,6 +76,8 @@ obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 - Synthetic fluoroscopy, luminal RGB, masks, keypoints, noise, latency, and dropout.
 - Dataset capture, validation, replay, indexing, splitting, and materialization.
 - Privileged, tracked, and raw-image observation contracts for RL.
+- Simulator/phantom/device deployment interface with fail-closed safety envelopes and
+  force/torque benchtop validation ([protocol](docs/DEPLOYMENT.md)).
 
 ## Citation
 

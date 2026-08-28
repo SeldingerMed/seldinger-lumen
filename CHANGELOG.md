@@ -28,6 +28,9 @@ does not yet promise [SemVer](https://semver.org/) stability.
   calibration that closes the §3.6 loop on an episode (`probe_episode` /
   `calibrate_from_episode`). Firewall-guarded like the asset seam; the real corpus
   stays private.
+- Layer 4 deployment seam (`lumen.deployment`) with fail-closed safety envelopes and
+  calibrated force/torque benchtop trace validation, including a deterministic torque
+  whip proxy.
 
 ### Changed
 - Leaner README and corrected `ARCHITECTURE.md` references (`tube_vbd.py`).
