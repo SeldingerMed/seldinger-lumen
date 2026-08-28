@@ -7,6 +7,29 @@ import pytest
 from lumen.rl.adapters import make_cleanrl_env, make_cleanrl_vector_env, make_sb3_env
 
 
+class FakeMonitor:
+    def __init__(self, env):
+        self.env = env
+
+    def __getattr__(self, name):
+        return getattr(self.env, name)
+
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
+
+
+@pytest.fixture
+def fake_monitor(monkeypatch):
+    monitor_module = types.ModuleType("stable_baselines3.common.monitor")
+    monitor_module.Monitor = FakeMonitor
+    common_module = types.ModuleType("stable_baselines3.common")
+    package_module = types.ModuleType("stable_baselines3")
+    monkeypatch.setitem(sys.modules, "stable_baselines3", package_module)
+    monkeypatch.setitem(sys.modules, "stable_baselines3.common", common_module)
+    monkeypatch.setitem(sys.modules, "stable_baselines3.common.monitor", monitor_module)
+    return FakeMonitor
+
+
 def test_cleanrl_thunk_seeds_spaces_and_records_episode_statistics():
     first = make_cleanrl_env("CartPole-v1", seed=11, idx=2)()
     second = make_cleanrl_env("CartPole-v1", seed=11, idx=2)()
@@ -39,31 +62,32 @@ def test_cleanrl_vector_adapter_rejects_invalid_worker_count():
         make_cleanrl_vector_env("CartPole-v1", num_envs=0)
 
 
-def test_sb3_adapter_wraps_registered_env_with_monitor(monkeypatch):
-    monitor_module = types.ModuleType("stable_baselines3.common.monitor")
-
-    class FakeMonitor:
-        def __init__(self, env):
-            self.env = env
-
-        def __getattr__(self, name):
-            return getattr(self.env, name)
-
-        def reset(self, **kwargs):
-            return self.env.reset(**kwargs)
-
-    monitor_module.Monitor = FakeMonitor
-    common_module = types.ModuleType("stable_baselines3.common")
-    package_module = types.ModuleType("stable_baselines3")
-    monkeypatch.setitem(sys.modules, "stable_baselines3", package_module)
-    monkeypatch.setitem(sys.modules, "stable_baselines3.common", common_module)
-    monkeypatch.setitem(sys.modules, "stable_baselines3.common.monitor", monitor_module)
-
+def test_sb3_adapter_wraps_registered_env_with_monitor(fake_monitor):
     env = make_sb3_env("CartPole-v1", seed=5)
     try:
-        assert isinstance(env, FakeMonitor)
+        assert isinstance(env, fake_monitor)
         observation, _ = env.reset()
         assert observation.shape == (4,)
+    finally:
+        env.close()
+
+
+def test_sb3_adapter_runs_a_lumen_step_with_fake_monitor(fake_monitor):
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+    env = make_sb3_env("Lumen/NavTube-v0", seed=17, max_steps=1)
+    try:
+        observation, _ = env.reset(seed=17)
+        assert observation.shape == (5,)
+        next_observation, reward, terminated, truncated, info = env.step(
+            np.array([1.0, 0.0], dtype=np.float32)
+        )
+        assert next_observation.shape == (5,)
+        assert np.isfinite(next_observation).all()
+        assert np.isfinite(reward)
+        assert terminated or truncated
+        assert "success" in info
     finally:
         env.close()
 
