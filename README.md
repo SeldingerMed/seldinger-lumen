@@ -88,6 +88,18 @@ obs, info = env.reset()
 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 ```
 
+For standard RL libraries, the optional adapters preserve the Gymnasium contract:
+
+```python
+from lumen.rl import make_cleanrl_vector_env, make_sb3_env
+
+sb3_env = make_sb3_env("Lumen/NavStenotic-v0", seed=0)
+cleanrl_envs = make_cleanrl_vector_env("Lumen/NavStenotic-v0", num_envs=4, seed=0)
+```
+
+Install Stable-Baselines3 or CleanRL separately when using those trainers; the core
+package keeps both integrations optional.
+
 ## Core systems
 
 - Procedural stenotic, tortuous, aneurysmal, and branching vessels.
