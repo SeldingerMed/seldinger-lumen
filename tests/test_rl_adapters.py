@@ -66,3 +66,53 @@ def test_sb3_adapter_wraps_registered_env_with_monitor(monkeypatch):
         assert observation.shape == (4,)
     finally:
         env.close()
+
+
+def test_cleanrl_vector_adapter_runs_a_lumen_step():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+    env = make_cleanrl_vector_env("Lumen/NavTube-v0", num_envs=1, seed=17)
+    try:
+        observation, _ = env.reset(seed=17)
+        assert observation.shape == (1, 5)
+        next_observation, reward, terminated, truncated, info = env.step(
+            np.array([[1.0, 0.0]], dtype=np.float32)
+        )
+        assert next_observation.shape == (1, 5)
+        assert np.isfinite(next_observation).all()
+        assert np.isfinite(reward).all()
+        assert terminated.shape == (1,)
+        assert truncated.shape == (1,)
+        assert "success" in info
+    finally:
+        env.close()
+
+
+def test_sb3_adapter_runs_a_lumen_step_when_sb3_is_installed():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+    pytest.importorskip("stable_baselines3")
+
+    env = make_sb3_env("Lumen/NavTube-v0", seed=17, max_steps=1)
+    try:
+        observation, _ = env.reset(seed=17)
+        assert observation.shape == (5,)
+        next_observation, reward, terminated, truncated, info = env.step(
+            np.array([1.0, 0.0], dtype=np.float32)
+        )
+        assert next_observation.shape == (5,)
+        assert np.isfinite(next_observation).all()
+        assert np.isfinite(reward)
+        assert terminated or truncated
+        assert "success" in info
+    finally:
+        env.close()
+
+
+def test_cleanrl_lumen_video_request_fails_closed():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+    with pytest.raises(ValueError, match="headless"):
+        make_cleanrl_env("Lumen/NavTube-v0", capture_video=True)()
