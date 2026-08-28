@@ -44,6 +44,16 @@ pip install -e ".[dev]"
 lumen doctor
 ```
 
+## CPU Docker image
+
+The repository ships a CPU-only runtime image. It installs the pinned Newton/Warp
+solver but does not require a CUDA device:
+
+```bash
+docker build --file docker/Dockerfile --tag seldinger-lumen:0.2.0 .
+docker run --rm seldinger-lumen:0.2.0 anatomy --validate
+```
+
 ## First Run
 
 ```bash

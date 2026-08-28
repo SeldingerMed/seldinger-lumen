@@ -9,7 +9,7 @@ lumen is equally an airway, a bowel, or a ureter. New modalities are added under
 Distributed as ``seldinger-lumen`` (the import name stays ``lumen``).
 """
 
-__version__ = "0.0.0"
+__version__ = "0.2.0"
 
 from lumen.core.frame import CenterlineFrame, Projection
 from lumen.core.lumen_field import LumenField
