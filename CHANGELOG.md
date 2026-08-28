@@ -1,8 +1,8 @@
 # Changelog
 
 All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project is pre-1.0 and
-does not yet promise [SemVer](https://semver.org/) stability.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Lumen is pre-1.0 and uses
+[Semantic Versioning](https://semver.org/) for every published version.
 
 ## [Unreleased]
 
@@ -31,6 +31,8 @@ does not yet promise [SemVer](https://semver.org/) stability.
 - Layer 4 deployment seam (`lumen.deployment`) with fail-closed safety envelopes and
   calibrated force/torque benchtop trace validation, including a deterministic torque
   whip proxy.
+- Package version is now `0.2.0`; a CPU Docker image and CI Gymnasium environment
+  checker make the install and registered-environment contracts executable.
 
 ### Changed
 - Leaner README and corrected `ARCHITECTURE.md` references (`tube_vbd.py`).

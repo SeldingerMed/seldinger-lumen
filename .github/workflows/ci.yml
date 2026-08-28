@@ -39,6 +39,34 @@ jobs:
       - name: Firewall (no CathSim, no patient data)
         run: python tools/check_firewall.py
 
+  env-checker:
+    name: Gymnasium env checker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e ".[dev]"
+      - name: Install Newton engine (pinned)
+        env:
+          NEWTON_REF: 6dfe7303d9ca50f7505cac31bee9885c813d89d7
+        run: pip install "git+https://github.com/newton-physics/newton@${NEWTON_REF}"
+      - name: Check registered environments
+        run: python tools/check_envs.py
+
+  docker:
+    name: Docker CPU smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build CPU image
+        run: docker build --file docker/Dockerfile --tag seldinger-lumen:ci .
+      - name: Run package smoke
+        run: docker run --rm seldinger-lumen:ci anatomy --validate
+
   lint:
     runs-on: ubuntu-latest
     steps:
