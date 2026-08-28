@@ -35,6 +35,16 @@ Canonical scorecards also include episode-level `lumen-stats/1` summaries: fract
 interquartile means, ordinary means, and deterministic 95% percentile-bootstrap
 intervals with recorded seeds and resample counts.
 
+Generated scorecards include a SHA-256 certificate for every action sequence and native
+episode outcome. Re-run the canonical baseline certificate locally with:
+
+```bash
+python tools/check_replay.py
+```
+
+Use `lumen.bench.replay_verified_leaderboard(results_dir, policies)` to rank only
+scorecards whose certificates re-run successfully with the supplied policy callables.
+
 ## Install
 
 ```bash

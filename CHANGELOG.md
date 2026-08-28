@@ -33,6 +33,8 @@ All notable changes to this project are documented here. The format follows
   whip proxy.
 - Package version is now `0.2.0`; a CPU Docker image and CI Gymnasium environment
   checker make the install and registered-environment contracts executable.
+- Replay-certified benchmark scorecards now bind every ranked metric to a SHA-256
+  action/outcome certificate, with a replay-verification CLI and leaderboard API.
 
 ### Changed
 - Leaner README and corrected `ARCHITECTURE.md` references (`tube_vbd.py`).
