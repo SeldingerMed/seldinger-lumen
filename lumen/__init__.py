@@ -14,4 +14,30 @@ __version__ = "0.0.0"
 from lumen.core.frame import CenterlineFrame, Projection
 from lumen.core.lumen_field import LumenField
 
-__all__ = ["CenterlineFrame", "Projection", "LumenField", "__version__"]
+from lumen.deployment import (
+    BenchTrace,
+    BenchTraceMetadata,
+    BenchValidationCriteria,
+    BenchValidationReport,
+    DeploymentConfig,
+    DeploymentInterface,
+    SafetyEnvelope,
+    run_deployment,
+    validate_bench_trace,
+)
+
+__all__ = [
+    "CenterlineFrame",
+    "Projection",
+    "LumenField",
+    "__version__",
+    "BenchTrace",
+    "BenchTraceMetadata",
+    "BenchValidationCriteria",
+    "BenchValidationReport",
+    "DeploymentConfig",
+    "DeploymentInterface",
+    "SafetyEnvelope",
+    "run_deployment",
+    "validate_bench_trace",
+]

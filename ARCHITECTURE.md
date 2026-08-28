@@ -107,6 +107,25 @@ metadata; `validate_anatomy_pack()` materializes every case at the release bound
 Real-data HGO calibration, clot models, the GNN flow surrogate, and trained
 policies all stay private and layer *on top of* this core.
 
+## Deployment and Layer 4 validation seam
+
+`lumen.deployment` is the open boundary for simulator, vascular-phantom, and private
+device integrations. `DeploymentInterface` exposes observation, normalized action,
+telemetry, and idempotent `safe_stop()` methods; `run_deployment()` validates the
+policy loop and applies a configured `SafetyEnvelope` before any actuation. It never
+clips invalid actions, fails closed on missing or non-finite configured telemetry, and
+invokes `safe_stop()` on every exit. The package ships the interface, not a robot
+driver, patient data, or clinical limits.
+
+`BenchTrace` and `validate_bench_trace()` define the Layer 4 force/torque check from
+§3.8: simulation and benchtop phantom traces are compared on measured timestamps,
+with no extrapolation. Trace metadata records source, canonical units, matched
+device/phantom/actuation identity, calibration reference, and provenance; mismatches
+or uncalibrated units fail before numerical comparison. The report retains
+force/torque error and a deterministic torque-slope reversal count as a whip proxy.
+Device/material calibration owners provide the predeclared acceptance criteria; a
+passing report is not regulatory clearance.
+
 ## Invariant 6 — Layer 2 ships the standard + machinery, not the corpus
 
 Layer 2's *value* is the paired real-data corpus — that is the proprietary moat
