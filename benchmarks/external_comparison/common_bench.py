@@ -13,6 +13,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import platform
 import random
 import subprocess
@@ -40,6 +41,8 @@ class EpisodeResult:
     steps: int
     total_reward: float
     final_distance: float | None
+    training_seed: int | None = None
+    model_id: str | None = None
     native_safety_pass: bool | None = None
     safety_endpoint: str = "unavailable"
     safety_value: float | None = None
@@ -121,6 +124,16 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
+def sanitize_run_id(value: str) -> str:
+    """Return one safe filename component for result and model artifacts."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("run-id must be a non-empty string")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("._-")
+    if not safe or safe in {".", ".."}:
+        raise ValueError("run-id must contain a safe filename component")
+    return safe
+
+
 def _write_results(
     out_dir: Path,
     run_id: str,
@@ -129,6 +142,7 @@ def _write_results(
     episodes: list[EpisodeResult],
     extra: dict[str, Any] | None = None,
 ) -> None:
+    run_id = sanitize_run_id(run_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for ep in episodes:
@@ -184,12 +198,28 @@ def _statistics_protocol(values: dict[str, list[float]], seed: int) -> dict:
         summarize_metrics = module.summarize_metrics
     return summarize_metrics(values, seed=seed)
 
+
+def _aggregate_sort_key(item):
+    environment, task, policy, training_seed, model_id = item[0]
+    return (
+        environment,
+        task,
+        policy,
+        training_seed is None,
+        training_seed if isinstance(training_seed, (int, np.integer)) else -1,
+        model_id or "",
+    )
+
 def _aggregate(episodes: list[EpisodeResult]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str, str], list[EpisodeResult]] = {}
+    grouped: dict[tuple[str, str, str, int | None, str | None], list[EpisodeResult]] = {}
     for ep in episodes:
-        grouped.setdefault((ep.environment, ep.task, ep.policy), []).append(ep)
+        grouped.setdefault(
+            (ep.environment, ep.task, ep.policy, ep.training_seed, ep.model_id), []
+        ).append(ep)
     rows = []
-    for (env, task, policy), eps in sorted(grouped.items()):
+    for (env, task, policy, training_seed, model_id), eps in sorted(
+        grouped.items(), key=_aggregate_sort_key
+    ):
         successes = [ep for ep in eps if ep.success]
         endpoints = {ep.safety_endpoint for ep in eps}
         single_endpoint = len(endpoints) == 1
@@ -233,6 +263,8 @@ def _aggregate(episodes: list[EpisodeResult]) -> list[dict[str, Any]]:
                 "environment": env,
                 "task": task,
                 "policy": policy,
+                "training_seed": training_seed,
+                "model_id": model_id,
                 "episodes": len(eps),
                 "success_rate": sum(ep.success for ep in eps) / len(eps),
                 "native_safety_pass_rate": (
@@ -578,7 +610,7 @@ def smoke_steve(args: argparse.Namespace) -> None:
         "pythonpath": os.environ.get("PYTHONPATH"),
     }
     result = {
-        "run_id": args.run_id or f"steve-smoke-{int(time.time())}",
+        "run_id": sanitize_run_id(args.run_id or f"steve-smoke-{int(time.time())}"),
         "created_unix": time.time(),
         "host": _host_snapshot(),
         "checks": checks,

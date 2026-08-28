@@ -15,6 +15,30 @@ harness. Cross-environment safety rates are intentionally withheld until matched
 device/anatomy/material, solver-unit, and phantom or ex-vivo force--injury
 calibration exists. Every preregistered run is retained regardless of outcome.
 
+Run a preregistered multi-seed baseline explicitly:
+
+```bash
+python benchmarks/external_comparison/train_sb3.py \
+  --environment lumen \
+  --task nav_tree_branch \
+  --algo ppo \
+  --timesteps 600000 \
+  --seeds 0,1,2,3,4,5 \
+  --eval-episodes 100 \
+  --run-id lumen-nav-tree-ppo-main
+```
+
+One result file contains every seed's model path, training time, episode rows, and
+the aggregate seed schedule; no seed is silently replaced by an average.
+Evaluation seeds use the same frozen block beginning at 10,000 for every model.
+Each episode records `training_seed`, `model_id`, and evaluation `seed`; aggregate
+rows stay per trained model instead of pooling independent runs.
+If a training seed fails, its complete frozen evaluation block is emitted as failed
+rows with the planned model identity, keeping the final artifact unconditional.
+Run IDs are normalized to one safe filename component before model/result artifacts
+are written.
+Run records distinguish failure stage and total elapsed time from training time.
+
 Example pilot commands:
 
 ```bash
