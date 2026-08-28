@@ -35,6 +35,9 @@ All notable changes to this project are documented here. The format follows
   checker make the install and registered-environment contracts executable.
 - Replay-certified benchmark scorecards now bind every ranked metric to a SHA-256
   action/outcome certificate, with a replay-verification CLI and leaderboard API.
+- Optional `lumen.rl` adapters now provide SB3 `Monitor` environments and
+  CleanRL-compatible seeded thunks/vector environments without making either trainer a
+  core dependency.
 
 ### Changed
 - Leaner README and corrected `ARCHITECTURE.md` references (`tube_vbd.py`).

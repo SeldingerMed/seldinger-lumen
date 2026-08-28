@@ -29,7 +29,7 @@ The reference point is CathSim, the most-cited open endovascular RL simulator
 | Image observations | pixels + segmentation masks | synthetic fluoroscopy + luminal RGB, **with pixel-exact vessel/device masks, tip/base keypoints, node positions** |
 | Multiple anatomies | named phantoms (aorta meshes) | procedural `tube` / `stenotic` / `bifurcation` (+ private patient-asset seam) |
 | Branch selection task | targets on one phantom | dedicated branching tree env (`NavTreeBranch`) |
-| SB3 / external RL libraries | first-class | works via the Gymnasium env; CEM ships in-repo |
+| SB3 / CleanRL / external RL libraries | first-class | optional adapters preserve the Gymnasium contract; CEM ships in-repo |
 
 ## Where Lumen goes further
 
