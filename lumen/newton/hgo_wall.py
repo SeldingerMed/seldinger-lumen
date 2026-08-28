@@ -213,8 +213,10 @@ class WallField:
                                  f"({self.n_envs}); got length {s_per_block.size}")
         ds_per_cell = np.repeat(s_per_block, n) / n_s
         self.cell_area = ds_per_cell * (self.R0_grid * 2.0 * np.pi / n_th)      # per cell
+        self._cell_area_base = self.cell_area.astype(np.float32).copy()
         total = self.n_envs * n
         self.w = np.zeros(total, dtype=np.float64)
+        self._pulse_factor = 1.0
         if wp is not None:
             self.w_field = wp.zeros(total, dtype=wp.float32, device=device)
             self.wall_load = wp.zeros(total, dtype=wp.float32, device=device)
@@ -232,7 +234,7 @@ class WallField:
     def _solve_cell(self, p_contact, w0, iters=8):
         """1-D Newton solve of hgo_wall_pressure(w)=p_contact per cell (vectorised, per-cell R0)."""
         w = np.maximum(w0, 0.0)
-        R0 = self.R0_grid
+        R0 = self.R0_grid * self._pulse_factor
         for _ in range(iters):
             f = hgo_wall_pressure(w, R0, self.p) - p_contact
             h = 1e-7
@@ -266,9 +268,30 @@ class WallField:
         # read the device field on demand (diagnostics only, not per-step)
         return float(self.w_field.numpy().max())
 
+    def reset(self) -> None:
+        """Restore the unpulsed wall state for a new independent episode."""
+        self.w[:] = 0.0
+        self._pulse_factor = 1.0
+        self.cell_area = self._cell_area_base.astype(np.float64).copy()
+        if wp is not None:
+            self.w_field.zero_()
+            self.wall_load.zero_()
+            self.r0_field.assign(self._R0_base)
+            self.cell_area_field.assign(self._cell_area_base)
+
     def set_pulse(self, factor: float) -> None:
-        """Modulate the resting lumen radius R0(s,θ,t) = R0_base · factor (pulsatility)."""
-        self.r0_field.assign(self._R0_base * float(factor))
+        """Set ``R0(s,θ,t)`` and its cell area to a positive pulse-scaled state."""
+        try:
+            factor = float(factor)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("pulse factor must be finite and positive") from exc
+        if not np.isfinite(factor) or factor <= 0.0:
+            raise ValueError("pulse factor must be finite and positive")
+        self._pulse_factor = factor
+        self.cell_area = self._cell_area_base.astype(np.float64) * factor
+        if wp is not None:
+            self.r0_field.assign(self._R0_base * factor)
+            self.cell_area_field.assign(self._cell_area_base * factor)
 
     def set_clot_mask(self, occlusion_grid) -> None:
         """Route contact load away from clot cells (H1): cells with occlusion are

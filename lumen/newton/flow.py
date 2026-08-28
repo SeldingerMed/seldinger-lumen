@@ -89,6 +89,11 @@ if wp is not None:
                 cum += visc * ds / (rm * rm * rm * rm)
 
 
+def _systolic_wave(t: float, heart_rate: float, phase: float = 0.0) -> float:
+    """Rectified cardiac waveform shared by pressure and wall-radius coupling."""
+    return max(0.0, math.sin(2.0 * math.pi * heart_rate * t + phase))
+
+
 @dataclass
 class FlowParams:
     Q_mean: float = 4.0          # mean inflow (sim units)
@@ -98,7 +103,24 @@ class FlowParams:
     C: float = 1.5               # arterial compliance (Windkessel)
     drag_coeff: float = 20.0     # device axial drag per unit flow
     pulse_amp: float = 0.05      # lumen-radius pulsatility amplitude (fraction of R0)
+    pulse_phase: float = 0.0     # cardiac phase [rad]
 
+    def __post_init__(self) -> None:
+        for name in ("heart_rate", "pulse_phase", "pulse_amp"):
+            value = getattr(self, name)
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError(f"{name} must be finite")
+            try:
+                value = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{name} must be finite") from exc
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be finite")
+            setattr(self, name, value)
+        if self.heart_rate < 0.0:
+            raise ValueError("heart_rate must be non-negative")
+        if not 0.0 <= self.pulse_amp < 1.0:
+            raise ValueError("pulse_amp must be in [0, 1)")
 
 class NewtonFlow:
     """Windkessel flow driver coupled to a NewtonGuidewireSim."""
@@ -113,7 +135,8 @@ class NewtonFlow:
     def Q(self, t: float | None = None) -> float:
         """Pulsatile inflow: mean + rectified systolic pulse."""
         tt = self.t if t is None else t
-        return self.p.Q_mean + self.p.Q_pulse * max(0.0, math.sin(2 * math.pi * self.p.heart_rate * tt))
+        wave = _systolic_wave(tt, self.p.heart_rate, self.p.pulse_phase)
+        return self.p.Q_mean + self.p.Q_pulse * wave
 
     def downstream_Q(self, t: float | None = None) -> float:
         """Two-way: occlusion reduces flow; aspiration recovers part of it."""
@@ -127,16 +150,30 @@ class NewtonFlow:
 
     # --- coupling helpers ----------------------------------------------------
     def pulse_factor(self, t: float | None = None) -> float:
-        """Lumen-radius modulation 1 + amp·(normalised pressure pulse) for R(s,θ,t)."""
+        """Lumen-radius factor driven by the same systolic wave as ``Q``."""
         tt = self.t if t is None else t
-        return 1.0 + self.p.pulse_amp * math.sin(2 * math.pi * self.p.heart_rate * tt)
+        return 1.0 + self.p.pulse_amp * _systolic_wave(
+            tt, self.p.heart_rate, self.p.pulse_phase
+        )
 
     def drag_per_unit_tangent(self, t: float | None = None) -> float:
         """Axial drag force magnitude per (unit) device tangent, ∝ downstream Q."""
         return self.p.drag_coeff * self.downstream_Q(t)
 
     def advance(self, dt: float) -> None:
+        try:
+            dt = float(dt)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("dt must be a finite non-negative number") from exc
+        if not np.isfinite(dt) or dt < 0.0:
+            raise ValueError("dt must be a finite non-negative number")
         self.t += dt
+
+    def reset(self) -> None:
+        """Reset cardiac phase and coupling commands between independent episodes."""
+        self.t = 0.0
+        self.occlusion = 0.0
+        self.aspiration = 0.0
 
 
 @dataclass
@@ -147,10 +184,28 @@ class FlowFieldParams:
     R_periph: float = 2.0        # lumped distal/peripheral resistance (Windkessel)
     visc: float = 1.0            # lumped blood viscosity: r_seg = visc·ds/R⁴ (Poiseuille)
     R_floor: float = 0.05        # min lumen radius (a fully-collapsed cell isn't 0 -> inf)
-    drag_coeff: float = 4.0      # device axial drag per unit LOCAL flow velocity
+    drag_coeff: float = 4.0      # device drag force per unit LOCAL flow velocity
     pulse_amp: float = 0.05      # lumen-radius pulsatility amplitude (fraction of R0)
     asp_gain: float = 150.0      # suction pressure at the tip per unit aspiration
                                  # (> P_mean so full suction can reverse flow across a clot)
+    pulse_phase: float = 0.0      # cardiac phase [rad]
+
+    def __post_init__(self) -> None:
+        for name in ("heart_rate", "pulse_phase", "pulse_amp"):
+            value = getattr(self, name)
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError(f"{name} must be finite")
+            try:
+                value = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{name} must be finite") from exc
+            if not np.isfinite(value):
+                raise ValueError(f"{name} must be finite")
+            setattr(self, name, value)
+        if self.heart_rate < 0.0:
+            raise ValueError("heart_rate must be non-negative")
+        if not 0.0 <= self.pulse_amp < 1.0:
+            raise ValueError("pulse_amp must be in [0, 1)")
 
 
 class FlowField:
@@ -211,14 +266,35 @@ class FlowField:
 
     def P_in(self, t: float | None = None) -> float:
         tt = self.t if t is None else t
-        return self.p.P_mean + self.p.P_pulse * max(0.0, math.sin(2 * math.pi * self.p.heart_rate * tt))
+        return self.p.P_mean + self.p.P_pulse * _systolic_wave(
+            tt, self.p.heart_rate, self.p.pulse_phase
+        )
 
     def pulse_factor(self, t: float | None = None) -> float:
         tt = self.t if t is None else t
-        return 1.0 + self.p.pulse_amp * math.sin(2 * math.pi * self.p.heart_rate * tt)
+        return 1.0 + self.p.pulse_amp * _systolic_wave(
+            tt, self.p.heart_rate, self.p.pulse_phase
+        )
 
     def advance(self, dt: float) -> None:
+        try:
+            dt = float(dt)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("dt must be a finite non-negative number") from exc
+        if not np.isfinite(dt) or dt < 0.0:
+            raise ValueError("dt must be a finite non-negative number")
         self.t += dt
+
+    def reset(self) -> None:
+        """Reset cardiac phase and cached flow state between independent episodes."""
+        self.t = 0.0
+        self.aspiration = 0.0
+        self.R_s = self.s_grid = self.tip_s = None
+        self._P = self._v = None
+        self._Q = self._Q_down = 0.0
+        self._tree_R = self._tree_s_grids = None
+        self._tree_P = self._tree_v = self._tree_Q_down = None
+        self._tree_tip_edge = self._tree_tip_s = None
 
     # --- the 1-D solve -------------------------------------------------------
     def solve(self) -> None:

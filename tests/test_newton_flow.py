@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from lumen.newton.flow import NewtonFlow, FlowParams, FlowField
+from lumen.newton.flow import FlowField, FlowFieldParams, FlowParams, NewtonFlow
 
 
 def test_windkessel_decay_and_pulse():
@@ -147,3 +147,27 @@ def test_pulsatility_modulates_lumen_in_sim():
         r0s.append(float(sim.solver._wall.r0_field.numpy().mean()))
     assert max(r0s) - min(r0s) > 0.05                     # lumen R(s,θ,t) breathes with the cycle
     assert np.isfinite(sim.body_positions()).all()        # drag-coupled sim stays stable
+    sim.reset()
+    assert sim.flow.t == 0.0
+    assert float(sim.solver._wall.r0_field.numpy().mean()) == pytest.approx(R)
+
+
+def test_pulsatile_waveform_is_bounded_and_resets_phase():
+    flow = NewtonFlow(FlowParams(pulse_amp=0.2, heart_rate=2.0, pulse_phase=0.0))
+    factors = [flow.pulse_factor(t) for t in np.linspace(0.0, 0.5, 101)]
+    assert min(factors) == pytest.approx(1.0)
+    assert max(factors) == pytest.approx(1.2)
+    flow.advance(0.125)
+    flow.occlusion, flow.aspiration = 0.5, 0.25
+    flow.reset()
+    assert flow.t == 0.0 and flow.occlusion == 0.0 and flow.aspiration == 0.0
+    assert flow.pulse_factor() == pytest.approx(1.0)
+
+
+def test_flow_rejects_invalid_pulse_and_time_parameters():
+    with pytest.raises(ValueError, match="pulse_amp"):
+        FlowParams(pulse_amp=1.0)
+    with pytest.raises(ValueError, match="heart_rate"):
+        FlowFieldParams(heart_rate=-1.0)
+    with pytest.raises(ValueError, match="non-negative"):
+        NewtonFlow().advance(-0.1)

@@ -332,16 +332,14 @@ class NewtonGuidewireSim:
         self.state_0.body_qd.zero_()
         self.state_1.body_qd.zero_()
         self.solver.body_q_prev = wp.array(self._init_body_q.copy(), dtype=wp.transform, device=dev)
+        if self.flow is not None and hasattr(self.flow, "reset"):
+            self.flow.reset()
         w = getattr(self.solver, "_wall", None)
         if w is not None:
-            w.w[:] = 0.0
-            w.w_field.zero_()
-            w.wall_load.zero_()
+            w.reset()
         tw = getattr(self.solver, "_tree_wall", None)        # tree path: clear wall deformation + load
         if tw is not None:
-            tw.w[:] = 0.0
-            tw.w_field.zero_()
-            tw.wall_load.zero_()
+            tw.reset()
         if self.clot is not None:
             self.clot.o0_env[:] = self.clot._initial_o0_env
             self.clot.o_env[:] = self.clot.o0_env
@@ -428,15 +426,12 @@ class NewtonGuidewireSim:
         wall = self.solver._tree_wall
         n_edges = self.solver._tree_n_edges
         n_s, n_th = wall.n_s, wall.n_th
-        base = self._tree_base_R0.astype(np.float32) * np.float32(pulse)
-        # The tree wall stores the solver's current open-radius field. Updating
-        # it here applies the pulsatile baseline before reading R0+w for flow;
-        # contact and deformation continue to share that same per-edge wall state.
-        wall.r0_field.assign(base)
+        # Updating through WallField keeps the cell area used by HGO in phase with
+        # the pulsatile radius; contact and deformation still read this same field.
+        wall.set_pulse(pulse)
         r = wall.r0_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)
         w = wall.w_field.numpy().reshape(self.n_envs, n_edges, n_s, n_th)
         return (r + w).mean(axis=3)
-
     def _step_tree_host(self, sub_dt, substeps, insertion, twist, preload,
                         insertion_cath: float | np.ndarray = 0.0,
                         twist_cath: float | np.ndarray = 0.0):
@@ -513,12 +508,15 @@ class NewtonGuidewireSim:
                           inputs=[self.body_ids, float(preload[0]), float(preload[1]),
                                   float(preload[2]), 1],
                           outputs=[self.state_0.body_f], device=self.device)
+            if self.flow is not None:
+                self.flow.advance(sub_dt)
             pulse = self.flow.pulse_factor() if self.flow is not None else 1.0
+            if self.flow is not None:
+                wall.set_pulse(pulse)
             wp.launch(compose_radius_k, dim=self.n_envs * ncell,
                       inputs=[wall._R0_base_d, occ_arr, float(pulse), n_s, n_th],
                       outputs=[wall.r0_field, wall.clot_mask_field], device=self.device)
             if field_flow:
-                self.flow.advance(sub_dt)
                 self.flow.solve_device(wall.r0_field, n_s, n_th, s_max)
                 if self.aneurysm_sacs:
                     # Synchronize the just-solved batched pressure field to host and
@@ -614,22 +612,23 @@ class NewtonGuidewireSim:
                                   float(preload[2]), 1],
                           outputs=[self.state_0.body_f], device=self.device)
             wall = getattr(self.solver, "_wall", None)
+            if self.flow is not None:
+                self.flow.advance(sub_dt)
             # compose the shared effective base radius R0(s,θ,t) = R0_base × pulse −
             # clot occlusion, which the contact kernel reads (+ wall w). M1: pulse
             # modulates the *vessel* wall only, NOT the clot (a clot is incompressible
             # tissue — it doesn't breathe with the cardiac cycle).
             if wall is not None and (self.flow is not None or self.clot is not None):
                 pulse = self.flow.pulse_factor() if self.flow is not None else 1.0
+                wall.set_pulse(pulse)
                 base = wall._R0_base * np.float32(pulse)
                 if self.clot is not None:
                     occ = self.clot.occlusion_grid().astype(np.float32)
                     base = base - occ
                     wall.set_clot_mask(occ)              # H1: clot bears its own load
-                wall.r0_field.assign(base.astype(np.float32))
+                    wall.r0_field.assign(base.astype(np.float32))
             if self.flow is not None:
-                self.flow.advance(sub_dt)
                 if self._flow_is_field:
-                    # feed the SHARED lumen radius (θ-averaged open radius) to the 1-D
                     # network, solve P(s)/v(s), then drag each node by its LOCAL v(s).
                     r_open_s = base.reshape(wall.n_s, wall.n_th).mean(axis=1)
                     self.flow.set_lumen(r_open_s, wall.s_max)

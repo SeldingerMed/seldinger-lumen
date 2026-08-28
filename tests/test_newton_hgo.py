@@ -82,3 +82,20 @@ def test_deformable_wall_couples_in_sim_and_stays_stable():
 
     assert rigid_defl == 0.0 and rigid_ok        # rigid wall does not deflect; stable
     assert soft_ok and soft_defl > 1e-3          # deformable wall deflects; stays finite
+
+
+def test_pulsatile_wall_updates_shared_radius_and_area_then_resets():
+    pytest.importorskip("warp")
+    from lumen.newton.hgo_wall import WallField
+
+    wall = WallField(R0=2.0, s_max=80.0, n_s=8, n_th=4, device="cpu")
+    base_radius = wall.r0_field.numpy().copy()
+    base_area = wall.cell_area_field.numpy().copy()
+    wall.set_pulse(1.1)
+    np.testing.assert_allclose(wall.r0_field.numpy(), base_radius * 1.1)
+    np.testing.assert_allclose(wall.cell_area_field.numpy(), base_area * 1.1)
+    np.testing.assert_allclose(wall.cell_area, base_area * 1.1)
+    wall.reset()
+    np.testing.assert_allclose(wall.r0_field.numpy(), base_radius)
+    np.testing.assert_allclose(wall.cell_area_field.numpy(), base_area)
+    np.testing.assert_allclose(wall.cell_area, base_area)

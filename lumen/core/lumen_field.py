@@ -6,8 +6,8 @@ the contact barrier (doc §3.5.6): wall deformation is written as a change in R,
 and the contact gap reads the same R. Pulsatility is just a temporal modulation
 of R and therefore costs nothing extra in the contact computation.
 
-P0 ships the field representation and evaluation only; wall mechanics and the
-pulsatile driver attach in later phases.
+The field is an anatomy-level resting representation; the Newton wall/flow coupling
+applies the time-dependent factor while preserving this object as the shared source.
 """
 
 from __future__ import annotations

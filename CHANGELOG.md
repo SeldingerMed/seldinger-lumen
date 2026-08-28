@@ -34,8 +34,9 @@ does not yet promise [SemVer](https://semver.org/) stability.
 
 ### Changed
 - Leaner README and corrected `ARCHITECTURE.md` references (`tube_vbd.py`).
-- Cardiac pulsatility modulates the vessel wall only, not the clot occlusion.
-
+- Cardiac pulsatility now uses one rectified waveform for pressure and lumen radius,
+  updates wall cell areas with the radius, and resets phase/coupling state between
+  episodes; the clot remains non-pulsatile.
 ### Fixed
 - Contact load was double-counted by the HGO wall and the clot; the wall now skips
   clot cells.
