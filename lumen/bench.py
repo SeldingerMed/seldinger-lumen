@@ -24,13 +24,16 @@ curves in simulator units plus ``clinical`` metrics from
 cross-environment calibrated endpoints.
 The leaderboard ranks Lumen-native safe target success first, then raw target
 success, then wall safety, then return as a deterministic efficiency tie-break.
-Generated scorecards carry ``lumen-stats/1`` episode-level IQMs, means, and 95%
+Generated scorecards carry a SHA-256 replay certificate for every action/outcome;
+`replay_verified_leaderboard` re-runs those episodes with the supplied policy before
+ranking them. They also carry ``lumen-stats/1`` episode-level IQMs, means, and 95%
 percentile bootstrap intervals with the seed and resample count recorded.
 """
 
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass, field
@@ -42,6 +45,7 @@ from lumen.bench_stats import summarize_metrics, validate_statistics
 from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_nav
 
 SUITE_VERSION = "lumen-bench/3"
+REPLAY_PROTOCOL_VERSION = "lumen-bench-replay/1"
 SAFETY_MAX_PEN = 0.3
 STAT_METRICS = (
     "success_rate",
@@ -77,20 +81,123 @@ SUITE = [
               lambda: make_tree_nav(target_node="left_out", max_steps=60), episodes=5, seed=200),
 ]
 
+REPLAY_OUTCOME_KEYS = (
+    "success",
+    "safe_success",
+    "steps",
+    "max_pen",
+    "return",
+    "wall_load_max",
+    "wall_pressure_max",
+    "wall_load_impulse",
+    "crashed",
+    "diverged",
+)
 
-def run_episode(env, policy, seed) -> dict:
+
+def _replay_digest(task_name: str, seed: int, actions: list, outcome: dict) -> str:
+    payload = {
+        "task": task_name,
+        "seed": int(seed),
+        "actions": actions,
+        "outcome": {key: outcome[key] for key in REPLAY_OUTCOME_KEYS},
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _replay_outcome(result: dict) -> dict:
+    outcome = {}
+    for key in REPLAY_OUTCOME_KEYS:
+        if key == "wall_pressure_max":
+            outcome[key] = result.get(
+                key, max(result.get("wall_pressure_curve", ()), default=0.0)
+            )
+        else:
+            outcome[key] = result[key]
+    return outcome
+
+
+def _validate_replay_record(record: object, task: BenchTask, episode_index: int) -> list[str]:
+    errors = []
+    if not isinstance(record, dict):
+        return [f"episode {episode_index} must be a dict"]
+    expected_seed = task.seed + episode_index
+    if record.get("task") != task.name:
+        errors.append(f"episode {episode_index}.task must be {task.name!r}")
+    if record.get("seed") != expected_seed:
+        errors.append(f"episode {episode_index}.seed must be {expected_seed}")
+    actions = record.get("actions")
+    if not isinstance(actions, list):
+        errors.append(f"episode {episode_index}.actions must be a list")
+    else:
+        for action_index, action in enumerate(actions):
+            if not isinstance(action, list) or not action:
+                errors.append(f"episode {episode_index}.actions[{action_index}] must be non-empty")
+                continue
+            try:
+                values = np.asarray(action, dtype=float)
+            except (TypeError, ValueError):
+                errors.append(f"episode {episode_index}.actions[{action_index}] must be numeric")
+                continue
+            if values.ndim != 1 or not np.isfinite(values).all() or np.any(values < -1.0) or np.any(values > 1.0):
+                errors.append(f"episode {episode_index}.actions[{action_index}] must be finite and in [-1, 1]")
+    outcome = record.get("outcome")
+    if not isinstance(outcome, dict):
+        errors.append(f"episode {episode_index}.outcome must be a dict")
+    else:
+        for key in REPLAY_OUTCOME_KEYS:
+            if key not in outcome:
+                errors.append(f"episode {episode_index}.outcome missing {key}")
+        if errors:
+            return errors
+        if not isinstance(outcome["success"], bool) or not isinstance(outcome["safe_success"], bool):
+            errors.append(f"episode {episode_index}.outcome success fields must be booleans")
+        if not isinstance(outcome["crashed"], bool) or not isinstance(outcome["diverged"], bool):
+            errors.append(f"episode {episode_index}.outcome crash fields must be booleans")
+        if not isinstance(outcome["steps"], (int, np.integer)) or isinstance(
+            outcome["steps"], (bool, np.bool_)
+        ) or int(outcome["steps"]) < 0:
+            errors.append(f"episode {episode_index}.outcome.steps must be a non-negative integer")
+        elif isinstance(actions, list) and int(outcome["steps"]) != len(actions):
+            errors.append(f"episode {episode_index}.outcome.steps must equal action count")
+        for key in ("max_pen", "return", "wall_load_max",
+                    "wall_pressure_max", "wall_load_impulse"):
+            try:
+                if not np.isfinite(float(outcome[key])):
+                    errors.append(f"episode {episode_index}.outcome.{key} must be finite")
+            except (TypeError, ValueError):
+                errors.append(f"episode {episode_index}.outcome.{key} must be numeric")
+    digest = record.get("sha256")
+    if not isinstance(digest, str) or len(digest) != 64:
+        errors.append(f"episode {episode_index}.sha256 must be a 64-character string")
+    elif isinstance(actions, list) and isinstance(outcome, dict) and not errors:
+        try:
+            expected = _replay_digest(task.name, expected_seed, actions, outcome)
+        except (TypeError, ValueError):
+            errors.append(f"episode {episode_index}.replay payload is not JSON-safe")
+        else:
+            if digest != expected:
+                errors.append(f"episode {episode_index}.sha256 does not match replay payload")
+    return errors
+
+
+def run_episode(env, policy, seed, *, record_replay: bool = False) -> dict:
     """Roll one episode and retain native surface/load/pressure/impulse traces."""
     obs, _ = env.reset(seed=seed)
     total_r, max_pen, success, steps, diverged = 0.0, 0.0, False, 0, False
     wall_load_curve, wall_pressure_curve, wall_impulse_curve = [], [], []
-    R = float(getattr(env, "R", 0.0))
     safety_max_pen = float(getattr(env, "safety_max_pen", SAFETY_MAX_PEN))
+    R = float(getattr(env, "R", 0.0))
     trace = []
+    replay_actions = []
     target_edge = None
     if getattr(env, "tree", None) is not None and getattr(env, "route", None):
         target_edge = env.tree.edges[env.route[-1]].id
     while True:
         action = policy(obs)
+        if record_replay:
+            replay_actions.append(np.asarray(action).reshape(-1).tolist())
         obs, r, terminated, truncated, info = env.step(action)
         total_r += float(r)
         diverged = diverged or bool(info.get("diverged", False))
@@ -147,7 +254,7 @@ def run_episode(env, policy, seed) -> dict:
     )
     clinical = compute_clinical_metrics(ep)
     safe_success = bool(success and not diverged and not clinical["wall_safety"]["perforation_risk"])
-    return {
+    result = {
         "success": success,
         "safe_success": safe_success,
         "steps": steps,
@@ -162,12 +269,28 @@ def run_episode(env, policy, seed) -> dict:
         "crashed": diverged,
         "diverged": diverged,
     }
+    if record_replay:
+        result["_replay"] = {
+            "seed": int(seed),
+            "actions": replay_actions,
+            "outcome": _replay_outcome(result),
+        }
+    return result
 
 def evaluate_task(task: BenchTask, policy) -> dict:
     """Run a task's seeded episodes and aggregate the per-task metrics."""
     env = task.make_env()
     safety_max_pen = float(getattr(env, "safety_max_pen", SAFETY_MAX_PEN))
-    eps = [run_episode(env, policy, seed=task.seed + i) for i in range(task.episodes)]
+    eps = [run_episode(env, policy, seed=task.seed + i,
+                       record_replay=True) for i in range(task.episodes)]
+    replay = []
+    for episode in eps:
+        record = episode.pop("_replay")
+        record["task"] = task.name
+        record["sha256"] = _replay_digest(
+            task.name, record["seed"], record["actions"], record["outcome"]
+        )
+        replay.append(record)
     won = [e for e in eps if e["success"]]
     safe_won = [e for e in eps if e["safe_success"]]
     unsafe_won = [e for e in eps if e["success"] and not e["safe_success"]]
@@ -200,6 +323,7 @@ def evaluate_task(task: BenchTask, policy) -> dict:
         "wall_load_impulse": float(np.mean([e["wall_load_impulse"] for e in eps])),
         "statistics": summarize_metrics(episode_metrics, seed=task.seed),
         "_episode_metrics": episode_metrics,
+        "_replay": replay,
     }
 
 
@@ -214,6 +338,7 @@ class Scorecard:
     provenance: str = "procedural"
     notes: dict = field(default_factory=dict)
     statistics: dict = field(default_factory=dict)
+    replay: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -225,7 +350,9 @@ class Scorecard:
     @classmethod
     def load(cls, path: str) -> "Scorecard":
         with open(path) as f:
-            return cls(**json.load(f))
+            payload = json.load(f)
+        payload.setdefault("replay", {})
+        return cls(**payload)
 
 
 def _finite_number(x) -> bool:
@@ -241,6 +368,103 @@ def _rate_ok(x) -> bool:
 
 def _close(a, b, tol=1e-9) -> bool:
     return _finite_number(a) and _finite_number(b) and abs(float(a) - float(b)) <= tol
+
+def _validate_replay_payload(replay: object, suite) -> list[str]:
+    if not isinstance(replay, dict):
+        return ["replay must be a dict"]
+    errors = []
+    if replay.get("protocol") != REPLAY_PROTOCOL_VERSION:
+        errors.append(f"replay.protocol must be {REPLAY_PROTOCOL_VERSION!r}")
+    if replay.get("suite_version") != SUITE_VERSION:
+        errors.append(f"replay.suite_version must be {SUITE_VERSION!r}")
+    records = replay.get("episodes")
+    if not isinstance(records, list):
+        return errors + ["replay.episodes must be a list"]
+    expected_count = sum(int(task.episodes) for task in suite)
+    if len(records) != expected_count:
+        errors.append(f"replay.episodes must contain {expected_count} records")
+    offset = 0
+    for task in suite:
+        for episode_index in range(int(task.episodes)):
+            if offset >= len(records):
+                break
+            errors.extend(_validate_replay_record(records[offset], task, episode_index))
+            offset += 1
+    return errors
+
+def _replay_aggregate_errors(card: Scorecard, replay: dict, suite) -> list[str]:
+    records = replay["episodes"]
+    task_rows = []
+    offset = 0
+    errors = []
+    for task in suite:
+        group = records[offset:offset + int(task.episodes)]
+        offset += int(task.episodes)
+        outcomes = [record["outcome"] for record in group]
+        successes = [bool(item["success"]) for item in outcomes]
+        safe_successes = [bool(item["safe_success"]) for item in outcomes]
+        task_rows.append({
+            "success_rate": float(np.mean(successes)),
+            "safe_success_rate": float(np.mean(safe_successes)),
+            "unsafe_success_rate": float(np.mean([
+                success and not safe
+                for success, safe in zip(successes, safe_successes)
+            ])),
+            "crash_rate": float(np.mean([bool(item["crashed"]) for item in outcomes])),
+            "mean_steps": (
+                float(np.mean([item["steps"] for item, success in zip(outcomes, successes)
+                               if success]))
+                if any(successes) else None
+            ),
+            "max_pen": max(float(item["max_pen"]) for item in outcomes),
+            "mean_return": float(np.mean([item["return"] for item in outcomes])),
+            "max_wall_load": max(float(item["wall_load_max"]) for item in outcomes),
+            "max_wall_pressure": max(float(item["wall_pressure_max"]) for item in outcomes),
+            "wall_load_impulse": float(
+                np.mean([item["wall_load_impulse"] for item in outcomes])
+            ),
+        })
+
+    task_keys = (
+        "success_rate",
+        "safe_success_rate",
+        "unsafe_success_rate",
+        "crash_rate",
+        "mean_steps",
+        "max_pen",
+        "mean_return",
+        "max_wall_load",
+        "max_wall_pressure",
+        "wall_load_impulse",
+    )
+    for index, (actual, expected) in enumerate(zip(task_rows, card.per_task)):
+        for key in task_keys:
+            if actual[key] is None:
+                matches = expected.get(key) is None
+            else:
+                matches = _close(expected.get(key), actual[key])
+            if not matches:
+                errors.append(f"replay per_task[{index}].{key} does not match verified episodes")
+
+    overall = {
+        "success_rate": float(np.mean([row["success_rate"] for row in task_rows])),
+        "safe_success_rate": float(np.mean([row["safe_success_rate"] for row in task_rows])),
+        "unsafe_success_rate": float(np.mean([
+            row["unsafe_success_rate"] for row in task_rows
+        ])),
+        "crash_rate": float(np.mean([row["crash_rate"] for row in task_rows])),
+        "max_pen": max(row["max_pen"] for row in task_rows),
+        "mean_return": float(np.mean([row["mean_return"] for row in task_rows])),
+        "max_wall_load": max(row["max_wall_load"] for row in task_rows),
+        "max_wall_pressure": max(row["max_wall_pressure"] for row in task_rows),
+        "wall_load_impulse": float(np.mean([
+            row["wall_load_impulse"] for row in task_rows
+        ])),
+    }
+    for key, actual in overall.items():
+        if not _close(card.overall.get(key), actual):
+            errors.append(f"replay overall.{key} does not match verified episodes")
+    return errors
 
 
 def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
@@ -266,6 +490,17 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
                   if isinstance(card.per_task, list) else [])
     if task_names != expected_names:
         errors.append(f"per_task names must be {expected_names}, got {task_names}")
+    if card.replay:
+        replay_errors = _validate_replay_payload(card.replay, suite)
+        errors.extend(replay_errors)
+        if (
+            not replay_errors
+            and isinstance(card.per_task, list)
+            and len(card.per_task) == len(suite)
+            and all(isinstance(task, dict) for task in card.per_task)
+            and isinstance(card.overall, dict)
+        ):
+            errors.extend(_replay_aggregate_errors(card, card.replay, suite))
 
     if not isinstance(card.overall, dict):
         errors.append("overall must be a dict")
@@ -309,7 +544,8 @@ def validate_scorecard(card: Scorecard, suite=SUITE) -> Scorecard:
             for key in ("episodes", "max_pen", "mean_return"):
                 if not _finite_number(task.get(key)):
                     errors.append(f"per_task[{i}].{key} must be finite")
-        if (len(card.per_task) == len(suite)
+        if (card.per_task
+                and len(card.per_task) == len(suite)
                 and isinstance(card.overall, dict)
                 and all(isinstance(t, dict) for t in card.per_task)):
             expected_success = float(np.mean([float(t.get("success_rate", np.nan))
@@ -350,6 +586,7 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
     """
     raw_per = [evaluate_task(t, policy) for t in suite]
     per = []
+    replay_records = []
     all_episode_metrics = {metric: [] for metric in STAT_METRICS}
     have_episode_metrics = True
     for task in raw_per:
@@ -361,7 +598,11 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
         else:
             for metric in STAT_METRICS:
                 all_episode_metrics[metric].extend(episode_metrics[metric])
-        per.append({key: value for key, value in task.items() if key != "_episode_metrics"})
+        replay_records.extend(task.get("_replay", []))
+        per.append({
+            key: value for key, value in task.items()
+            if key not in {"_episode_metrics", "_replay"}
+        })
     overall = {
         "success_rate": float(np.mean([t["success_rate"] for t in per])),
         "safe_success_rate": float(np.mean([t["safe_success_rate"] for t in per])),
@@ -374,8 +615,91 @@ def evaluate_policy(policy, name: str, suite=SUITE, notes=None) -> Scorecard:
         "crash_rate": float(np.mean([t["crash_rate"] for t in per])),
     }
     statistics = summarize_metrics(all_episode_metrics, seed=0) if have_episode_metrics else {}
+    replay = {
+        "protocol": REPLAY_PROTOCOL_VERSION,
+        "suite_version": SUITE_VERSION,
+        "episodes": replay_records,
+    }
     return Scorecard(name=name, suite_version=SUITE_VERSION, per_task=per, overall=overall,
-                     notes=notes or {}, statistics=statistics)
+                     notes=notes or {}, statistics=statistics, replay=replay)
+
+def verify_replay(card: Scorecard, policy, suite=SUITE) -> dict:
+    """Re-run a scorecard's recorded actions/outcomes and verify every digest."""
+    errors = []
+    if not isinstance(card, Scorecard):
+        errors.append("card must be a Scorecard")
+    else:
+        try:
+            validate_scorecard(card, suite=suite)
+        except ValueError as exc:
+            errors.append(str(exc))
+        replay = card.replay
+        if not isinstance(replay, dict) or not replay.get("episodes"):
+            errors.append("scorecard has no replay certificate")
+    if errors:
+        return {
+            "protocol": REPLAY_PROTOCOL_VERSION,
+            "verified": False,
+            "episodes": 0,
+            "errors": errors,
+        }
+
+    records = card.replay["episodes"]
+    checked = 0
+    actual_records = []
+    for task in suite:
+        env = task.make_env()
+        for episode_index in range(int(task.episodes)):
+            expected = records[checked]
+            checked += 1
+            seed = int(task.seed) + episode_index
+            try:
+                actual = run_episode(env, policy, seed=seed, record_replay=True)
+                actual_record = actual.pop("_replay")
+                actual_record["task"] = task.name
+                actual_record["sha256"] = _replay_digest(
+                    task.name,
+                    actual_record["seed"],
+                    actual_record["actions"],
+                    actual_record["outcome"],
+                )
+                actual_records.append(actual_record)
+            except Exception as exc:
+                errors.append(
+                    f"{task.name}[{episode_index}] replay failed: {type(exc).__name__}: {exc}"
+                )
+                continue
+            if actual_record["sha256"] != expected.get("sha256"):
+                errors.append(f"{task.name}[{episode_index}] replay digest mismatch")
+    if not errors:
+        errors.extend(_replay_aggregate_errors(
+            card,
+            {"episodes": actual_records},
+            suite,
+        ))
+    return {
+        "protocol": REPLAY_PROTOCOL_VERSION,
+        "verified": not errors,
+        "episodes": checked,
+        "errors": errors,
+    }
+
+
+def replay_verified_leaderboard(results_dir: str, policies: dict, suite=SUITE) -> list[Scorecard]:
+    """Rank only scorecards whose certificates re-run with a supplied policy."""
+    cards, _ = _load_scorecards(results_dir, suite=suite)
+    verified = []
+    for card in cards:
+        policy = policies.get(card.name) if isinstance(policies, dict) else None
+        if policy is None:
+            continue
+        if verify_replay(card, policy, suite=suite)["verified"]:
+            verified.append(card)
+    return sorted(verified, key=lambda c: (-_safe_success_for_ranking(c),
+                                           -c.overall["success_rate"],
+                                           c.overall["max_pen"],
+                                           -c.overall["mean_return"],
+                                           c.name))
 
 
 def _safe_success_for_ranking(card: Scorecard) -> float:
@@ -387,7 +711,7 @@ def _safe_success_for_ranking(card: Scorecard) -> float:
     return success if float(card.overall.get("max_pen", 0.0)) < SAFETY_MAX_PEN else 0.0
 
 
-def _load_scorecards(results_dir: str):
+def _load_scorecards(results_dir: str, suite=SUITE):
     cards, rejected = [], []
     for p in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
         try:
@@ -400,7 +724,7 @@ def _load_scorecards(results_dir: str):
                              f"is not comparable with {SUITE_VERSION!r}"})
             continue
         try:
-            cards.append(validate_scorecard(c))
+            cards.append(validate_scorecard(c, suite=suite))
         except ValueError as e:
             rejected.append({"path": p, "error": str(e)})
     return cards, rejected
