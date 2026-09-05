@@ -22,9 +22,8 @@ Anything anatomy-specific is a *profile* or a *sensor*, not core.
 ## Invariant 2 — three swap points, no core change
 
 Repurposing across procedures (doc §3.9) = swapping anatomy field + instrument +
-sensor. Profiles (`lumen/profiles/<x>/`) bundle the choice; the sensor (the
-observation model, Layer 1) is future work. Adding bronchoscopy must touch neither
-`lumen.core` nor existing profiles.
+sensor. Core physics and contact remain untouched when pointing at a new anatomy
+or instrument specification.
 
 ## Invariant 3 — the shared `R` field
 

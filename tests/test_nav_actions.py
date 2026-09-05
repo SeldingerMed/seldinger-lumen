@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from lumen.envs._validation import validate_action_scale, validate_boolean
+from lumen.envs.nav_gym import validate_action_scale, validate_boolean
 from lumen.envs.nav_gym import NavEnv
 from lumen.envs.tree_nav import TreeNavEnv
 

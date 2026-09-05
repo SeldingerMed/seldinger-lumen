@@ -7,7 +7,7 @@
 ## Type
 
 - [ ] Bug fix
-- [ ] New feature / extension (new `lumen/profiles/<x>/`, device, or constitutive model)
+- [ ] New feature / extension (new device or constitutive model)
 - [ ] Physics-model change (alters contact / wall / friction / clot / flow behavior)
 - [ ] Docs / tooling / CI
 - [ ] Other:
@@ -26,4 +26,4 @@ you verified. Skip if this is a pure bug fix or non-physics change. -->
 - [ ] Added/updated a **test** for non-trivial logic
 - [ ] Updated `README.md` / `ARCHITECTURE.md` if public behavior or layout changed
 - [ ] No new runtime dependency (or it was discussed in an issue first)
-- [ ] If this is an extension, it does **not** modify `lumen/core/*` or another profile
+- [ ] If this is an extension, it does **not** modify `lumen/core/*`

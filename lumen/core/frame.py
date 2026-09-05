@@ -19,9 +19,10 @@ from dataclasses import dataclass
 import numpy as np
 
 
-def _unit(v: np.ndarray) -> np.ndarray:
-    n = float(np.linalg.norm(v))
-    return v / n if n > 0 else v
+def _unit(v) -> np.ndarray:
+    arr = np.asarray(v, float)
+    n = float(np.linalg.norm(arr))
+    return arr / n if n > 0 else arr
 
 
 def _tangents(pts: np.ndarray) -> np.ndarray:

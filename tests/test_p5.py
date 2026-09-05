@@ -7,7 +7,7 @@ pytest.importorskip("warp")
 pytest.importorskip("newton")
 
 from lumen.envs import NavEnv
-from lumen.envs._actions import parse_nav_action
+from lumen.envs.nav_gym import parse_nav_action
 from benchmarks.leaderboard import proportional_policy
 
 

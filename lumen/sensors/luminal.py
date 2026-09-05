@@ -25,12 +25,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from lumen.core.frame import CenterlineFrame
+from lumen.core.frame import CenterlineFrame, _unit
 
 
-def _unit(v):
-    v = np.asarray(v, float)
-    return v / (np.linalg.norm(v) + 1e-12)
 
 
 @dataclass

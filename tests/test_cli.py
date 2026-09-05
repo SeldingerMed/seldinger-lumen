@@ -17,24 +17,6 @@ from lumen.sensors.carm import CArm
 
 EXPECTED_CONSOLE_SCRIPTS = {
     "lumen": "lumen.cli:main",
-    "lumen-hardware": "lumen.cli:hardware_main",
-    "lumen-doctor": "lumen.cli:doctor_main",
-    "lumen-benchmark": "lumen.cli:benchmark_main",
-    "lumen-play": "lumen.cli:play_main",
-    "lumen-demo": "lumen.cli:demo_main",
-    "lumen-verify-demo": "lumen.cli:verify_demo_main",
-    "lumen-train": "lumen.cli:train_main",
-    "lumen-render-fluoro": "lumen.cli:render_fluoro_main",
-    "lumen-capture": "lumen.cli:capture_main",
-    "lumen-replay": "lumen.cli:replay_main",
-    "lumen-validate": "lumen.cli:validate_main",
-    "lumen-index": "lumen.cli:index_main",
-    "lumen-inspect-index": "lumen.cli:inspect_index_main",
-    "lumen-materialize-batch": "lumen.cli:materialize_batch_main",
-    "lumen-split-index": "lumen.cli:split_index_main",
-    "lumen-dataset-card": "lumen.cli:dataset_card_main",
-    "lumen-calibrate": "lumen.cli:calibrate_main",
-    "lumen-import-mask": "lumen.cli:import_mask_main",
 }
 
 

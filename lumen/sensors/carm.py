@@ -15,11 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from lumen.core.frame import _unit
 
 
-def _unit(v):
-    v = np.asarray(v, float)
-    return v / (np.linalg.norm(v) + 1e-12)
 
 
 @dataclass
