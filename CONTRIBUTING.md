@@ -73,9 +73,8 @@ analog or the *interface*, not the data.
 The whole point of the architecture is that you extend it *without touching the core*
 (see [ARCHITECTURE.md](ARCHITECTURE.md)). For extension PRs specifically:
 
-- **New modality** (airway, bowel, ureter, …): add a directory under
-  `lumen/profiles/<name>/`. It must not modify `lumen.core.*` or another profile. A
-  profile bundles the anatomy field + instrument choice + (future) sensor.
+- **New modality** (airway, bowel, ureter, …): provide the anatomy field + instrument
+  choice + sensor. It must not modify `lumen.core.*`.
 - **New device / constitutive model:** add it alongside the existing ones
   (`lumen/newton/devices.py`, `clot.py`, etc.) behind the same interfaces; keep the
   defaults literature-grounded and cite them.
