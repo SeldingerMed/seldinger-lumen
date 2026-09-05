@@ -16,8 +16,38 @@ from __future__ import annotations
 
 import numpy as np
 
-from lumen.envs._actions import parse_nav_action
-from lumen.envs._validation import validate_action_scale, validate_boolean
+def parse_nav_action(action) -> tuple[float, float]:
+    """Return clipped ``(insertion, twist)`` commands for navigation envs."""
+    act = np.asarray(action, dtype=float).reshape(-1)
+    if len(act) < 1:
+        raise ValueError("action must contain at least an insertion command")
+    if len(act) > 2:
+        raise ValueError("action must contain insertion and optional twist only")
+    if not np.isfinite(act).all():
+        raise ValueError("action values must be finite")
+    insertion = float(np.clip(act[0], -1.0, 1.0))
+    twist = float(np.clip(act[1] if len(act) > 1 else 0.0, -1.0, 1.0))
+    return insertion, twist
+
+
+def validate_boolean(value, name: str) -> bool:
+    """Return a navigation flag without accepting truthy non-booleans."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be a boolean")
+    return value
+
+
+def validate_action_scale(value, name: str) -> float:
+    """Return a finite positive navigation action scale."""
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{name} must be a finite positive number")
+    try:
+        scale = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a finite positive number") from None
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return scale
 from lumen.hardware import detect_device
 
 try:

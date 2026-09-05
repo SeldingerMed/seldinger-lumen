@@ -32,6 +32,7 @@ percentile bootstrap intervals with the seed and resample count recorded.
 
 from __future__ import annotations
 
+import math
 import glob
 import hashlib
 import json
@@ -357,7 +358,7 @@ class Scorecard:
 
 def _finite_number(x) -> bool:
     try:
-        return np.isfinite(float(x))
+        return math.isfinite(float(x))
     except (TypeError, ValueError):
         return False
 
@@ -367,7 +368,7 @@ def _rate_ok(x) -> bool:
 
 
 def _close(a, b, tol=1e-9) -> bool:
-    return _finite_number(a) and _finite_number(b) and abs(float(a) - float(b)) <= tol
+    return _finite_number(a) and _finite_number(b) and math.isclose(float(a), float(b), abs_tol=tol)
 
 def _validate_replay_payload(replay: object, suite) -> list[str]:
     if not isinstance(replay, dict):

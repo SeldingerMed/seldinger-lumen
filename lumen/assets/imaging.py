@@ -18,7 +18,6 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
-from xml.etree import ElementTree as ET
 
 import numpy as np
 
@@ -432,15 +431,9 @@ def load_box_annotations(path, group_key: str = "group",
                          ) -> list[BoxAnnotation]:
     """Load 2-D vessel box annotations from JSON or CSV.
 
-    JSON may be a list of boxes, an object with a ``boxes`` array, COCO-style
-    ``annotations`` with ``bbox=[x,y,width,height]``, polygon ``segmentation``,
-    or uncompressed RLE ``segmentation`` masks, Label Studio rectangle exports,
-    LabelMe rectangle/polygon shapes, or VGG Image Annotator rectangle regions.
-    XML may be a CVAT or Pascal VOC image annotation export. Use
-    ``image_id`` or ``image_file`` for multi-image COCO exports.
-    CSV files need headers.
-    `.txt` files are read as YOLO normalized labels
-    ``class x_center y_center width height`` and require ``image_size_px=(width,height)``.
+    JSON may be a list of boxes, an object with a ``boxes`` array, or COCO-style
+    ``annotations`` with ``bbox=[x,y,width,height]``. Use ``image_id`` or
+    ``image_file`` for multi-image COCO exports. CSV files need headers.
     Accepted coordinate names are ``x_min/y_min/x_max/y_max``, ``x0/y0/x1/y1``,
     or ``left/top/width/height``.
     """
@@ -458,11 +451,6 @@ def load_box_annotations(path, group_key: str = "group",
         if not isinstance(rows, list):
             raise ValueError("box JSON must be a list or an object with a 'boxes' list")
         return [_box_from_mapping(row, group_key=group_key) for row in rows]
-    if suffix == ".xml":
-        rows = _xml_box_rows(path, group_key=group_key, image_file=image_file)
-        return [_box_from_mapping(row, group_key=group_key) for row in rows]
-    if suffix in {".txt", ".labels"}:
-        return _load_yolo_box_annotations(path, image_size_px=image_size_px)
     with path.open(newline="") as f:
         return [_box_from_mapping(row, group_key=group_key) for row in csv.DictReader(f)]
 
@@ -1332,19 +1320,28 @@ def _component_planar_centerline(pixels, spacing_xy, origin, z_mm: float, sample
     return np.asarray(sample_centers, dtype=float), np.asarray(radii, dtype=float)
 
 
+def _coco_ids_equal(a, b) -> bool:
+    return a == b or (a is not None and b is not None and str(a) == str(b))
+
+
+def _image_file_matches(candidate, image_file: str) -> bool:
+    if not candidate:
+        return False
+    return (
+        candidate == image_file
+        or _image_ref_basename(candidate) == _image_ref_basename(image_file)
+    )
+
+
+def _image_ref_basename(value) -> str:
+    raw = str(value)
+    parsed = urlparse(raw)
+    path = parsed.path if parsed.scheme or parsed.netloc else raw.split("?", 1)[0].split("#", 1)[0]
+    return Path(path).name
+
+
 def _box_rows_from_json(payload, group_key: str = "group", image_size_px=None,
                         image_id=None, image_file: str | None = None):
-    label_studio = _label_studio_rows_from_json(payload, group_key=group_key,
-                                                image_size_px=image_size_px,
-                                                image_file=image_file)
-    if label_studio:
-        return label_studio
-    via = _via_rows_from_json(payload, group_key=group_key, image_file=image_file)
-    if via:
-        return via
-    labelme = _labelme_rows_from_json(payload, group_key=group_key, image_file=image_file)
-    if labelme:
-        return labelme
     if not isinstance(payload, dict):
         return payload
     if "boxes" in payload:
@@ -1387,17 +1384,13 @@ def _box_rows_from_json(payload, group_key: str = "group", image_size_px=None,
         ):
             continue
         bbox = ann.get("bbox")
-        if bbox is not None:
-            if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
-                raise ValueError("COCO annotation 'bbox' must be [x, y, width, height]")
-            x0, y0, w, h = bbox
-            x1 = float(x0) + float(w)
-            y1 = float(y0) + float(h)
-        else:
-            bounds = _coco_segmentation_bounds(ann.get("segmentation"))
-            if bounds is None:
-                continue
-            x0, y0, x1, y1 = bounds
+        if bbox is None:
+            continue
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            raise ValueError("COCO annotation 'bbox' must be [x, y, width, height]")
+        x0, y0, w, h = bbox
+        x1 = float(x0) + float(w)
+        y1 = float(y0) + float(h)
         attrs = ann.get("attributes", {})
         attrs = attrs if isinstance(attrs, dict) else {}
         group = ann.get(group_key, attrs.get(group_key))
@@ -1416,494 +1409,8 @@ def _box_rows_from_json(payload, group_key: str = "group", image_size_px=None,
             row["radius_mm"] = ann.get("radius_mm", attrs.get("radius_mm"))
         rows.append(row)
     if not rows:
-        raise ValueError("COCO JSON contains no annotations with bbox or polygon segmentation entries")
+        raise ValueError("COCO JSON contains no annotations with bbox entries")
     return rows
-
-
-def _via_rows_from_json(payload, group_key: str = "group",
-                        image_file: str | None = None) -> list[dict]:
-    """Extract VGG Image Annotator rectangle regions as pixel-space box rows."""
-    if not isinstance(payload, dict):
-        return []
-    records_obj = payload.get("_via_img_metadata")
-    if isinstance(records_obj, dict):
-        records = [record for record in records_obj.values() if isinstance(record, dict)]
-    else:
-        records = [
-            record for record in payload.values()
-            if isinstance(record, dict) and "regions" in record and "filename" in record
-        ]
-    if not records:
-        return []
-
-    refs = [record.get("filename") for record in records]
-    if image_file is not None:
-        matches = [record for record, ref in zip(records, refs) if _image_file_matches(ref, image_file)]
-        if not matches:
-            raise ValueError(f"VIA export contains no image_file {image_file!r}")
-        if len(matches) > 1:
-            raise ValueError(f"VIA export has multiple images for image_file {image_file!r}")
-        records = matches
-    elif len({_image_ref_basename(ref) for ref in refs if ref}) > 1:
-        raise ValueError("multi-image VIA import requires image_file")
-
-    rows = []
-    order = 0
-    for record in records:
-        regions = record.get("regions", [])
-        if isinstance(regions, dict):
-            regions_iter = [region for region in regions.values()]
-        elif isinstance(regions, list):
-            regions_iter = regions
-        else:
-            continue
-        for region in regions_iter:
-            if not isinstance(region, dict):
-                continue
-            shape = region.get("shape_attributes", {})
-            if not isinstance(shape, dict) or shape.get("name") != "rect":
-                continue
-            if not {"x", "y", "width", "height"} <= set(shape):
-                raise ValueError("VIA rectangle regions require x/y/width/height")
-            attrs = region.get("region_attributes", {})
-            attrs = attrs if isinstance(attrs, dict) else {}
-            group = (
-                attrs.get(group_key)
-                or attrs.get("group")
-                or attrs.get("label")
-                or attrs.get("category")
-                or "vessel"
-            )
-            row = {
-                "x_min": shape["x"],
-                "y_min": shape["y"],
-                "x_max": float(shape["x"]) + float(shape["width"]),
-                "y_max": float(shape["y"]) + float(shape["height"]),
-                group_key: group,
-                "order": attrs.get("order", order),
-            }
-            if "radius_mm" in attrs:
-                row["radius_mm"] = attrs["radius_mm"]
-            rows.append(row)
-            order += 1
-    if not rows:
-        raise ValueError("VIA export contains no rectangle regions")
-    return rows
-
-
-def _labelme_rows_from_json(payload, group_key: str = "group",
-                            image_file: str | None = None) -> list[dict]:
-    """Extract LabelMe rectangle/polygon shapes as axis-aligned box rows."""
-    if not isinstance(payload, dict) or "shapes" not in payload:
-        return []
-    if image_file is not None:
-        ref = payload.get("imagePath") or payload.get("image_path")
-        if ref is None:
-            raise ValueError("LabelMe import with image_file requires imagePath metadata")
-        if not _image_file_matches(ref, image_file):
-            raise ValueError(f"LabelMe export imagePath {ref!r} does not match image_file {image_file!r}")
-
-    shapes = payload.get("shapes")
-    if not isinstance(shapes, list):
-        raise ValueError("LabelMe JSON 'shapes' must be a list")
-    rows = []
-    order = 0
-    for shape in shapes:
-        if not isinstance(shape, dict):
-            continue
-        shape_type = str(shape.get("shape_type") or "polygon").lower()
-        if shape_type not in {"rectangle", "polygon"}:
-            continue
-        points = shape.get("points")
-        if not isinstance(points, list) or len(points) < 2:
-            raise ValueError("LabelMe rectangle/polygon shapes require at least two points")
-        arr = np.asarray(points, dtype=float)
-        if arr.ndim != 2 or arr.shape[1] != 2 or not np.isfinite(arr).all():
-            raise ValueError("LabelMe shape points must be finite [x, y] coordinates")
-        if shape_type == "rectangle" and len(arr) != 2:
-            raise ValueError("LabelMe rectangle shapes require exactly two corner points")
-        x0, y0 = arr.min(axis=0)
-        x1, y1 = arr.max(axis=0)
-        flags = shape.get("flags", {})
-        flags = flags if isinstance(flags, dict) else {}
-        group = (
-            shape.get(group_key)
-            or flags.get(group_key)
-            or flags.get("group")
-            or shape.get("label")
-            or shape.get("group_id")
-            or "vessel"
-        )
-        row = {
-            "x_min": float(x0),
-            "y_min": float(y0),
-            "x_max": float(x1),
-            "y_max": float(y1),
-            group_key: group,
-            "order": shape.get("order", flags.get("order", order)),
-        }
-        if "radius_mm" in shape or "radius_mm" in flags:
-            row["radius_mm"] = shape.get("radius_mm", flags.get("radius_mm"))
-        rows.append(row)
-        order += 1
-    if not rows:
-        raise ValueError("LabelMe export contains no rectangle or polygon shapes")
-    return rows
-
-
-def _coco_ids_equal(a, b) -> bool:
-    return a == b or (a is not None and b is not None and str(a) == str(b))
-
-
-def _coco_segmentation_bounds(segmentation) -> tuple[float, float, float, float] | None:
-    if isinstance(segmentation, dict):
-        return _coco_rle_segmentation_bounds(segmentation)
-    return _coco_polygon_segmentation_bounds(segmentation)
-
-
-def _coco_polygon_segmentation_bounds(segmentation) -> tuple[float, float, float, float] | None:
-    if segmentation is None:
-        return None
-    if not isinstance(segmentation, (list, tuple)):
-        raise ValueError("COCO polygon segmentation must be a list of x/y coordinates")
-    if not segmentation:
-        return None
-
-    if all(np.isscalar(value) for value in segmentation):
-        polygons = [segmentation]
-    else:
-        polygons = segmentation
-
-    coords = []
-    for polygon in polygons:
-        if not isinstance(polygon, (list, tuple)):
-            raise ValueError("COCO polygon segmentation must contain polygon coordinate lists")
-        try:
-            values = np.asarray(polygon, dtype=float).reshape(-1)
-        except (TypeError, ValueError) as e:
-            raise ValueError("COCO polygon segmentation must contain finite x/y pairs") from e
-        if len(values) == 0:
-            continue
-        if len(values) < 6 or len(values) % 2:
-            raise ValueError("COCO polygon segmentation must contain at least three x/y pairs")
-        if not np.isfinite(values).all():
-            raise ValueError("COCO polygon segmentation must contain finite x/y pairs")
-        coords.append(values.reshape(-1, 2))
-    if not coords:
-        return None
-    xy = np.vstack(coords)
-    return (
-        float(xy[:, 0].min()),
-        float(xy[:, 1].min()),
-        float(xy[:, 0].max()),
-        float(xy[:, 1].max()),
-    )
-
-
-def _coco_rle_segmentation_bounds(segmentation: dict) -> tuple[float, float, float, float] | None:
-    size = segmentation.get("size")
-    counts = segmentation.get("counts")
-    if not isinstance(size, (list, tuple)) or len(size) != 2:
-        raise ValueError("COCO RLE segmentation 'size' must be [height, width]")
-    height, width = (int(size[0]), int(size[1]))
-    if height <= 0 or width <= 0:
-        raise ValueError("COCO RLE segmentation size values must be positive")
-    if isinstance(counts, str):
-        raise ValueError("COCO compressed RLE counts are not supported; provide bbox or uncompressed counts")
-    if not isinstance(counts, (list, tuple)):
-        raise ValueError("COCO RLE segmentation 'counts' must be an uncompressed run-length list")
-    runs = np.asarray(counts, dtype=float).reshape(-1)
-    if not np.isfinite(runs).all() or np.any(runs < 0):
-        raise ValueError("COCO RLE segmentation counts must be finite non-negative values")
-    if not np.allclose(runs, np.round(runs), atol=0.0):
-        raise ValueError("COCO RLE segmentation counts must be integers")
-    runs = runs.astype(int)
-    total = int(height * width)
-    if int(runs.sum()) != total:
-        raise ValueError("COCO RLE segmentation counts must sum to height * width")
-
-    mask = np.zeros(total, dtype=bool)
-    cursor = 0
-    foreground = False
-    for run in runs:
-        next_cursor = cursor + int(run)
-        if foreground and run:
-            mask[cursor:next_cursor] = True
-        cursor = next_cursor
-        foreground = not foreground
-    foreground_idx = np.flatnonzero(mask)
-    if len(foreground_idx) == 0:
-        return None
-    ys = foreground_idx % height
-    xs = foreground_idx // height
-    return (
-        float(xs.min()),
-        float(ys.min()),
-        float(xs.max() + 1),
-        float(ys.max() + 1),
-    )
-
-
-def _label_studio_rows_from_json(payload, group_key: str = "group", image_size_px=None,
-                                 image_file: str | None = None):
-    """Extract Label Studio rectanglelabels exports as pixel-space box rows.
-
-    Label Studio stores rectangle coordinates as percentages of the source image.
-    Most exports include ``original_width`` and ``original_height`` on each result;
-    ``image_size_px`` is accepted as a fallback for stripped-down exports.
-    """
-    tasks = payload if isinstance(payload, list) else [payload]
-    if not all(isinstance(task, dict) for task in tasks):
-        return []
-    fallback_size = None
-    if image_size_px is not None:
-        size = np.asarray(image_size_px, dtype=float).reshape(-1)
-        if len(size) != 2 or np.any(size <= 0):
-            raise ValueError(f"image_size_px must be positive (width, height), got {image_size_px}")
-        fallback_size = (float(size[0]), float(size[1]))
-    if not any(_label_studio_task_has_rectangles(task) for task in tasks):
-        return []
-
-    task_refs = [_label_studio_task_image_ref(task) for task in tasks]
-    if image_file is not None:
-        matches = [i for i, ref in enumerate(task_refs) if _image_file_matches(ref, image_file)]
-        if not matches:
-            raise ValueError(f"Label Studio export contains no task for image_file {image_file!r}")
-        if len(matches) > 1:
-            raise ValueError(f"Label Studio export has multiple tasks for image_file {image_file!r}")
-        tasks = [tasks[matches[0]]]
-    elif len({ref for ref in task_refs if ref}) > 1:
-        raise ValueError("multi-task Label Studio import requires image_file")
-
-    rows = []
-    order = 0
-    for task in tasks:
-        annotations = task.get("annotations") or task.get("completions")
-        if annotations is None and isinstance(task.get("result"), list):
-            annotations = [task]
-        if not isinstance(annotations, list):
-            continue
-        for ann in annotations:
-            if not isinstance(ann, dict):
-                continue
-            results = ann.get("result", [])
-            if not isinstance(results, list):
-                continue
-            for result in results:
-                if not isinstance(result, dict):
-                    continue
-                value = result.get("value", {})
-                if not isinstance(value, dict):
-                    continue
-                if not {"x", "y", "width", "height"} <= set(value):
-                    continue
-                labels = value.get(group_key)
-                if labels is None:
-                    labels = value.get("rectanglelabels", value.get("labels"))
-                if isinstance(labels, (list, tuple)):
-                    group = labels[0] if labels else "vessel"
-                elif labels in (None, ""):
-                    group = result.get("from_name", "vessel")
-                else:
-                    group = labels
-                width = result.get("original_width", task.get("original_width"))
-                height = result.get("original_height", task.get("original_height"))
-                if width is None or height is None:
-                    if fallback_size is None:
-                        raise ValueError("Label Studio rectangle import requires "
-                                         "original_width/original_height metadata or "
-                                         "image_size_px=(width, height)")
-                    width, height = fallback_size
-                width, height = float(width), float(height)
-                if width <= 0 or height <= 0:
-                    raise ValueError("Label Studio original_width/original_height must be positive")
-                x0 = float(value["x"]) * width / 100.0
-                y0 = float(value["y"]) * height / 100.0
-                x1 = x0 + float(value["width"]) * width / 100.0
-                y1 = y0 + float(value["height"]) * height / 100.0
-                row = {
-                    "x_min": x0,
-                    "y_min": y0,
-                    "x_max": x1,
-                    "y_max": y1,
-                    "group": group,
-                    "order": float(order),
-                }
-                if "radius_mm" in value:
-                    row["radius_mm"] = value["radius_mm"]
-                rows.append(row)
-                order += 1
-    return rows
-
-
-def _xml_box_rows(path: Path, group_key: str = "group",
-                  image_file: str | None = None) -> list[dict]:
-    root = ET.parse(path).getroot()
-    if _xml_tag(root) == "annotation" and any(_xml_tag(elem) == "object" for elem in root):
-        return _pascal_voc_box_rows(root, group_key=group_key, image_file=image_file)
-    return _cvat_box_rows(root, group_key=group_key, image_file=image_file)
-
-
-def _cvat_box_rows(root, group_key: str = "group",
-                   image_file: str | None = None) -> list[dict]:
-    images = [elem for elem in root.iter() if _xml_tag(elem) == "image"]
-    if not images:
-        raise ValueError("CVAT XML contains no <image> elements")
-    if image_file is not None:
-        matches = [image for image in images if _image_file_matches(image.get("name"), image_file)]
-        if not matches:
-            raise ValueError(f"CVAT XML contains no image named {image_file!r}")
-        if len(matches) > 1:
-            raise ValueError(f"CVAT XML has multiple images named {image_file!r}")
-        images = matches
-    elif len({_image_ref_basename(image.get("name")) for image in images if image.get("name")}) > 1:
-        raise ValueError("multi-image CVAT import requires image_file")
-
-    rows = []
-    order = 0
-    for image in images:
-        for box in image:
-            if _xml_tag(box) != "box":
-                continue
-            attrs = {attr.get("name"): (attr.text or "").strip()
-                     for attr in box if _xml_tag(attr) == "attribute" and attr.get("name")}
-            group = attrs.get(group_key) or attrs.get("group") or box.get(group_key) or box.get("label")
-            row = {
-                "x_min": box.get("xtl"),
-                "y_min": box.get("ytl"),
-                "x_max": box.get("xbr"),
-                "y_max": box.get("ybr"),
-                group_key: "vessel" if group in (None, "") else group,
-                "order": attrs.get("order", box.get("order", order)),
-            }
-            if "radius_mm" in attrs or box.get("radius_mm") is not None:
-                row["radius_mm"] = attrs.get("radius_mm", box.get("radius_mm"))
-            rows.append(row)
-            order += 1
-    if not rows:
-        raise ValueError("CVAT XML contains no <box> annotations")
-    return rows
-
-
-def _pascal_voc_box_rows(root, group_key: str = "group",
-                         image_file: str | None = None) -> list[dict]:
-    refs = [
-        _xml_text(root.find("filename")),
-        _xml_text(root.find("path")),
-    ]
-    if image_file is not None and not any(_image_file_matches(ref, image_file) for ref in refs):
-        raise ValueError(f"Pascal VOC XML does not describe image_file {image_file!r}")
-
-    rows = []
-    for order, obj in enumerate(elem for elem in root if _xml_tag(elem) == "object"):
-        box = next((child for child in obj if _xml_tag(child) == "bndbox"), None)
-        if box is None:
-            continue
-        row = {
-            "x_min": _xml_text(box.find("xmin")),
-            "y_min": _xml_text(box.find("ymin")),
-            "x_max": _xml_text(box.find("xmax")),
-            "y_max": _xml_text(box.find("ymax")),
-            group_key: _xml_text(obj.find("name")) or "vessel",
-            "order": _xml_text(obj.find("order")) or order,
-        }
-        radius = _xml_text(obj.find("radius_mm"))
-        if radius is not None:
-            row["radius_mm"] = radius
-        rows.append(row)
-    if not rows:
-        raise ValueError("Pascal VOC XML contains no <object><bndbox> annotations")
-    return rows
-
-
-def _xml_tag(elem) -> str:
-    return str(elem.tag).rsplit("}", 1)[-1]
-
-
-def _xml_text(elem) -> str | None:
-    if elem is None or elem.text is None:
-        return None
-    value = elem.text.strip()
-    return value or None
-
-
-def _label_studio_task_image_ref(task: dict) -> str | None:
-    data = task.get("data")
-    if isinstance(data, dict):
-        for key in ("image", "img", "file", "filename", "image_url"):
-            value = data.get(key)
-            if isinstance(value, str) and value:
-                return value
-    return None
-
-
-def _label_studio_task_has_rectangles(task: dict) -> bool:
-    annotations = task.get("annotations") or task.get("completions")
-    if annotations is None and isinstance(task.get("result"), list):
-        annotations = [task]
-    if not isinstance(annotations, list):
-        return False
-    for ann in annotations:
-        if not isinstance(ann, dict):
-            continue
-        results = ann.get("result", [])
-        if not isinstance(results, list):
-            continue
-        for result in results:
-            if not isinstance(result, dict):
-                continue
-            value = result.get("value", {})
-            if isinstance(value, dict) and {"x", "y", "width", "height"} <= set(value):
-                return True
-    return False
-
-
-def _image_file_matches(candidate, image_file: str) -> bool:
-    if not candidate:
-        return False
-    return (
-        candidate == image_file
-        or _image_ref_basename(candidate) == _image_ref_basename(image_file)
-    )
-
-
-def _image_ref_basename(value) -> str:
-    raw = str(value)
-    parsed = urlparse(raw)
-    path = parsed.path if parsed.scheme or parsed.netloc else raw.split("?", 1)[0].split("#", 1)[0]
-    return Path(path).name
-
-
-def _load_yolo_box_annotations(path: Path, image_size_px=None) -> list[BoxAnnotation]:
-    if image_size_px is None:
-        raise ValueError("YOLO label import requires image_size_px=(width, height)")
-    size = np.asarray(image_size_px, dtype=float).reshape(-1)
-    if len(size) != 2 or np.any(size <= 0):
-        raise ValueError(f"image_size_px must be positive (width, height), got {image_size_px}")
-    width, height = float(size[0]), float(size[1])
-    boxes: list[BoxAnnotation] = []
-    for order, raw in enumerate(path.read_text().splitlines()):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.replace(",", " ").split()
-        if len(parts) < 5:
-            raise ValueError("YOLO label rows must contain class x_center y_center width height")
-        cls, xc, yc, bw, bh = parts[:5]
-        xc, yc, bw, bh = (float(xc), float(yc), float(bw), float(bh))
-        if not np.isfinite([xc, yc, bw, bh]).all() or bw <= 0 or bh <= 0:
-            raise ValueError(f"invalid YOLO row {raw!r}")
-        x0 = (xc - 0.5 * bw) * width
-        y0 = (yc - 0.5 * bh) * height
-        x1 = (xc + 0.5 * bw) * width
-        y1 = (yc + 0.5 * bh) * height
-        boxes.append(BoxAnnotation(x0, y0, x1, y1, group=f"class_{cls}", order=float(order)))
-    if not boxes:
-        raise ValueError("YOLO label file contains no boxes")
-    for box in boxes:
-        _validate_box(box)
-    return boxes
-
 
 def _box_from_mapping(row, group_key: str = "group") -> BoxAnnotation:
     if not isinstance(row, dict):

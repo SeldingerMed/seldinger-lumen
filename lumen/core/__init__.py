@@ -2,8 +2,7 @@
 
 Nothing here names a vessel, an airway, or any specific anatomy. It provides the
 tube-intrinsic frame (``frame``) and the shared lumen field ``R(s,theta)``
-(``lumen_field``) that the Newton solver (``lumen.newton``) builds on. Domain
-specifics live in ``lumen.profiles``.
+(``lumen_field``) that the Newton solver (``lumen.newton``) builds on.
 """
 
 from lumen.core.frame import CenterlineFrame, Projection

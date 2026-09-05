@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from lumen.assets.imaging import _display01
 
 
 def _write_json_manifest(out: Path, manifest: dict) -> dict:
@@ -206,16 +207,6 @@ def verify_demo_package(demo_dir="lumen_demo") -> dict:
         "manifest": str(manifest_path),
     }
 
-
-def _display01(frame):
-    arr = np.asarray(frame, dtype=float)
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return np.zeros_like(arr, dtype=float)
-    lo, hi = float(np.min(finite)), float(np.max(finite))
-    if hi <= lo:
-        return np.zeros_like(arr, dtype=float)
-    return np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
 
 
 def _label_overlay(frame, device_mask, vessel_mask):

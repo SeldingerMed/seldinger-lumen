@@ -10,6 +10,7 @@ from importlib import metadata
 from pathlib import Path
 
 from lumen.data.index import KEYPOINT_MASK_TOLERANCE_PX, device_keypoint_mask_errors
+from lumen.data.card import _format_counts
 from lumen.hardware import describe
 
 
@@ -797,11 +798,6 @@ def inspect_index_main(argv=None, prog=None) -> None:
             or summary.get("array_payload_errors")):
         raise SystemExit(1)
 
-
-def _format_counts(counts: dict) -> str:
-    if not counts:
-        return "-"
-    return ", ".join(f"{name}={count}" for name, count in counts.items())
 
 
 def _format_present_total(present: dict, total: dict) -> str:

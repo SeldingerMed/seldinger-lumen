@@ -20,8 +20,11 @@ import numpy as np
 
 from lumen.core.frame import CenterlineFrame
 from lumen.core.tree import VascularTree
-from lumen.envs._actions import parse_nav_action
-from lumen.envs._validation import validate_action_scale, validate_boolean
+from lumen.envs.nav_gym import (
+    parse_nav_action,
+    validate_action_scale,
+    validate_boolean,
+)
 from lumen.hardware import detect_device
 
 try:

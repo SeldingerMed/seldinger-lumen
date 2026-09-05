@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from lumen.envs._actions import parse_nav_action
+from lumen.envs.nav_gym import parse_nav_action
 
 
 @pytest.mark.parametrize("action", [[np.nan], [np.inf], [0.0, -np.inf]])
