@@ -119,6 +119,8 @@ package keeps both integrations optional.
 - Simulator/phantom/device deployment interface with fail-closed safety envelopes and
   force/torque benchtop validation ([protocol](docs/DEPLOYMENT.md)).
 
+For offline measured-input phantom replay, including a runnable synthetic example and the capture/export checklist, see [Phantom replay](docs/PHANTOM_REPLAY.md).
+
 ## Citation
 
 ```bibtex

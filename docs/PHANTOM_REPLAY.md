@@ -1,0 +1,35 @@
+# Replay a measured phantom maneuver offline
+
+With the Lumen `solver` extra installed, run this from the checkout or installed wheel. Choose a **new directory on verified external storage**, outside Git and cloud-sync folders. On the bench workstation, source the project’s external-volume environment before every invocation so simulator caches, temporary files and outputs stay on that volume.
+
+```sh
+python -m lumen.experiments.phantom_replay demo "$WORK/synthetic-demo"
+```
+
+Open `evaluation/hold01.html` for the time-aligned table. The JSON beside it includes the measurements, raw and registered simulated trajectories, actions and comparison receipt. The demo creates two **synthetic** recordings: a wire-plus-catheter calibration and a wire-only holdout with a missing camera sample and a deliberately displaced endpoint. It runs the CPU Newton model, not a physical instrument. It does not demonstrate sim-to-real accuracy.
+
+## Capture/export checklist for separately authorized recordings
+
+1. Use only permitted, nonclinical planar phantom recordings. Keep raw videos, exports, fitted parameters and results private on the verified volume. The operator is responsible for storage verification, consent and accurate provenance; schema validation cannot establish them. Never include identifying footage in reports or source control. This CLI neither captures video nor controls a rig.
+2. Reserve **whole independent runs** before inspecting outcomes. Give each a stable `run_id`, a `recording_id` identifying its original recording (shared by all derivatives), and phantom, tool, camera-calibration and sensor IDs. Retain source hashes, capture order, tool configuration, fluid and synchronization residuals in the private capture log. Never segment one maneuver into calibration and evaluation examples. The software rejects repeated IDs and identical signed measured motion sequences, not all possible near-duplicates or dishonest lineage.
+3. Use the demo’s `plan.json`, `cal01.json` and `hold01.json` as format examples, not data templates to relabel. Place one `<run_id>.json` per complete run beside the plan. Set `provenance` to `authorized_phantom` only for authorized phantom data and `consent` to true only when permission exists. Record `clock_sync.reference` and `clock_sync.evidence`. Use the same registered planar setup and axis conventions across both splits.
+4. Export synchronized samples on a **20 ms clock** (at most 3001 samples). Keep controller demand in `command` with channel meanings and units, separately from measured positions. `wire` and optional `catheter` are `[insertion_mm, unwrapped_rotation_deg]`, relative to the registered reset pose, independently measured **at the tool exit**. Specify `motion_exit.source` (`external_tracker` or `tool_exit`) and an evidence reference. Store axis polarities under `signs` in insertion, rotation order. Do not fill missing measurements with commands, motor current, carriage steps or interpolated tip points. If the driving axes are missing, the maneuver is not replayable. A wholly absent catheter stream models a wire alone, not an unknown moving catheter.
+5. For each tip, record `visibility`, `confidence`, and `measured_xy` in calibrated plane mm. Supply the pixel-to-plane 3×3 homography and `raw_pixel`, or identify the already-calibrated XY producer in `measured_xy_source`. Preserve missing coordinates as null. A single camera supplies **no depth**. Camera X maps to model X and camera Y to model Z; positive model Z runs from inlet toward the fork. Document any image flips in the homography. Branch overlap, a moving camera or an unregistered phantom can invalidate this comparison.
+6. If instrumented, export signed axial reaction in newtons at the phantom inlet, including `inlet_sensor.site: inlet_axial`, calibration ID and signed-axis convention. Otherwise use null. The current simulator supplies **no homologous inlet reaction**. Results retain measurements but do not calculate force error. `BenchTrace` requires actual torque as well as force: this export uses `BenchTraceMetadata` and `lumen.data.Step` records rather than inventing a torque channel.
+
+## Freeze fitting before evaluation
+
+```sh
+python -m lumen.experiments.phantom_replay calibrate "$WORK/study"
+# Preserve the printed fit SHA-256 independently, before opening the holdout.
+python -m lumen.experiments.phantom_replay evaluate "$WORK/study" --fit-sha256 "$FIT_SHA"
+```
+
+Calibration opens only the assigned calibration files. The sole fit is a shared 2-D translation: mean measured minus simulated **wire reset endpoint**, with one vote per complete calibration run; any reset residual above 5 mm is refused. No dynamics, scale, rotation, time shift or thresholds are fitted. `fit.json` binds the method, split and calibration input digests. Evaluation checks the frozen digest and calibration inputs, then checks holdout identities and motion fingerprints before writing a fresh `evaluation/`. No pooling of calibration and holdout scores. A directory without `complete.json` is not a completed evaluation. Preserve failed outputs; use a fresh workspace for an authorized rerun, not repeated tuning on the same holdout.
+
+## What the comparison means
+
+- Model: default planar 50 mm trunk, 50 mm daughters at ±35°, a fixed left-route rail and shaped wire reset, with optional modeled second rod. Shape and left-route bias are not learned branch choice. Other geometries, arbitrary starting poses and sampling schedules are unsupported. Both measured axes start at zero; after sign conversion, insertion stays within 0–49 mm and roll within ±360°. Each 20 ms step supports at most 2 mm and 30° per tool. Deltas drive four 5 ms substeps; there is no clipping or time warping. A model penetration guard refuses an incomplete replay; it is not a physical force limit.
+- The simulated tip is the distal endpoint of the last rod segment, projected into the fork plane. The table compares matched observations of the **same tool** at the same sample. Confidence is retained, not used as an uncertainty model. The JSON reports missing coverage and separate wire/catheter errors. No force, torque or distal contact value is derived from 2-D tracking.
+- Branch sign `-` denotes the left daughter, `+` the right. Identification requires membership in only one projected daughter corridor. Reported times are first sampled observations, not continuous-time event estimates. A gap before entry makes entry time unavailable. Straight-trunk reversal lag compares the last peak before a confirmed pullback after >0.5 mm advance, using the corresponding proximal and tip channels. Missing or incomparable events remain null.
+- The first consequential discrepancy is the earliest comparable **planar error >5 mm, different observed daughter, or matched event timing error >2 s**. These are fixed reporting thresholds for this software, not validated experimental or safety limits. Null means none identifiable under the available observations, not proof of agreement.
