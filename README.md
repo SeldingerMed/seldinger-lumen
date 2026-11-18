@@ -1,5 +1,7 @@
 # Lumen
 
+**Try image-only branch selection (CPU):** With Bash and [uv](https://docs.astral.sh/uv/) installed, run `bash tools/image_navigation.sh` from a clean checkout. The command installs the locked Python 3.12 solver environment, runs three procedural cases and replays their certificates. Open the printed `report.html` locally. Inspect each detector frame before revealing the trajectory and measurements. No model weights or GPU. [Experiment and audit guide](docs/IMAGE_BRANCH_EXPERIMENT.md).
+
 **Train endovascular navigation against the vessel wall, not just the target.**
 
 Lumen is an Apache-2.0 simulation and RL environment for catheter and guidewire navigation. It combines deformable vascular anatomy, finite-radius contact, synthetic imaging, replayable episodes, and Gymnasium tasks in one GPU-parallel solver.
