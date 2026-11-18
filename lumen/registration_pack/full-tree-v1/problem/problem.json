@@ -1,0 +1,17 @@
+{
+ "schema": "lumen-registration/1",
+ "case_id": "full-tree-v1",
+ "provenance": "procedural",
+ "geometry": "geometry.json",
+ "image": "image.png",
+ "camera": {
+  "fx_px": 1706.6666666666667,
+  "fy_px": 1706.6666666666667,
+  "cx_px": 255.5,
+  "cy_px": 255.5,
+  "width_px": 512,
+  "height_px": 512,
+  "axes": "+x right, +y down, +z forward (right-handed, source at origin, screen y down)",
+  "source_to_detector_mm": 600.0
+ }
+}
