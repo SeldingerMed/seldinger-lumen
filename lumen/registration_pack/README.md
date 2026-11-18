@@ -53,7 +53,7 @@ The generator samples the fixed cubic branch recipe and reads the frozen pose fr
 Open [blind A](selective-a-v1/problem/image.png) or [blind B](selective-b-v1/problem/image.png).
 Both come from the same 16-branch model in the same pose, with the same camera. Only the contrast-filled territory changes. Give a reader just one `problem/` directory and ask for the pose of the **whole tree**. A white pixel is not evidence that a modeled branch is absent. The `territory` tags in the geometry identify all the possible groups; neither manifest names the filled group. For independent blind attempts, collect both estimates before revealing either answer.
 
-Use the estimate example above with `CASE="$PACK/selective-a-v1"` or `CASE="$PACK/selective-b-v1"`. After submission, compare the two supplied poses with Python alone:
+Use the estimate example above with `CASE="$PACK/selective-a-v1"` or `CASE="$PACK/selective-b-v1"`. For a blind submission, stop after writing `estimate.json`. Scoring even your own estimate requires `answer/pose.json`. After submission, the evaluator can score your file and compare the two supplied poses with Python alone:
 
 ```sh
 PACK=lumen/registration_pack

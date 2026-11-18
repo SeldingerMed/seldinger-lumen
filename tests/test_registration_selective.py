@@ -93,7 +93,8 @@ def test_offline_rebuild_matches_both_frozen_exposures(tmp_path):
 
     root = tmp_path / "rebuilt"
     cmd = [sys.executable, "-m", "lumen.registration_pack.selective", str(root)]
-    subprocess.run(cmd, check=True)
+    regenerated = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    assert str(root) in regenerated.stdout
     assert {p.name for p in root.iterdir()} == {"selective-a-v1", "selective-b-v1"}
     for case in root.iterdir():
         frozen = PACK / case.name
@@ -115,4 +116,4 @@ def test_offline_rebuild_matches_both_frozen_exposures(tmp_path):
     assert (a / "problem/geometry.json").read_bytes() == (b / "problem/geometry.json").read_bytes()
     assert (a / "problem/image.png").read_bytes() != (b / "problem/image.png").read_bytes()
     repeat = subprocess.run(cmd, capture_output=True, text=True)
-    assert repeat.returncode != 0 and "File exists" in repeat.stderr
+    assert repeat.returncode != 0 and "FileExistsError:" in repeat.stderr

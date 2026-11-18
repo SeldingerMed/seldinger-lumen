@@ -94,4 +94,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path, help="new directory for exposures A and B")
-    generate_pack(parser.parse_args().destination)
+    args = parser.parse_args()
+    generate_pack(args.destination)
+    print(f"Wrote exposures A and B under {args.destination}")
