@@ -308,7 +308,7 @@ def build_corpus() -> tuple[list[TrajectoryTrace], list[TrajectoryTrace], dict]:
         "sibling_variants": sibling_variants,
         "holdout_lineages": sorted(lineage for lineage, _, _, _, _
                                    in _BASES["heldout"]),
-        "frozen_holdout_digest": _digest({
+        "declared_holdout_digest": _digest({
             "schema": HOLDOUT_SCHEMA,
             "lineages": sorted(l for l, _, _, _, _ in _BASES["heldout"]),
             "seeds": sorted(s for _, _, _, s, _ in _BASES["heldout"]),
@@ -711,7 +711,7 @@ def replacement_audit() -> dict:
             "passed": control["negative_control"]["passed"],
         },
         "baseline": {
-            "dev": run_baseline(train, test),
+            "dev": {**run_baseline(train, test), "role": "positive_control_exact_content"},
             "heldout": evaluate_heldout(train, heldout, result["heldout"]),
         },
         "provenance": {

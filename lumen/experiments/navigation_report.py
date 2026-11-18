@@ -18,17 +18,7 @@ Rollout contract consumed here (new final rollout contract)::
                  "peak_wall_load_sim_units": float, "abstained": bool},
     }
 
-Blind-first policy of the report:
-
-* everything the policy could see (fluoro frames) and every separately
-  measured score is rendered immediately;
-* the hidden device trajectory (rendered visually as an SVG polyline) and the
-  reviewer's disclosure reason sit behind a ``<details>`` disclosure the
-  reader must click;
-* case IDs are NOT shown in the blind portion — cases are labelled
-  "Case 1..N" by index so the reader cannot match a case to a frozen ID
-  before disclosing. (In this registry the IDs are already non-spoiling,
-  but the report never relies on that.)
+Blind-first: goal and detector images first; actions, scores and hidden trajectory on disclosure.
 
 Replay certificate:
 
@@ -168,7 +158,7 @@ def build_html(results, case_labels=None) -> str:
         parts.append("<details><summary>Reveal hidden evidence "
                      "(trajectory, reason, case identity)</summary>")
         parts.append(f"<p><b>Executed action:</b> {esc(str(res.get('action', '')))}</p>")
-        # --- blind: all scores, shown separately --------------------------
+        # --- disclosed: all scores, shown separately --------------------------
         scores = res.get("scores", {})
         parts.append("<h3>Scores (all measured separately)</h3><table><tr><th>score</th><th>value</th></tr>")
         for key in ("target_reached", "max_penetration_mm",
@@ -265,17 +255,8 @@ def make_output_dir(parent: str | None = None) -> str:
     parent = os.path.abspath(parent or os.getcwd())
     if not os.path.isdir(parent):
         raise ValueError(f"output parent directory does not exist: {parent}")
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    for suffix in range(10000):
-        candidate = os.path.join(parent, f"lumen_navigation_report-{stamp}"
-                                         + (f"-{suffix}" if suffix else ""))
-        if not os.path.exists(candidate):
-            os.makedirs(candidate)
-            break
-    resolved = os.path.realpath(candidate)
-    if os.path.dirname(resolved) != parent:
-        raise ValueError(f"unsafe output path: {candidate}")
-    return resolved
+    from tempfile import mkdtemp
+    return mkdtemp(prefix="lumen_navigation_report-", dir=os.path.realpath(parent))
 
 
 def _load_default_producer():
@@ -292,7 +273,7 @@ def _load_certificate(path: str) -> dict:
     full = os.path.abspath(path)
     if not os.path.isfile(full):
         raise CertificateRejected(f"certificate file not found: {path}")
-    if os.path.realpath(full) != full:
+    if os.path.islink(full):
         raise CertificateRejected("refusing symlinked certificate path")
     with open(full, "r", encoding="utf-8") as fh:
         return json.load(fh)

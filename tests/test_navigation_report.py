@@ -196,3 +196,16 @@ def test_main_verify_fails_on_tampered_certificate(tmp_path):
 def test_public_audit_writer_emits_verdict(tmp_path):
     nr.write_audit(tmp_path, lambda: {"schema": "example", "verdict": "independent"})
     assert json.loads((tmp_path / "replacement-audit.json").read_text())["verdict"] == "independent"
+
+
+def test_parent_alias_allows_verify_without_accepting_symlink_leaf(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    path = real / "cert.json"
+    path.write_text(json.dumps(nr.build_certificate(PRODUCER, CASE_IDS)))
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    assert nr.main(["--verify", str(alias / path.name)], producer=PRODUCER, case_ids=CASE_IDS) == 0
+    link = real / "leaf"
+    link.symlink_to(path)
+    assert nr.main(["--verify", str(link)], producer=PRODUCER, case_ids=CASE_IDS) == 1

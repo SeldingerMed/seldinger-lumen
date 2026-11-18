@@ -44,7 +44,7 @@ def test_corpus_families_are_frozen_and_distinct(corpus):
     dev_keys = {(t.generator, t.seed, t.schedule_id) for t in dev}
     held_keys = {(t.generator, t.seed, t.schedule_id) for t in heldout}
     assert not (dev_keys & held_keys)
-    assert meta["frozen_holdout_digest"]
+    assert meta["declared_holdout_digest"]
     assert meta["holdout_lineages"]
 
 
@@ -500,6 +500,7 @@ def test_replacement_audit_returns_json_dict_with_stratified_holdout(corpus):
         if stratum == "declared":
             continue  # corpus has no cross-seed declared siblings; unit-tested
         assert result["audit"]["degradation"]["counts"][stratum] > 0
+    assert result["baseline"]["dev"]["role"] == "positive_control_exact_content"
     assert result["baseline"]["dev"]["schema"] == \
         "seldinger-world-model-baseline-v1"
     assert result["negative_control"]["passed"] is True

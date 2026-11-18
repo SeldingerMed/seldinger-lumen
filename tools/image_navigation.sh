@@ -8,7 +8,7 @@
 # What it does:
 #   1. `uv sync --locked --extra solver` — installs the exact uv.lock
 #      resolution, which pins Newton (newton-physics @ 6dfe7303) and
-#      warp-lang 1.16.0 on a Python >= 3.10 interpreter.
+#      warp-lang 1.16.0 on a Python 3.12 interpreter.
 #   2. Runs `lumen.experiments.navigation_report` on the CPU only
 #      (CUDA_VISIBLE_DEVICES is cleared; the rollout engine is already
 #      device="cpu") for every frozen case.
