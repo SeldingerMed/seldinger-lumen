@@ -255,3 +255,15 @@ def test_cli_generates_case(tmp_path):
     )
     assert r.returncode == 0, r.stderr
     assert (out / "problem" / "problem.json").is_file()
+
+
+def test_box_downsample_preserves_native_principal_point():
+    # An axial segment through the principal ray is radially symmetric on the detector.
+    pose = np.eye(4)
+    pose[2, 3] = 300
+    branch = dict(points_mm=[[0, 0, 0], [0, 0, 2]], radius_mm=1.5, territory="inlet")
+    image, _, _ = gen.render([branch], pose)
+    darkness = (255 - image).astype(float)
+    row, col = np.indices(image.shape)
+    for axis in [col, row]:
+        assert abs((axis * darkness).sum() / darkness.sum() - 255.5) < 1e-10

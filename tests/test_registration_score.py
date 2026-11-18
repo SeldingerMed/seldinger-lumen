@@ -194,3 +194,11 @@ def test_extreme_finite_translation_does_not_produce_nonfinite_score():
     pose[0][3] = 1e308
     r = run_score(estimate=estimate(pose))
     assert r.returncode == 1 and "finite score" in r.stderr and not r.stdout
+
+
+def test_six_decimal_submission_is_scored_without_reorthogonalizing():
+    pose = np.round(reference_pose(), decimals=6).tolist()
+    r = run_score(estimate=estimate(pose))
+    assert r.returncode == 0, r.stderr
+    expected, _ = expected_metrics(pose)
+    assert json.loads(r.stdout)["rms_3d_mm"] == pytest.approx(expected, abs=1e-12)

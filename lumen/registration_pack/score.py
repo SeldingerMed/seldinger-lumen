@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 SCHEMA = "lumen-rigid-pose/1"
-ORTHO_TOL = 1e-9
+ORTHO_TOL = 3e-6  # Allow rotation entries rounded to six decimal places.
 
 
 class ValidationError(Exception):
@@ -45,12 +45,10 @@ def _validate_camera(problem: dict) -> None:
     cam = problem.get("camera")
     if not isinstance(cam, dict):
         raise ValidationError("problem.camera missing")
-    if cam.get("axes") != "+x right, +y down, +z forward":
-        # tolerate documented suffixes, but the axes tokens must be present
-        axes = cam.get("axes", "")
-        for token in ("+x right", "+y down", "+z forward"):
-            if token not in axes:
-                raise ValidationError(f"camera axes must state {token!r}: {axes!r}")
+    axes = cam.get("axes", "")
+    for token in ("+x right", "+y down", "+z forward"):
+        if not isinstance(axes, str) or token not in axes:
+            raise ValidationError(f"camera axes must state {token!r}: {axes!r}")
     for key in (
         "fx_px",
         "fy_px",
