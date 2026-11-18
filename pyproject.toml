@@ -46,6 +46,7 @@ include = ["lumen*", "tools"]
 
 [tool.setuptools.package-data]
 lumen = ["py.typed"]
+"lumen.registration_pack" = ["README.md", "full-tree-v1/problem/*", "full-tree-v1/answer/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

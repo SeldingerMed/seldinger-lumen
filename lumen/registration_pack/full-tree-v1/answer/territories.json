@@ -1,0 +1,6 @@
+{
+ "inlet": "mask_inlet.png",
+ "west": "mask_west.png",
+ "apical": "mask_apical.png",
+ "east": "mask_east.png"
+}

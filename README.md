@@ -8,6 +8,10 @@ Lumen is an Apache-2.0 simulation and RL environment for catheter and guidewire 
 
 ![Lumen advanced simulator captures](docs/assets/launch/physics-layer.png)
 
+## Try a static registration case
+
+[Open the blind projection](lumen/registration_pack/full-tree-v1/problem/image.png) and estimate the rigid pose of its supplied 3D tree. The [offline walkthrough](lumen/registration_pack/README.md) includes the camera convention, a standalone scorer in millimeters and pixels, and a separate answer overlay. No GPU or solver is needed.
+
 ## Benchmark Snapshot
 
 The historical 50,000-step branch-navigation pilot measured 100% raw target reach in
