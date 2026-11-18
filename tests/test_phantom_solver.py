@@ -98,6 +98,26 @@ def test_rejects_oversized_step_delta_instead_of_clipping():
         ps.convert_samples(samples, {"wire": [1, 1], "catheter": [1, 1]})
 
 
+def test_accepts_decimal_exact_bound_step_in_full_replay():
+    # 4.03 - 2.03 is 2.0000000000000004 in float; decimal subtraction of the
+    # stringified positions is exactly at the 2.0 mm bound and must be accepted.
+    samples = [
+        {"t_s": round(i * 0.020, 6), "wire": [p, 0.0], "catheter": None}
+        for i, p in enumerate([0.0, 1.0, 2.03, 4.03])
+    ]
+    cmds = ps.convert_samples(samples, {"wire": [1, 1], "catheter": [1, 1]})
+    assert cmds[-1][0] == ps.MAX_STEP_INSERTION_MM  # normalized to exact bound
+
+
+def test_rejects_genuinely_oversized_decimal_step_in_full_replay():
+    samples = [
+        {"t_s": round(i * 0.020, 6), "wire": [p, 0.0], "catheter": None}
+        for i, p in enumerate([0.0, 1.0, 2.03, 4.05])
+    ]
+    with pytest.raises(ValueError, match="step"):
+        ps.convert_samples(samples, {"wire": [1, 1], "catheter": [1, 1]})
+
+
 def test_rejects_mixed_catheter_presence():
     samples = [
         {"t_s": 0.0, "wire": [0.0, 0.0], "catheter": None},

@@ -15,11 +15,15 @@ XY is the calibrated fork plane (Lumen X, Z). Fixed procedural bifurcation:
 apex at (0, 50) mm, daughter branches at +/-35 deg from the trunk (+Y) axis,
 finite segment corridor of radius BRANCH_RADIUS_MM and length
 BRANCH_SEGMENT_LENGTH_MM. Per-instrument analysis throughout: each instrument
-is scored on its OWN tip and insertion, never mixed. Conservative timing: no
-inference across sampling gaps; an occlusion before the first event nulls the
-event timing. Signed lags (sim - measured) are reported only for comparable
-events. This layer NEVER infers physical Z/torque and NEVER compares inlet
-force to distal contact.
+is scored on its OWN tip and insertion, never mixed. Branch choice reports
+``observed_at_s`` (first visible branch sample) independently of the possibly
+censored entry time ``t_s``; first observed signs are compared even across
+gaps, timestamped at the later observation time. ``branch_entry`` is
+per-instrument with a nullable ``signed_lag_s`` and a ``matched_rows``
+coverage count. Conservative timing: no inference across sampling gaps; an
+occlusion before the first event nulls the event timing. Signed lags
+(sim - measured) are reported only for comparable events. This layer NEVER
+infers physical Z/torque and NEVER compares inlet force to distal contact.
 """
 
 from __future__ import annotations
@@ -186,10 +190,23 @@ def test_matching_branch_entries_same_sign_no_discrepancy():
     bc = out["branch_choice"]["catheter"]
     assert bc["measured"]["t_s"] == pytest.approx(7.0)
     assert bc["measured"]["sign"] == "+"
+    assert bc["measured"]["observed_at_s"] == pytest.approx(7.0)
     assert bc["sim"]["t_s"] == pytest.approx(7.0)
     assert bc["sim"]["sign"] == "+"
-    assert out["branch_entry"]["signed_lag_s"] == pytest.approx(0.0)
+    assert bc["sim"]["observed_at_s"] == pytest.approx(7.0)
+    assert out["branch_entry"]["catheter"]["signed_lag_s"] == pytest.approx(0.0)
     assert out["first_consequential_discrepancy"] is None
+
+
+def test_branch_entry_per_instrument_and_both_tips_missing_reported():
+    # Neither tip ever enters a branch: per-instrument records still exist
+    # with a null lag (reported), and matched coverage uses matched counts.
+    rows = _straight_rows()
+    out = pm.compare(rows)
+    for inst in pm.INSTRUMENTS:
+        rec = out["branch_entry"][inst]
+        assert rec["signed_lag_s"] is None
+        assert rec["matched_rows"] == 5
 
 
 def test_branch_sign_mismatch_is_first_discrepancy():
@@ -198,6 +215,18 @@ def test_branch_sign_mismatch_is_first_discrepancy():
     assert d is not None and d["event"] == "branch_choice"
     assert d["measured_sign"] == "+" and d["sim_sign"] == "-"
     assert d["t_s"] == pytest.approx(5.0)
+
+
+def test_branch_sign_mismatch_reported_at_later_observation_despite_censoring():
+    # Signs differ and one side's entry time is occlusion-censored: the
+    # first-observed signs are still compared, at the later observation time.
+    rows = _branch_rows(5.0, 6.0, sign="+", sim_sign="-")
+    rows[0] = _row(0.0, cath_ins=0.0, meas={"catheter": [0.0, 0.0]}, sim={"catheter": [0.0, 0.0]})
+    rows[1] = _row(1.0, cath_ins=30.0, meas={}, sim={})  # occluded before entry
+    d = pm.compare(rows)["first_consequential_discrepancy"]
+    assert d is not None and d["event"] == "branch_choice"
+    assert d["measured_sign"] == "+" and d["sim_sign"] == "-"
+    assert d["t_s"] == pytest.approx(6.0)
 
 
 def test_branch_entry_delta_beyond_threshold_is_discrepancy():
@@ -291,8 +320,10 @@ def test_occlusion_before_first_event_nulls_timing_conservatively():
     bc = out["branch_choice"]["catheter"]
     assert bc["measured"]["sign"] == "+"
     assert bc["measured"]["t_s"] is None
+    assert bc["measured"]["observed_at_s"] == pytest.approx(2.0)
     assert bc["sim"]["t_s"] is None
-    assert out["branch_entry"]["signed_lag_s"] is None
+    assert bc["sim"]["observed_at_s"] == pytest.approx(2.0)
+    assert out["branch_entry"]["catheter"]["signed_lag_s"] is None
     assert "branch_entry" in out["coverage"]["excluded_events"]
     assert out["first_consequential_discrepancy"] is None
 

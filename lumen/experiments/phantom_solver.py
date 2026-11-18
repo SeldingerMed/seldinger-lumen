@@ -13,14 +13,15 @@ from collections import deque
 
 import numpy as np
 
+from decimal import Decimal
+
 from lumen.assets.procedural import bifurcation
 from lumen.deployment import DeploymentConfig, SafetyEnvelope, run_deployment
 from lumen.envs.tree_nav import TreeNavEnv
+from lumen.experiments.phantom_capture import MAX_RUN_LENGTH, MAX_WIRE_MM, MAX_ROLL_ABS_DEG
 
 INITIAL_WIRE = INITIAL_CATHETER = [0.0, 0.0]
 SUPPORTED_INTERVAL_S = 0.020
-MAX_WIRE_MM = 49.0
-MAX_ROLL_ABS_DEG = 360.0
 MAX_STEP_INSERTION_MM = 2.0
 MAX_STEP_TWIST_DEG = 30.0
 SCALES = (MAX_STEP_INSERTION_MM, math.radians(MAX_STEP_TWIST_DEG))
@@ -28,8 +29,8 @@ SCALES = (MAX_STEP_INSERTION_MM, math.radians(MAX_STEP_TWIST_DEG))
 
 def convert_samples(samples, signs):
     """Return incremental mm, rad per tool in wire-then-catheter order."""
-    if not isinstance(samples, list) or not 1 <= len(samples) <= 3001:
-        raise ValueError("samples must contain 1..3001 rows")
+    if not isinstance(samples, list) or not 1 <= len(samples) <= MAX_RUN_LENGTH:
+        raise ValueError(f"samples must contain 1..{MAX_RUN_LENGTH} rows")
     if not isinstance(signs, dict) or any(
         not isinstance(signs.get(k), list)
         or len(signs[k]) != 2
@@ -38,6 +39,7 @@ def convert_samples(samples, signs):
     ):
         raise ValueError("axis signs must be integer +/-1 pairs")
     tools = ["wire"] if samples[0]["catheter"] is None else ["wire", "catheter"]
+    step_bounds = (MAX_STEP_INSERTION_MM, MAX_STEP_TWIST_DEG)
     commands, prev = [], None
     for i, row in enumerate(samples):
         if not math.isfinite(row["t_s"]) or (
@@ -66,11 +68,20 @@ def convert_samples(samples, signs):
             state.extend([pos, roll])
         if prev is not None:
             delta = [b - a for a, b in zip(prev, state)]
-            if any(
-                abs(v) > (MAX_STEP_INSERTION_MM, MAX_STEP_TWIST_DEG)[k % 2]
-                for k, v in enumerate(delta)
-            ):
-                raise ValueError("per-step motion exceeds bound; refusing to clip")
+            # Compare against the exact bound via decimal subtraction of the
+            # stringified inputs: finite decimal magnitudes subtract exactly,
+            # so float rounding at the bound (e.g. 4.03 - 2.03 ->
+            # 2.0000000000000004) is normalized to the exact bound instead of
+            # being rejected. Genuinely oversized steps are still refused, not
+            # clipped.
+            for k, (a, b) in enumerate(zip(prev, state)):
+                exact = Decimal(str(b)) - Decimal(str(a))
+                bound = Decimal(str(step_bounds[k % 2]))
+                if abs(exact) > bound:
+                    raise ValueError("per-step motion exceeds bound; refusing to clip")
+                normalized = float(bound if exact > 0 else -bound)
+                if abs(exact) == bound and delta[k] != normalized:
+                    delta[k] = normalized
             commands.append(tuple(math.radians(v) if k % 2 else v for k, v in enumerate(delta)))
         prev = state
     return commands

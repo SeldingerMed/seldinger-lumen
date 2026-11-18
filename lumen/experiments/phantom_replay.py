@@ -14,7 +14,7 @@ import stat
 
 from lumen.data.schema import Step
 from lumen.deployment import BenchTraceMetadata
-from lumen.experiments.phantom_capture import admit, synthetic_run
+from lumen.experiments.phantom_capture import admit, synthetic_run, normalized_homography
 from lumen.experiments.phantom_metrics import compare
 from lumen.experiments.phantom_solver import convert_samples, replay
 
@@ -50,7 +50,9 @@ def read(path):
 
 
 def write(path, obj):
-    with path.open("x", encoding="utf-8") as f:
+    with os.fdopen(
+        os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8"
+    ) as f:
         json.dump(obj, f, allow_nan=False, indent=1)
         f.write("\n")
 
@@ -96,6 +98,7 @@ def trial(root, run_id):
         k: meta[k]
         for k in ("phantom_id", "calibration_id", "homography", "signs", "units", "provenance")
     }
+    binding["homography"] = normalized_homography(meta["homography"])
     return data, {
         "run_id": run_id,
         "recording_id": meta["recording_id"],
@@ -155,13 +158,14 @@ def calibrate(root):
         distinct(records)
         sim = simulate(run)
         tip = run["rows"][0]["measured_xy"]["wire"]
-        if tip is None or not run["rows"][0]["confidence"]["wire"]:
+        if tip is None:
             raise ValueError("missing visible calibration reset wire tip")
         delta = [x - y for x, y in zip(tip, sim[0]["wire"])]
         if math.hypot(*delta) > 5:
             raise ValueError("reset outside 5 mm registration budget")
         offsets.append(delta)
-        reports[run_id] = joined(run, sim, [0, 0])[1]
+        metrics = joined(run, sim, [0, 0])[1]
+        reports[run_id] = {k: v for k, v in metrics.items() if k != "discrepancies"}
     fit = dict(
         method=METHOD,
         plan=digest(plan),
@@ -236,7 +240,7 @@ def evaluate(root, frozen_hash):
             metrics=metrics,
         )
         meta = run["metadata"]
-        inlet = meta.get("inlet_sensor") or {}
+        inlet = meta["inlet_sensor"] if any(r["inlet_force_n"] is not None for r in rows) else {}
         report["bench_trace_metadata"] = BenchTraceMetadata(
             source="bench",
             force_units="N" if inlet else "not_measured",

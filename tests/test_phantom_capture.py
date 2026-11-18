@@ -35,9 +35,10 @@ import math
 import pytest
 
 from lumen.experiments.phantom_capture import (
-    AdmissionError,
     MAX_RUN_LENGTH,
+    AdmissionError,
     admit,
+    normalized_homography,
     synthetic_run,
 )
 
@@ -140,8 +141,10 @@ def test_signs_must_be_pm1_pairs():
 def test_signs_present_but_not_applied_by_admit():
     run = _good_run()
     run["metadata"]["signs"] = {"wire": [-1, -1], "catheter": [-1, 1]}
+    for r in run["rows"]:
+        r["wire"][0] *= -1
     rows = admit(run)
-    assert rows[2]["wire"][0] == 4.0  # raw value preserved verbatim
+    assert rows[2]["wire"][0] == -4.0  # raw value preserved verbatim
 
 
 def test_singular_homography_rejected():
@@ -149,6 +152,124 @@ def test_singular_homography_rejected():
     run["metadata"]["homography"] = [[1.0, 2.0, 3.0], [2.0, 4.0, 6.0], [0.0, 0.0, 1.0]]
     with pytest.raises(AdmissionError):
         admit(run)
+    # singular at a different scale stays singular after normalization
+    run = _good_run()
+    run["metadata"]["homography"] = [[2.0, 4.0, 6.0], [1.0, 2.0, 3.0], [0.0, 0.0, 1.0]]
+    with pytest.raises(AdmissionError):
+        admit(run)
+
+
+def test_homography_scale_invariant():
+    # a tiny-scale but invertible homography is admitted (normalization)
+    run = _good_run()
+    run["metadata"]["homography"] = [
+        [1e-12, 0.0, 0.0],
+        [0.0, 1e-12, 0.0],
+        [0.0, 0.0, 1e-12],
+    ]
+    rows = run["rows"]
+    for r in rows:
+        r["measured_xy"] = {"wire": None, "catheter": None}
+        r["raw_pixel"] = {"wire": None, "catheter": None}
+    run["metadata"]["measured_xy_source"] = "bench-tracked-tip"
+    assert admit(run)
+    # ± scale of a valid homography normalizes identically
+    h = [[2.0, 0.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    assert normalized_homography(h) == normalized_homography([[-x for x in row] for row in h])
+
+
+def test_normalized_homography_helper_exported():
+    h = [[2.0, 0.0, 1.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    norm = normalized_homography(h)
+    assert isinstance(norm, list) and len(norm) == 3
+    assert max(abs(v) for row in norm for v in row) == 1.0
+    assert normalized_homography([[10.0, 0.0, 5.0], [0.0, 5.0, 0.0], [0.0, 0.0, 5.0]]) == norm
+    # degenerate / malformed input normalizes to None (admission rejects)
+    assert normalized_homography([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]) is None
+    assert normalized_homography([1, 2, 3]) is None
+
+
+def test_calibration_placeholders_rejected():
+    for bad in ("none", "UNKNOWN", "uncalibrated", ""):
+        run = _good_run()
+        run["metadata"]["calibration_id"] = bad
+        with pytest.raises(AdmissionError):
+            admit(run)
+    run = _good_run()
+    run["metadata"]["inlet_sensor"]["calibration_id"] = "none"
+    with pytest.raises(AdmissionError):
+        admit(run)
+
+
+def test_huge_numeric_inputs_rejected():
+    run = _good_run()
+    run["rows"][0]["wire"] = [1e300, 0.0]
+    with pytest.raises(AdmissionError):
+        admit(run)
+    run = _good_run()
+    run["rows"][0]["inlet_force_n"] = -1e300
+    with pytest.raises(AdmissionError):
+        admit(run)
+    run = _good_run()
+    run["rows"][0]["measured_xy"]["wire"] = [1e300, 0.0]
+    run["rows"][0]["raw_pixel"]["wire"] = None
+    with pytest.raises(AdmissionError):
+        admit(run)
+    run = _good_run()
+    run["metadata"]["homography"] = [[1e300, 0, 0], [0, 1, 0], [0, 0, 1]]
+    with pytest.raises(AdmissionError):
+        admit(run)
+
+
+def test_catheter_tool_id_required_when_motion_or_xy():
+    # catheter motion present without a catheter tool id -> reject
+    run = _good_run()
+    del run["metadata"]["tool_ids"]["catheter"]
+    with pytest.raises(AdmissionError):
+        admit(run)
+    # catheter XY present (even motionless) still requires the tool id
+    run = _good_run()
+    del run["metadata"]["tool_ids"]["catheter"]
+    for r in run["rows"]:
+        r["catheter"] = None
+        r["measured_xy"]["catheter"] = r["measured_xy"]["wire"]
+        r["raw_pixel"]["catheter"] = r["raw_pixel"]["wire"]
+    with pytest.raises(AdmissionError):
+        admit(run)
+    # no catheter motion and no catheter XY: catheter tool id unnecessary
+    run = _good_run()
+    del run["metadata"]["tool_ids"]["catheter"]
+    for r in run["rows"]:
+        r["catheter"] = None
+        r["measured_xy"]["catheter"] = None
+        r["raw_pixel"]["catheter"] = None
+        r["visibility"]["catheter"] = False
+    assert admit(run)
+
+
+def test_motion_exit_omitted_only_without_tool_motion():
+    # motion_exit omitted entirely while rows carry tool motion -> reject
+    run = _good_run()
+    del run["metadata"]["motion_exit"]
+    with pytest.raises(AdmissionError):
+        admit(run)
+    # motion_exit explicitly None with tool motion -> reject too
+    run = _good_run()
+    run["metadata"]["motion_exit"] = None
+    with pytest.raises(AdmissionError):
+        admit(run)
+    # genuinely motionless run: omission is fine
+    run = _good_run()
+    del run["metadata"]["motion_exit"]
+    for r in run["rows"]:
+        r["wire"] = None
+        r["catheter"] = None
+        r["measured_xy"] = {"wire": None, "catheter": None}
+        r["raw_pixel"] = {"wire": None, "catheter": None}
+        r["visibility"] = {"wire": False, "catheter": False}
+        r["confidence"] = {"wire": None, "catheter": None}
+    run["metadata"]["measured_xy_source"] = "bench-tracked-tip"
+    assert admit(run)
 
 
 def test_missing_homography_row_rejected():
@@ -159,8 +280,32 @@ def test_missing_homography_row_rejected():
 
 
 def test_canonical_units_metadata_required():
+    # invalid time-only units: t_s in ms while everything else is canonical
     run = _good_run()
-    run["metadata"]["units"] = {"t_s": "ms", "measured_xy": "mm", "inlet_force_n": "N"}
+    run["metadata"]["units"] = {
+        "insertion": "mm",
+        "rotation": "deg_unwrapped",
+        "t_s": "ms",
+        "measured_xy": "mm",
+        "inlet_force_n": "N",
+    }
+    with pytest.raises(AdmissionError):
+        admit(run)
+    # units must exactly match the canonical map: missing keys rejected
+    run = _good_run()
+    run["metadata"]["units"] = {"t_s": "s", "measured_xy": "mm", "inlet_force_n": "N"}
+    with pytest.raises(AdmissionError):
+        admit(run)
+    # unexpected extra unit keys rejected too
+    run = _good_run()
+    run["metadata"]["units"] = {
+        "insertion": "mm",
+        "rotation": "deg_unwrapped",
+        "t_s": "s",
+        "measured_xy": "mm",
+        "inlet_force_n": "N",
+        "extra": "furlongs",
+    }
     with pytest.raises(AdmissionError):
         admit(run)
 
@@ -252,6 +397,8 @@ def test_negative_abs_mm_preserved_with_negative_polarity():
     # solver checks the canonical sign; admit only preserves raw values
     run = _good_run()
     run["metadata"]["signs"] = {"wire": [-1, 1], "catheter": [1, 1]}
+    for r in run["rows"]:
+        r["wire"][0] *= -1
     run["rows"][0]["wire"] = [-3.5, 5.0]
     rows = admit(run)
     assert rows[0]["wire"] == [-3.5, 5.0]
@@ -265,13 +412,25 @@ def test_non_monotonic_clock_rejected():
 
 
 def test_run_length_bounded():
-    run = _good_run()
-    run["rows"] = list(run["rows"]) + [
-        dict(run["rows"][-1], t_s=run["rows"][-1]["t_s"] + 0.1) for _ in range(MAX_RUN_LENGTH)
-    ]
-    assert len(run["rows"]) > MAX_RUN_LENGTH
+    # boundary: exactly MAX_RUN_LENGTH rows admit, one more is rejected
+    base = _good_run()
+    n0 = len(base["rows"])
+    t_last = base["rows"][-1]["t_s"]
+
+    def padded(total):
+        run = _good_run()
+        filler = [
+            dict(base["rows"][-1], t_s=round(t_last + 0.1 * (k + 1), 6)) for k in range(total - n0)
+        ]
+        run["rows"] = list(base["rows"]) + filler
+        return run
+
+    full = padded(MAX_RUN_LENGTH)
+    assert len(full["rows"]) == MAX_RUN_LENGTH
+    assert admit(full)
+    over = padded(MAX_RUN_LENGTH + 1)
     with pytest.raises(AdmissionError):
-        admit(run)
+        admit(over)
 
 
 def test_inlet_force_must_be_explicit_or_null():

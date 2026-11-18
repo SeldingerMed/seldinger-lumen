@@ -27,11 +27,20 @@ Per-instrument independence: every instrument is scored on its OWN insertion
 and its OWN tip XY. Tips are never substituted between instruments, and an
 instrument with no tip data has no branch/reversal events at all.
 
-Conservative timing (no gap inference): a sample where the instrument is
-present but its tip is unobservable is an occlusion. Any occlusion strictly
-before a side's first event nulls that side's event timing rather than
-inferring across the gap. Signed lags (sim_t - measured_t) and residuals are
-reported only for comparable events (both sides observed, neither nulled).
+Branch choice/entry: the first OBSERVED branch sign per side is always
+comparable, reported with ``observed_at_s`` (first visible sample in the
+branch) even when the true entry time is left-censored by a preceding
+occlusion; sign mismatches are timestamped at the LATER observation time and
+never claim a true first entry across gaps. ``branch_entry[inst]`` carries a
+nullable ``signed_lag_s`` (unavailable when either entry time is censored or
+a side never entered) plus a ``matched_rows`` coverage count of rows where
+both sides' tips were observed; both tips missing still yields a reported
+null-lag record. Conservative timing (no gap inference): a sample where the
+instrument is present but its tip is unobservable is an occlusion. Any
+occlusion strictly before a side's first event nulls that side's event
+timing rather than inferring across the gap. Signed lags (sim_t - measured_t)
+and residuals are reported only for comparable events (both sides observed,
+neither nulled).
 
 Reversals: per instrument, an insertion reversal is a positive->negative
 crossing that required prior positive advance (a plain decrease from an
@@ -109,34 +118,24 @@ def _series(
     return out
 
 
-def _occluded_before(series, event_t: Optional[float]) -> bool:
-    """True if the instrument was present (insertion known) but its tip was
-    unobservable at any sample strictly before event_t."""
-    if event_t is None:
-        return False
-    return any(ins is not None and tip is None for t, ins, tip in series if t < event_t)
-
-
-def _branch_entry(series) -> Optional[Tuple[str, Optional[float]]]:
-    """(sign, t) of the first sample inside a daughter corridor, or None.
-    t is None (conservatively) if the tip was occluded before that sample.
+def _branch_entry(series) -> Optional[Tuple[str, Optional[float], float]]:
+    """(sign, entry_t, observed_at_t) of the first sample inside a daughter
+    corridor, or None. entry_t is None (conservatively) if the tip was
+    occluded before that sample — the true first entry is left-censored —
+    while observed_at_t is always the first VISIBLE sample in the branch.
     Only the FIRST sampled branch is tracked."""
-    first_sign: Optional[str] = None
-    first_t: Optional[float] = None
+    first: Optional[Tuple[str, Optional[float], float]] = None
     occluded = False
     for t, ins, tip in series:
         if tip is None:
             if ins is not None:
                 occluded = True
             continue
-        if first_sign is None:
+        if first is None:
             s = _branch_sign(*tip)
             if s is not None:
-                first_sign = s
-                first_t = None if occluded else t
-    if first_sign is None:
-        return None
-    return first_sign, first_t
+                first = (s, None if occluded else t, t)
+    return first
 
 
 def _turn(series, *, tip_signal=False):
@@ -205,44 +204,61 @@ def compare(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         }
 
     # -- branch choice / entry, per instrument --------------------------------
+    # First OBSERVED signs are always comparable (reported at the later
+    # observation time); entry timing is only comparable when neither side's
+    # entry is left-censored by an occlusion before its first branch sample.
     branch_choice: Dict[str, Dict[str, Any]] = {}
-    entry_lag: Optional[float] = None
+    branch_entry: Dict[str, Dict[str, Any]] = {}
     for inst in INSTRUMENTS:
         meas = _branch_entry(_series(rows, inst, "measured_xy"))
         sim = _branch_entry(_series(rows, inst, "sim_xy"))
         branch_choice[inst] = {
-            "measured": None if meas is None else {"sign": meas[0], "t_s": meas[1]},
-            "sim": None if sim is None else {"sign": sim[0], "t_s": sim[1]},
+            "measured": None
+            if meas is None
+            else {"sign": meas[0], "t_s": meas[1], "observed_at_s": meas[2]},
+            "sim": None
+            if sim is None
+            else {"sign": sim[0], "t_s": sim[1], "observed_at_s": sim[2]},
         }
+        # Coverage count uses the MATCHED count: rows where both sides'
+        # tips were observed for this instrument.
+        matched_rows = sum(
+            1
+            for r in rows
+            if (r.get("measured_xy") or {}).get(inst) is not None
+            and (r.get("sim_xy") or {}).get(inst) is not None
+        )
+        branch_entry[inst] = {"signed_lag_s": None, "matched_rows": matched_rows}
         if meas is None and sim is None:
+            # Both tips missing: still reported above with a null lag.
             continue
         if meas is None or sim is None:
             excluded.append("branch_entry")
             continue
         if meas[0] != sim[0]:
-            ts = [t for _, t in (meas, sim) if t is not None]
-            if len(ts) == 2:
-                candidates.append(
-                    (
-                        max(ts),
-                        0,
-                        {
-                            "event": "branch_choice",
-                            "instrument": inst,
-                            "t_s": max(ts),
-                            "measured_sign": meas[0],
-                            "sim_sign": sim[0],
-                        },
-                    )
+            # Never claim a true first entry across gaps: timestamp the
+            # sign mismatch at the later OBSERVATION time (always known).
+            t0 = max(meas[2], sim[2])
+            candidates.append(
+                (
+                    t0,
+                    0,
+                    {
+                        "event": "branch_choice",
+                        "instrument": inst,
+                        "t_s": t0,
+                        "measured_sign": meas[0],
+                        "sim_sign": sim[0],
+                    },
                 )
+            )
         else:
             mt, st = meas[1], sim[1]
             if mt is None or st is None:
                 excluded.append("branch_entry")  # occlusion-nulled timing
             else:
                 lag = st - mt
-                if entry_lag is None:
-                    entry_lag = lag
+                branch_entry[inst]["signed_lag_s"] = lag
                 if abs(lag) > EVENT_TIME_S_TOL:
                     candidates.append(
                         (
@@ -257,7 +273,6 @@ def compare(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
                             },
                         )
                     )
-    branch_entry = {"signed_lag_s": entry_lag}
 
     # -- first reversal, per instrument ---------------------------------------
     first_reversal: Dict[str, Dict[str, Any]] = {}

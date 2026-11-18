@@ -102,3 +102,45 @@ def test_split_is_frozen_without_opening_holdout_and_rejects_relabelled_copy(tmp
     assert not (tmp_path / "evaluation").exists()
     with pytest.raises(ValueError, match="frozen fit/plan mismatch"):
         evaluate(tmp_path, "0" * 64)
+
+
+def test_signed_travel_refused_at_admission():
+    run = synthetic_run("A", "rec")
+    run["metadata"]["signs"]["wire"][0] = -1
+    with pytest.raises(AdmissionError, match="signed insertion"):
+        admit(run)
+
+
+def test_reset_and_absent_force_need_no_fabricated_confidence_or_sensor(tmp_path):
+    pytest.importorskip("newton")
+    from lumen.experiments.phantom_replay import calibrate, evaluate, write, METHOD
+
+    write(tmp_path / "plan.json", dict(method=METHOD, calibration=["A"], holdout=["B"]))
+    a = synthetic_run("A", "a")
+    b = synthetic_run("B", "b", "partial")
+    a["rows"][0]["confidence"]["wire"] = None
+    b["metadata"]["inlet_sensor"] = "not installed"
+    b["metadata"]["homography"] = [[2, 0, 0], [0, 2, 0], [0, 0, 2]]
+    write(tmp_path / "A.json", a)
+    write(tmp_path / "B.json", b)
+    freeze = calibrate(tmp_path)
+    evaluate(tmp_path, freeze)
+    assert (
+        json.loads((tmp_path / "evaluation/B.json").read_text())["bench_trace_metadata"][
+            "force_units"
+        ]
+        == "not_measured"
+    )
+    fit = json.loads((tmp_path / "fit.json").read_text())
+    assert "discrepancies" not in fit["calibration_metrics_before_fit"]["A"]
+
+
+def test_reversal_is_not_erased_by_later_lateral_travel():
+    from lumen.experiments.phantom_metrics import compare
+
+    rows = [
+        dict(t_s=i, wire=[v, 0], measured_xy={"wire": [x, 10 + v]}, sim_xy={"wire": [x, 10 + v]})
+        for i, (v, x) in enumerate([(0, 0), (1, 0), (2, 0), (1, 0), (1, 8)])
+    ]
+    rev = compare(rows)["first_reversal"]["wire"]
+    assert rev["sim_t_s"] == rev["measured_t_s"] == 2

@@ -14,9 +14,14 @@ Run shape (dict):
     homography     : non-singular 3x3 matrix (list of 3 rows x 3 numbers),
                      pixel -> Lumen fork-plane XY mm
     clock_sync     : dict with non-empty 'evidence' and 'reference'
-    motion_exit    : None or dict — independently measured motion at tool
-                     exit ONLY (source 'external_tracker' or 'tool_exit'
-                     plus non-empty 'evidence'; never motor commands)
+    units          : must exactly match the canonical map
+                     {'insertion': 'mm', 'rotation': 'deg_unwrapped',
+                      't_s': 's', 'measured_xy': 'mm', 'inlet_force_n': 'N'}
+    motion_exit    : dict — independently measured motion at tool exit
+                     (source 'external_tracker' or 'tool_exit' plus
+                     non-empty 'evidence'; never motor commands). May be
+                     omitted/None ONLY when no row carries tool motion;
+                     rows with wire/catheter motion require it regardless.
     inlet_sensor   : required when any row carries a non-null
                      inlet_force_n — {'site': must name the explicit inlet
                      axial site, 'calibration_id': non-empty str}. Never a
@@ -45,9 +50,11 @@ Run shape (dict):
     confidence    : raw per-tip confidence, each None or in [0, 1]
     raw_pixel     : optional per-tip raw pixel coords (preserved verbatim)
 
-Projective consistency: a non-null raw_pixel must map through the homography
-onto the paired measured_xy. An invisible tip must carry null measured_xy and
-null raw_pixel.
+Projective consistency: a non-null raw_pixel must map through the normalized
+homography onto the paired measured_xy. The homography is normalized by its
+signed largest-magnitude element (see :func:`normalized_homography`), so
+admission is invariant to the matrix's overall ± scale; the normalized form
+is exported for stable parent-side hashing.
 
 A tracked device may be visible without motion instrumentation (e.g. a
 stationary catheter observed in fluoroscopy): wire/catheter may carry
@@ -60,12 +67,21 @@ from __future__ import annotations
 import math
 from typing import Any
 
-__all__ = ["AdmissionError", "MAX_RUN_LENGTH", "admit", "synthetic_run"]
+__all__ = [
+    "AdmissionError",
+    "MAX_RUN_LENGTH",
+    "admit",
+    "normalized_homography",
+    "synthetic_run",
+]
 
 MAX_RUN_LENGTH = 3001
+MAX_WIRE_MM = 49.0
+MAX_ROLL_ABS_DEG = 360.0
 
 _PROJECTIVE_TOL_MM = 1e-3
 _MIN_HOMOGRAPHY_DET = 1e-9
+_MAX_ABS_VALUE = 1e12  # huge magnitudes are unsupported numeric input
 
 _CANONICAL_UNITS = {
     "insertion": "mm",
@@ -77,7 +93,8 @@ _CANONICAL_UNITS = {
 
 _PROVENANCES = ("synthetic", "authorized_phantom")
 _MOTION_EXIT_SOURCES = ("external_tracker", "tool_exit")
-_INLET_SITE_TOKEN = "inlet"
+# calibration placeholders rejected per BenchTraceMetadata semantics
+_CALIBRATION_PLACEHOLDERS = {"none", "unknown", "uncalibrated"}
 
 
 class AdmissionError(ValueError):
@@ -85,7 +102,12 @@ class AdmissionError(ValueError):
 
 
 def _is_num(x: Any) -> bool:
-    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+    return (
+        isinstance(x, (int, float))
+        and not isinstance(x, bool)
+        and abs(x) <= _MAX_ABS_VALUE
+        and math.isfinite(x)
+    )
 
 
 def _require(cond: bool, msg: str) -> None:
@@ -97,17 +119,56 @@ def _nonempty_str(x: Any) -> bool:
     return isinstance(x, str) and x.strip() != ""
 
 
-def _check_homography(hom: Any) -> None:
+def _is_calibration_placeholder(x: Any) -> bool:
+    return isinstance(x, str) and x.strip().lower() in _CALIBRATION_PLACEHOLDERS
+
+
+def _check_calibration_id(value: Any, label: str) -> None:
+    _require(_nonempty_str(value), f"{label} must be a non-empty string")
     _require(
-        isinstance(hom, (list, tuple))
-        and len(hom) == 3
-        and all(
-            isinstance(row, (list, tuple)) and len(row) == 3 and all(map(_is_num, row))
-            for row in hom
-        ),
-        "homography must be a 3x3 numeric matrix (pixel -> fork-plane XY mm)",
+        not _is_calibration_placeholder(value),
+        f"{label} must identify a calibration (placeholders "
+        f"{sorted(_CALIBRATION_PLACEHOLDERS)} rejected, per BenchTraceMetadata)",
     )
-    a, b, c = hom
+
+
+def normalized_homography(matrix: Any) -> list[list[float]] | None:
+    """Scale-invariant normalized form of a 3x3 homography matrix.
+
+    Divides every element by the signed element of largest magnitude, so
+    ``matrix`` and any ± scale of it produce the identical result — suitable
+    as a stable canonical form for hashing. Returns ``None`` when the input
+    is not a finite 3x3 numeric matrix or is identically zero (admission
+    treats ``None`` as degenerate and rejects it).
+    """
+    if not isinstance(matrix, (list, tuple)) or len(matrix) != 3:
+        return None
+    rows: list[list[float]] = []
+    for row in matrix:
+        if not isinstance(row, (list, tuple)) or len(row) != 3:
+            return None
+        if not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+            for v in row
+        ):
+            return None
+        rows.append([float(v) for v in row])
+    flat = [v for row in rows for v in row]
+    pivot = max(flat, key=abs)
+    if pivot == 0.0:
+        return None
+    return [[v / pivot for v in row] for row in rows]
+
+
+def _check_homography(hom: Any) -> None:
+    norm = normalized_homography(hom)
+    _require(
+        norm is not None,
+        "homography must be a 3x3 finite numeric matrix (pixel -> fork-plane XY mm)",
+    )
+    if norm is None:
+        return
+    (a, b, c) = norm
     det = (
         a[0] * (b[1] * c[2] - b[2] * c[1])
         - a[1] * (b[0] * c[2] - b[2] * c[0])
@@ -135,8 +196,9 @@ def _check_metadata(meta: Any) -> None:
         "units",
     ):
         _require(key in meta, f"metadata missing {key!r}")
-    for key in ("run_id", "recording_id", "phantom_id", "calibration_id"):
+    for key in ("run_id", "recording_id", "phantom_id"):
         _require(_nonempty_str(meta[key]), f"{key} must be a non-empty string")
+    _check_calibration_id(meta["calibration_id"], "calibration_id")
     _require(
         meta["provenance"] in _PROVENANCES, "provenance must be 'synthetic' or 'authorized_phantom'"
     )
@@ -155,11 +217,10 @@ def _check_metadata(meta: Any) -> None:
         "clock_sync must include non-empty 'evidence' and 'reference'",
     )
     units = meta["units"]
-    _require(isinstance(units, dict), "units must be a dict")
-    for key, unit in _CANONICAL_UNITS.items():
-        _require(
-            units.get(key) == unit, f"units[{key!r}] must be {unit!r} (canonical units metadata)"
-        )
+    _require(
+        units == _CANONICAL_UNITS,
+        f"units must exactly match the canonical map {_CANONICAL_UNITS}",
+    )
     signs = meta["signs"]
     _require(
         isinstance(signs, dict) and set(signs) == {"wire", "catheter"},
@@ -174,11 +235,12 @@ def _check_metadata(meta: Any) -> None:
             f"signs[{tool!r}] must be [±1, ±1]",
         )
     motion_exit = meta.get("motion_exit")
-    _require(
-        isinstance(motion_exit, dict),
-        "motion_exit must be a dict (independently measured motion at tool exit)",
-    )
-    if isinstance(motion_exit, dict):
+    if motion_exit is not None:
+        _require(
+            isinstance(motion_exit, dict),
+            "motion_exit must be a dict (independently measured motion at tool exit), or be "
+            "omitted entirely when no row carries tool motion",
+        )
         _require(
             motion_exit.get("source") in _MOTION_EXIT_SOURCES
             and _nonempty_str(motion_exit.get("evidence")),
@@ -194,7 +256,7 @@ def _check_tool_state(state: Any, label: str) -> None:
         isinstance(state, (list, tuple)) and len(state) == 2 and all(map(_is_num, state)),
         f"{label} must be [abs_mm, unwrapped_degrees] or null",
     )
-    _require(-360.0 <= state[1] <= 360.0, f"{label} unwrapped_degrees out of range")
+    _require(abs(state[1]) <= MAX_ROLL_ABS_DEG, f"{label} unwrapped_degrees out of range")
 
 
 def _check_xy_pair(pair: Any, label: str) -> None:
@@ -286,10 +348,12 @@ def _project_through_homography(hom: Any, uv: list) -> tuple:
 
 
 def _check_rows(rows: list, meta: dict) -> None:
-    hom = meta["homography"]
+    hom = normalized_homography(meta["homography"])
     signs = meta["signs"]
     needs_xy_source = False
     has_inlet = False
+    has_catheter = False
+    has_motion = False
     for i, row in enumerate(rows):
         try:
             _check_row(row)
@@ -322,13 +386,26 @@ def _check_rows(rows: list, meta: dict) -> None:
             elif xy is not None:
                 needs_xy_source = True  # calibrated XY without raw pixels
             state = row[tool]
-            if state is not None and state[0] < 0.0 and signs[tool][0] != -1:
-                raise AdmissionError(
-                    f"row {i}: negative {tool} abs_mm requires negative polarity signs[{tool!r}][0] == -1 "
-                    "(raw insertion preserved; solver checks the canonical sign)"
+            if state is not None:
+                has_motion = True
+                _require(
+                    0 <= state[0] * signs[tool][0] <= MAX_WIRE_MM,
+                    f"row {i}: signed insertion outside replay bounds for {tool}",
                 )
+            if tool == "catheter" and (state is not None or xy is not None):
+                has_catheter = True
         if row["inlet_force_n"] is not None:
             has_inlet = True
+    if has_catheter:
+        _require(
+            _nonempty_str(meta["tool_ids"].get("catheter")),
+            "rows with catheter motion or measured XY require a non-empty 'catheter' tool id",
+        )
+    if has_motion and meta.get("motion_exit") is None:
+        raise AdmissionError(
+            "tool motion present requires independent motion_exit evidence ('external_tracker' or "
+            "'tool_exit' source with non-empty 'evidence') even when the field is omitted"
+        )
     if needs_xy_source:
         _require(
             _nonempty_str(meta.get("measured_xy_source")),
@@ -338,12 +415,12 @@ def _check_rows(rows: list, meta: dict) -> None:
     if has_inlet:
         sensor = meta.get("inlet_sensor")
         _require(
-            isinstance(sensor, dict)
-            and sensor.get("site") == "inlet_axial"
-            and _nonempty_str(sensor.get("calibration_id")),
+            isinstance(sensor, dict) and sensor.get("site") == "inlet_axial",
             "non-null inlet_force_n requires metadata 'inlet_sensor' with the explicit inlet site "
             "and a non-empty 'calibration_id'",
         )
+        if isinstance(sensor, dict):
+            _check_calibration_id(sensor.get("calibration_id"), "inlet_sensor['calibration_id']")
 
 
 def admit(run: Any) -> list[dict[str, Any]]:
