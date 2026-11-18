@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- A two-view registration challenge with overlapping procedural forks, calibrated projections and offline pose scoring.
 - Open-source project setup: CI (tests + firewall + lint across Python 3.10–3.12),
   DCO sign-off check, CONTRIBUTING / Code of Conduct / SECURITY, issue & PR
   templates, CODEOWNERS, Dependabot, and a GitHub Pages site.

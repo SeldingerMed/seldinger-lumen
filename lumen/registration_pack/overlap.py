@@ -5,8 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .generate import PROVENANCE, _camera_params, render, write_png
-from .selective import _json
+from .generate import PROVENANCE, _camera_params, _json, edge_overlay, render, write_png
 
 # Column vectors, mm. A and B look at the same rig isocenter (0, 0, 300) in A.
 A_TO_B = np.array([[0.8, 0, 0.6, -180], [0, 1, 0, 0], [-0.6, 0, 0.8, 60], [0, 0, 0, 1]])
@@ -53,7 +52,8 @@ def generate_pack(destination):
     branches = _tree()
     filled = [b for b in branches if b["territory"] == "west"]
     alternate = MODEL_TO_A.copy()
-    alternate[2, 3] += 16
+    east_root = next(b["points_mm"][0] for b in branches if b["territory"] == "east")
+    alternate[:3, 3] += MODEL_TO_A[:3, :3] @ np.subtract(east_root, filled[0]["points_mm"][0])
     for code, rig in [("a", np.eye(4)), ("b", A_TO_B)]:
         case_id = f"overlap-{code}-v1"
         problem, answer = (root / case_id / part for part in ("problem", "answer"))
@@ -104,14 +104,12 @@ def generate_pack(destination):
         other, _, _ = render(filled, rig @ alternate)
         for label, mask in [("", image < 255), ("wrong_", other < 255)]:
             write_png(answer / f"{label}mask.png", mask.astype(np.uint8) * 255)
-            p = np.pad(mask, 1)
-            edge = mask & ~(p[:-2, 1:-1] & p[2:, 1:-1] & p[1:-1, :-2] & p[1:-1, 2:])
-            overlay = np.repeat(image[:, :, None], 3, axis=2)
-            overlay[edge] = (0, 120, 190)
-            write_png(answer / f"{label}overlay.png", overlay)
+            write_png(answer / f"{label}overlay.png", edge_overlay(image, mask))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path, help="new directory for both views")
-    generate_pack(parser.parse_args().destination)
+    destination = parser.parse_args().destination
+    generate_pack(destination)
+    print(f"Wrote views A and B under {destination}")

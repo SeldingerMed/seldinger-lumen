@@ -136,7 +136,8 @@ def test_fresh_cli_matches_shipped_pair(tmp_path):
 
     target = tmp_path / "rebuild"
     cmd = [sys.executable, "-m", "lumen.registration_pack.overlap", str(target)]
-    subprocess.run(cmd, check=True)
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert str(target) in result.stdout
     assert target.is_dir(), "CLI must produce the pair"
 
     def files(root):

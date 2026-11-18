@@ -46,6 +46,19 @@ TERRITORY_RGB = {
 TERRITORY_NAMES = tuple(TERRITORY_RGB)
 
 
+def _json(path, obj):
+    path.write_bytes((json.dumps(obj, separators=(",", ":"), allow_nan=False) + "\n").encode())
+
+
+def edge_overlay(image, mask):
+    """Paint the four-connected inner boundary on the observed gray image."""
+    p = np.pad(mask, 1)
+    edge = mask & ~(p[:-2, 1:-1] & p[2:, 1:-1] & p[1:-1, :-2] & p[1:-1, 2:])
+    overlay = np.repeat(image[:, :, None], 3, axis=2)
+    overlay[edge] = (0, 120, 190)
+    return overlay
+
+
 def _png_chunk(tag: bytes, data: bytes) -> bytes:
     return (
         struct.pack(">I", len(data))

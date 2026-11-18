@@ -1,18 +1,13 @@
 """Rebuild the paired selective exposures of registration case 2 (NumPy, CPU)."""
 
-import json
 from pathlib import Path
 
 import numpy as np
 
-from .generate import PROVENANCE, _camera_params, build_tree, render, write_png
+from .generate import PROVENANCE, _camera_params, _json, build_tree, edge_overlay, render, write_png
 
 # Separate from the full-tree control. Right-handed rotation about camera X.
 REFERENCE = [[1, 0, 0, 2], [0, 12 / 13, -5 / 13, -1], [0, 5 / 13, 12 / 13, 316], [0, 0, 0, 1]]
-
-
-def _json(path, obj):
-    path.write_bytes((json.dumps(obj, separators=(",", ":"), allow_nan=False) + "\n").encode())
 
 
 def generate_pack(destination):
@@ -73,12 +68,7 @@ def generate_pack(destination):
             ("reference", pose, image < 255, "overlay.png"),
             ("wrong", wrong, wrong_image < 255, "wrong_overlay.png"),
         ]:
-            # Inner boundary, four-connected; the base is always the observed image.
-            p = np.pad(mask, 1)
-            edge = mask & ~(p[:-2, 1:-1] & p[2:, 1:-1] & p[1:-1, :-2] & p[1:-1, 2:])
-            overlay = np.repeat(image[:, :, None], 3, axis=2)
-            overlay[edge] = (0, 120, 190)
-            write_png(answer / filename, overlay)
+            write_png(answer / filename, edge_overlay(image, mask))
             projected[key] = {}
             for branch in branches:
                 xyz = np.asarray(branch["points_mm"]) @ matrix[:3, :3].T + matrix[:3, 3]
