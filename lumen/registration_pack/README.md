@@ -1,6 +1,6 @@
-# Register a vessel tree from one projection
+# Register a vessel tree from projections
 
-Choose the [full-tree control](#case-1-full-tree-control) or [two selective exposures](#case-2-selective-exposures). Both accept the same pose-file format; use the case ID from the blind manifest.
+Choose the [full-tree control](#case-1-full-tree-control), [selective exposures](#case-2-selective-exposures) or [two-view challenge](#case-3-one-injection-two-views). All three accept the same pose-file format; use the case ID from the blind manifest.
 
 ## Case 1: full-tree control
 
@@ -94,3 +94,33 @@ python3 -m lumen.registration_pack.selective rebuilt-selective
 ```
 
 Use a new destination. Both exposures use the original procedural tree and renderer, with no external images, source volumes or weights. The Apache-2.0 license covers the generated fixtures as well as the code.
+
+## Case 3: one injection, two views
+
+1. Hand the reader only `overlap-a-v1/problem/`. Open [view A](overlap-a-v1/problem/image.png) in any image viewer. Use the supplied 3D tree to name the fork you think is filled. Record your pose in camera A coordinates and keep it, even if you later change your mind. In the [rough-estimate example](#try-the-score-then-reveal), set `CASE="$PACK/overlap-a-v1"` and change the output redirection to `> estimate-a.json`. Stop before scoring. Save the second submission separately as `estimate-b.json`.
+2. Now hand over `overlap-b-v1/problem/` and open [view B](overlap-b-v1/problem/image.png). The tree and injection did not move. Use [the calibration](overlap-b-v1/problem/calibration.json) to compare your predicted fork with the observed one. For homogeneous column vectors, `p_B = camera_a_to_camera_b_mm @ p_A`; thus a model pose in B is that same matrix **left-multiplied** onto the pose in A. Both manifests specify their own intrinsics. The calibration relates the cameras, not the model to either camera. Record your revised fork and pose, using case ID `overlap-b-v1` and B coordinates for the second submission.
+3. Only after both submissions, release `answer/` for both views. From the checkout root, score each saved estimate with standard Python (no Lumen install):
+
+```sh
+PACK=lumen/registration_pack
+python3 -I -S "$PACK/score.py" "$PACK/overlap-a-v1" estimate-a.json
+python3 -I -S "$PACK/score.py" "$PACK/overlap-b-v1" estimate-b.json
+```
+
+<details>
+<summary>Reveal the fork, both rigid hypotheses and their scores</summary>
+
+The two three-branch forks share a trunk through separate feeders. Corresponding fork samples lie 16 mm apart along camera A's depth axis; they overlap **on the detector**, not at the same 3D location. Only the west fork contributes to the observed pixels. At the reference pose the east fork lies exactly where the west fork would lie after translating the whole tree 16 mm. That translated pose is the wrong hypothesis. Camera B looks across the offset instead of along it.
+
+| View | Correct / wrong edge on the observed image | Foreground Dice (correct / wrong) | Fork centerline RMS (correct / wrong) | Whole-tree reprojection RMS (correct / wrong) |
+| --- | --- | --- | --- | --- |
+| A | [Correct](overlap-a-v1/answer/overlay.png) / [wrong](overlap-a-v1/answer/wrong_overlay.png) | 1 / 0.896 | 0 / 2.77 px | 0 / 3.63 px |
+| B | [Correct](overlap-b-v1/answer/overlay.png) / [wrong](overlap-b-v1/answer/wrong_overlay.png) | 1 / 0.049 | 0 / 52.48 px | 0 / 50.30 px |
+
+`answer/visibility.json` identifies the rendered branches. `territories.json` maps the two candidate forks to **independently projected** binary masks at the reference pose. Pixels can belong to both masks; the east mask is a prediction, not a second injection. Dice is twice the number of shared foreground pixels divided by the sum of the two foreground counts. Fork pixel RMS uses the 75 paired samples on the three branches. The standard pose scorer instead compares all 225 samples; it returns 0 mm for `answer/pose.json` and 16 mm for `answer/wrong_pose.json` in both views. Try those files in place of the estimates above.
+
+The fixture passes its ambiguity check if the two projected forks have Dice ≥0.80 and fork RMS ≤4 px in A, then Dice ≤0.30 and fork RMS ≥35 px in B. These gates distinguish these two fixed hypotheses. They do not establish a unique pose if both the filled branch and its pose are allowed to change: translating the congruent east fork onto the west fork would reproduce both views. Nor are they accuracy estimates for a registration algorithm.
+
+</details>
+
+Rebuild both views with `python3 -m lumen.registration_pack.overlap rebuilt-overlap` from the checkout with NumPy installed. Use a new destination. Both frames are independent perspective renders of a procedural tree; no patient image, model weights, GPU or Newton installation is needed.
