@@ -144,3 +144,28 @@ def test_reversal_is_not_erased_by_later_lateral_travel():
     ]
     rev = compare(rows)["first_reversal"]["wire"]
     assert rev["sim_t_s"] == rev["measured_t_s"] == 2
+
+
+def test_different_tool_ids_refused_even_on_same_camera(tmp_path):
+    from lumen.experiments.phantom_replay import distinct, trial, write
+
+    a = synthetic_run("a", "a")
+    b = synthetic_run("b", "b", "partial")
+    b["metadata"]["tool_ids"]["wire"] = "different-wire"
+    write(tmp_path / "a.json", a)
+    write(tmp_path / "b.json", b)
+    with pytest.raises(ValueError, match="incompatible"):
+        distinct([trial(tmp_path, k)[1] for k in ("a", "b")])
+
+
+def test_parser_recursion_failure_uses_cli_refusal(tmp_path, monkeypatch, capsys):
+    from lumen.experiments import phantom_replay as pr
+
+    def refused(*args, **kwargs):
+        raise RecursionError("depth exceeded")
+
+    pr.write(tmp_path / "plan.json", {})
+    monkeypatch.setattr(pr.json, "loads", refused)
+    with pytest.raises(SystemExit) as e:
+        pr.main(["calibrate", str(tmp_path)])
+    assert e.value.code == 2 and "phantom replay refused" in capsys.readouterr().err

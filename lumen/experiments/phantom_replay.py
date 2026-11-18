@@ -98,6 +98,7 @@ def trial(root, run_id):
         k: meta[k]
         for k in ("phantom_id", "calibration_id", "homography", "signs", "units", "provenance")
     }
+    binding["tool_ids"] = meta["tool_ids"]
     binding["homography"] = normalized_homography(meta["homography"])
     return data, {
         "run_id": run_id,
@@ -292,7 +293,7 @@ def main(argv=None):
         if args.mode != "calibrate":
             evaluate(root, frozen)
             print(root / "evaluation" / "complete.json")
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         parser.exit(2, f"phantom replay refused: {exc}\n")
 
 
