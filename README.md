@@ -8,9 +8,11 @@ Lumen is an Apache-2.0 simulation and RL environment for catheter and guidewire 
 
 ![Lumen advanced simulator captures](docs/assets/launch/physics-layer.png)
 
-## Try a static registration case
+## Try the static registration cases
 
 [Open the blind projection](lumen/registration_pack/full-tree-v1/problem/image.png) and estimate the rigid pose of its supplied 3D tree. The [offline walkthrough](lumen/registration_pack/README.md) includes the camera convention, a standalone scorer in millimeters and pixels, and a separate answer overlay. No GPU or solver is needed.
+
+In the [selective-exposure challenge](lumen/registration_pack/README.md#case-2-selective-exposures), different territories fill in the same 3D tree. Compare two rigid overlays that follow the visible forks but disagree in depth.
 
 ## Benchmark Snapshot
 
