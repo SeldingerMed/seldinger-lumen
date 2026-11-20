@@ -4,11 +4,20 @@
 guidewire ROOT joints (proximal insertion force), not tip-wall contact. This script
 re-evaluates the saved, frozen CathSim PPO models on the SAME common frozen evaluation
 seeds (10000..10099), with the same env construction, deterministic actions and success
-rule, and additionally enables `use_contact_forces=True` to record CathSim's own per-contact
-normal forces (MuJoCo `contact_force(i)[0][0]`, SI units, Newtons; contacts within 2 mm,
-|f| > 1 mN, CathSim's defaults). Per episode it stores the per-step maximum contact force,
-peak and mean, plus the proximal force for reference, and classifies safe success at the
-preregistered 1.0 N threshold with 0.5 N / 1.5 N sensitivity.
+rule, and measures wire-wall contact force directly from the MuJoCo state each control step,
+using CathSim's own definition (Navigate.get_contact_forces: normal component of
+`contact_force(i)`, Newtons, contacts with dist < 2 mm, |f| > 1 mN), restricted to
+guidewire-phantom contacts. Tip force = contacts on the guidewire tip bodies
+(guidewire/tip/*); wire force = any guidewire body.
+
+Why not `info["contact_forces"]`: CathSim's gym wrapper calls
+`get_contact_forces(self.physics, self.image_size)`, which passes image_size (64) into the
+`threshold` argument, so every contact below 64 N is dropped. We call the task method with
+its documented 1 mN threshold instead.
+
+Per episode it stores the per-step maximum tip and wire contact force, peak and mean, plus
+the proximal force for reference, and classifies safe success at the preregistered 1.0 N
+tip-force threshold with 0.5 N / 1.5 N sensitivity.
 
 Training is untouched: models are loaded read-only. Every training seed is reported,
 including failed ones.
@@ -43,8 +52,7 @@ def make_env(task: str, max_steps: int, seed: int):
     importlib.import_module(COMPARATOR_ENV + ".gym.envs")
     env_id, _, kwargs = COMPARATOR_TASKS[task]
     env = gym.make(env_id, dense_reward=True, success_reward=10.0, delta=0.004, use_pixels=False,
-                   use_segment=False, image_size=64, return_info=True, use_force=True,
-                   use_contact_forces=True, **dict(kwargs))
+                   use_segment=False, image_size=64, return_info=True, use_force=True, **dict(kwargs))
     env = gym.wrappers.TimeLimit(env, max_episode_steps=max_steps)
     env.reset(seed=seed)
     if hasattr(env.action_space, "seed"):
@@ -60,6 +68,34 @@ def control_dt(env) -> float | None:
         return None
 
 
+def contact_probe(env):
+    """Return f() -> (max tip-wall force, max wire-wall force) in N for the current state."""
+    u = env.unwrapped
+    ph, task = u._env.physics, u._env._task
+    m = ph.model
+    names = [m.id2name(i, "body") for i in range(m.nbody)]
+    gb = m.geom_bodyid
+
+    def f():
+        d = ph.data
+        tip = wire = 0.0
+        for i in range(d.ncon):
+            c = d.contact[i]
+            b1, b2 = names[gb[c.geom1]], names[gb[c.geom2]]
+            if ("phantom" in b1) == ("phantom" in b2) or c.dist >= 0.002:
+                continue
+            fn = abs(float(d.contact_force(i)[0][0]))
+            if fn <= 0.001:
+                continue
+            w = b1 if "guidewire" in b1 else b2
+            wire = max(wire, fn)
+            if "/tip/" in w:
+                tip = max(tip, fn)
+        return tip, wire
+    assert hasattr(task, "get_contact_forces")
+    return f
+
+
 def evaluate(model, task, episodes, max_steps):
     rows = []
     dt = None
@@ -68,15 +104,16 @@ def evaluate(model, task, episodes, max_steps):
         env = make_env(task, max_steps, seed)
         dt = dt or control_dt(env)
         obs, _ = env.reset(seed=seed)
+        probe = contact_probe(env)
         t0 = time.perf_counter()
-        tip, prox, steps, success, dist, heads = [], [], 0, False, None, []
+        tip, wire, prox, steps, success, dist, heads = [], [], [], 0, False, None, []
         for _ in range(max_steps):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             steps += 1
-            cf = info.get("contact_forces") or {}
-            f = [abs(float(x)) for x in cf.get("force", [])]
-            tip.append(max(f) if f else 0.0)
+            ft, fw = probe()
+            tip.append(ft)
+            wire.append(fw)
             if "forces" in info:
                 prox.append(float(np.asarray(info["forces"]).reshape(-1)[0]))
             if "head_pos" in info:
@@ -103,10 +140,12 @@ def evaluate(model, task, episodes, max_steps):
                      "mean_tip_contact_force_N": float(np.mean(tip)) if tip else 0.0,
                      "mean_tip_contact_force_in_contact_N": (float(np.mean([x for x in tip if x > 0]))
                                                              if any(x > 0 for x in tip) else 0.0),
+                     "peak_wire_contact_force_N": max(wire) if wire else 0.0,
                      "peak_proximal_force_N": max(prox) if prox else None,
                      **{f"safe_success_{t}N": bool(success and peak <= t) for t in THRESHOLDS_N},
                      "cathsim_native": native, "eval_wall_s": wall, "steps_per_s": steps / wall if wall > 0 else None,
-                     "tip_force_curve_N": [round(x, 5) for x in tip]})
+                     "tip_force_curve_N": [round(x, 5) for x in tip],
+                     "wire_force_curve_N": [round(x, 5) for x in wire]})
     return rows, dt
 
 
@@ -117,6 +156,7 @@ def summarize(rows):
         out[f"safe_success_rate_{t}N"] = sum(r[f"safe_success_{t}N"] for r in rows) / n
     out["peak_tip_contact_force_N_max"] = max(r["peak_tip_contact_force_N"] for r in rows)
     out["peak_tip_contact_force_N_mean"] = float(np.mean([r["peak_tip_contact_force_N"] for r in rows]))
+    out["peak_wire_contact_force_N_mean"] = float(np.mean([r["peak_wire_contact_force_N"] for r in rows]))
     out["mean_tip_contact_force_N"] = float(np.mean([r["mean_tip_contact_force_N"] for r in rows]))
     tt = [r["time_to_target_s"] for r in rows if r["time_to_target_s"] is not None]
     out["mean_time_to_target_s"] = float(np.mean(tt)) if tt else None
@@ -145,8 +185,9 @@ def main(argv=None):
     res = {"protocol": "post-hoc tip contact force evaluation of frozen CathSim PPO models",
            "task": a.task, "eval_seed_start": EVAL_SEED_START, "episodes": a.episodes,
            "max_steps": a.max_steps, "thresholds_N": list(THRESHOLDS_N), "primary_threshold_N": PRIMARY_N,
-           "force_definition": "max over active contacts of |MuJoCo per-contact normal force| "
-                               "(CathSim Navigate.get_contact_forces: dist < 2 mm, |f| > 1 mN), Newtons",
+           "force_definition": "sampled at the end of each control step (12 ms), max over guidewire-tip/phantom contacts of |MuJoCo contact "
+                               "normal force| (CathSim Navigate.get_contact_forces definition: dist < 2 mm, "
+                               "|f| > 1 mN), Newtons; wire = any guidewire body",
            "success_rule": "tip-target distance <= 4 mm (CathSim delta)",
            "cathsim_native_metrics": "cathsim/rl/metrics.py as published: force_mean/force_max/safety use "
                                      "info['forces'] (guidewire root constraint force, N); safety = fraction of "
