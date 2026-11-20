@@ -55,10 +55,10 @@ def capture(out: Path, every: int, nu: int, seed: int):
                   action={"insertion": 1.0 if fi else 0.0, "twist": 0.0},
                   kinematics={"tip_mm": [float(v) for v in fr.nodes[-1]], "sim_step": int(fr.info["step"]),
                               "max_pen_mm": float(fr.info.get("max_pen", 0.0)),
-                              "node_positions_ref": f"obs/nodes_{tag}.npy"},
-                  annotations={"tip_px": tip_px, "device_mask_ref": f"obs/mask_{tag}.npy",
-                               "wire_polyline_ref": f"obs/wire_{tag}.npy"},
-                  obs_modality="fluoro", obs_ref=f"obs/fluoro_{tag}.npy")
+                              "node_positions_ref": f"nodes_{tag}.npy"},
+                  annotations={"tip_px": tip_px, "device_mask_ref": f"mask_{tag}.npy",
+                               "wire_polyline_ref": f"wire_{tag}.npy"},
+                  obs_modality="fluoro", obs_ref=f"fluoro_{tag}.npy")
         st.obs = img
         st.node_positions = np.asarray(fr.nodes, np.float64)
         st.annotation_arrays = {"device_mask": m, "wire_polyline": np.asarray(fr.extra["wire"], np.float64)}
@@ -159,9 +159,11 @@ def main(argv=None):
     loaded, rel = reload_and_verify(root, hashes)
     sim = resimulate(frames, idx, a.seed)
     ep_bytes = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+    dev = sim["max_node_deviation_mm"]
+    dev_s = "0 mm (bit-exact)" if dev == 0.0 else f"{dev:.1e} mm"
     checks = (f"reload: {rel['obs_byte_identical']}/{rel['steps']} images and {rel['nodes_byte_identical']}/"
               f"{rel['steps']} states byte-identical     re-simulated from recorded actions: max node deviation "
-              f"{sim['max_node_deviation_mm']:.1e} mm")
+              f"{dev_s}")
     print(rel, sim, flush=True)
     view = View3D(asset, size_px=(960, 900), elev=14.0, zoom=1.45)
     view_sq = View3D(asset, size_px=(540, 640), elev=14.0, zoom=1.75)
@@ -197,12 +199,12 @@ def main(argv=None):
         S.paste(Image.fromarray(view_sq.render(s["wire"], target=target)).crop((0, 60, 540, 600)), (540, 110))
         label(S, "Replayed image", (14, 70), 24); label(S, "Paired solver state", (556, 70), 24)
         tl = timeline(1920, 130, k, n, mode, s["t"], s["obs_ref"], "")
-        S.paste(tl.crop((0, 0, 1920, 64)).resize((1080, 36)), (0, 700))
+        S.paste(tl.crop((0, 0, 1920, 50)).resize((1080, 28)), (0, 704))
         label(S, f"{mode.lower()}   step {k + 1} / {n}   t = {s['t']:.2f} s", (40, 752), 26,
               (112, 211, 141) if mode == "PLAY" else (247, 181, 64))
         label(S, f"reload: {rel['obs_byte_identical']}/{n} images, {rel['nodes_byte_identical']}/{n} states "
                  "byte-identical", (40, 806), 21, (160, 168, 180))
-        label(S, f"re-simulated: max node deviation {sim['max_node_deviation_mm']:.1e} mm", (40, 842), 21,
+        label(S, f"re-simulated: max node deviation {dev_s}", (40, 842), 21,
               (160, 168, 180))
         corner_tag(S)
         S.save(dirs["square"] / f"{i:05d}.png")
