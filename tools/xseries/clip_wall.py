@@ -288,7 +288,7 @@ def main(argv=None):
         label(S, f"overlap {fr.info.get('max_pen', 0.0):.2f} mm", (16, 548), 20, (190, 198, 208))
         label(S, f"deflection {wnow:.2f} mm", (556, 548), 20, (190, 198, 208))
         if slow:
-            label(S, "slow motion x4", (540, 548), 18, (236, 185, 88), anchor="ma", bg=(10, 13, 18))
+            label(S, "slow motion x4", (540, 52), 20, (236, 185, 88), anchor="ma", bg=(10, 13, 18))
         S.paste(chart(1080, 440, t_now, [("rigid overlap", rpen, red), ("wall deflection", wmax, amber)],
                       tmax, ymax, thr), (0, 600))
         corner_tag(S)
