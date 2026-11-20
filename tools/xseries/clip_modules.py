@@ -289,13 +289,13 @@ def main(argv=None):
         bot = Image.new("RGB", (960, 1000), BG)
         draw_aneurysm(bot, (0, 0, 960, 1000), (an0, an1), (m0, m1), ka, {"n": len(an0), "k": ka})
         S.paste(top.crop((0, 60, 960, 380)).resize((1020, 340)), (30, 60))
-        S.paste(bot.crop((0, 0, 960, 360)).resize((1020, 382)), (30, 492))
+        S.paste(bot.crop((0, 0, 960, 370)).resize((1020, 393)), (30, 500))
         label(S, "Thrombectomy: stent-retriever pull-back", (24, 14), 28, GREY)
         label(S, "Aneurysm: flow diverter vs no device", (24, 440), 28, GREY)
         if k >= len(an0) - 1:
             ch = summ["aneurysm_change"]
             label(S, f"diverter: peak neck inflow {ch['inflow_peak_pct']:+.0f}%,  turnover {ch['turnover_time_pct']:+.0f}%",
-                  (540, 880), 24, GREEN, anchor="ma", bg=(10, 13, 18))
+                  (540, 960), 24, GREEN, anchor="ma", bg=(10, 13, 18))
         corner_tag(S)
         S.save(dirs["square"] / f"{i:05d}.png")
         if i % 60 == 0:
