@@ -127,7 +127,7 @@ def main(argv=None):
         L.paste(chart(1920, 320, t_now, [([f.info.get("max_pen", 0.0) for f in fast], red),
                                          ([f.info.get("max_pen", 0.0) for f in slow], green)],
                       thr, tmax, ymax), (0, 760))
-        corner_tag(L)
+        corner_tag(L, top=True)
         L.save(dirs["landscape"] / f"{i:05d}.png")
         S = Image.new("RGB", (1080, 1080), (7, 9, 13))
         S.paste(pf.crop((150, 40, 810, 700)).resize((540, 540), LZ), (0, 40))

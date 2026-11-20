@@ -384,10 +384,10 @@ def label(img, text, xy, size=26, color=(210, 218, 228), anchor="la", bg=None):
     d.text(xy, text, font=f, fill=color, anchor=anchor)
 
 
-def corner_tag(img):
+def corner_tag(img, top=False):
     W, H = img.size
-    label(img, TAG, (W - 22, H - 20), size=max(18, H // 46), color=(225, 230, 236),
-          anchor="rd", bg=(10, 13, 18))
+    xy, anchor = ((W - 22, 14), "ra") if top else ((W - 22, H - 20), "rd")
+    label(img, TAG, xy, size=max(18, H // 46), color=(225, 230, 236), anchor=anchor, bg=(10, 13, 18))
 
 
 def gray_to_rgb(g):
