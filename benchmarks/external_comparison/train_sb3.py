@@ -333,7 +333,23 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
         model = ALGOS[args.algo](policy_name(args.environment), env, **model_kwargs)
         stage = "train"
         train_started = time.perf_counter()
-        model.learn(total_timesteps=args.timesteps, progress_bar=False)
+        callbacks, remaining = None, args.timesteps
+        every = int(getattr(args, "checkpoint_every", 0) or 0)
+        if every > 0:
+            # Interruption tolerance only: a periodic snapshot (policy, optimizer, rollout counters)
+            # lets a killed seed resume instead of restarting. A resumed seed is recorded as such.
+            from stable_baselines3.common.callbacks import CheckpointCallback
+
+            ckpt_dir = model_path.parent / (model_path.stem + "-ckpt")
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            done = sorted(ckpt_dir.glob("ckpt_*_steps.zip"), key=lambda p: int(p.stem.split("_")[-2]))
+            if done:
+                model = ALGOS[args.algo].load(done[-1], env=env, seed=seed)
+                remaining = max(0, args.timesteps - int(model.num_timesteps))
+                args._resumed_from = int(model.num_timesteps)
+            callbacks = CheckpointCallback(save_freq=every, save_path=str(ckpt_dir), name_prefix="ckpt")
+        model.learn(total_timesteps=remaining, progress_bar=False, callback=callbacks,
+                    reset_num_timesteps=not getattr(args, "_resumed_from", 0))
         train_elapsed = time.perf_counter() - train_started
     except Exception as exc:
         failed = True
@@ -475,6 +491,8 @@ def main() -> None:
     parser.add_argument("--out-dir", default="benchmarks/external_comparison/results")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--model-dir", default="benchmarks/external_comparison/models")
+    parser.add_argument("--checkpoint-every", type=int, default=0,
+                        help="Save a resumable snapshot every N env steps and resume from the latest one (0 = off).")
     args = parser.parse_args()
     task_map = LUMEN_TASKS if args.environment == "lumen" else COMPARATOR_TASKS
     if args.task not in task_map:
@@ -530,7 +548,9 @@ def main() -> None:
                 "train_elapsed_sec": train_elapsed,
                 "elapsed_sec": elapsed_sec,
                 "eval_episodes": args.eval_episodes,
+                "resumed_from_step": int(getattr(args, "_resumed_from", 0)),
             })
+            args._resumed_from = 0
         if seed_episodes is None:
             seed_episodes = _failed_seed_episodes(
                 args,
