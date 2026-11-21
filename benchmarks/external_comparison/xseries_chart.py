@@ -61,7 +61,7 @@ def main(argv=None):
             ax.set_ylabel("hours (CPU, 1 environment)")
         ax.set_title(title, fontsize=12.5)
         ax.grid(axis="y", alpha=0.25)
-    fig.suptitle("Lumen vs CathSim: matched PPO (600k env steps), 6 training seeds each, "
+    fig.suptitle(f"Lumen vs CathSim: matched PPO (600k env steps), {len(c.get('training_seeds') or range(6))} training seeds each, "
                  "100 common frozen evaluation seeds\nDots: training seeds.  Bar: mean.  Line: 95% CI across seeds.",
                  fontsize=13)
     fig.text(0.5, 0.015, "Safe success = reached the target without exceeding the simulator's stated limit: "

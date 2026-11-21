@@ -127,9 +127,9 @@ class Tile:
         return img
 
 
-def load(ep_dir, env):
+def load(ep_dir, env, seeds=range(6)):
     out = []
-    for s in range(6):
+    for s in seeds:
         f = Path(ep_dir) / f"{env}-s{s}.npz"
         if f.exists():
             out.append(np.load(f, allow_pickle=True))
@@ -147,8 +147,9 @@ def main(argv=None):
     only = [int(x) for x in a.only.split(",") if x]
     out = Path(a.out) if a.out else out_root() / "clip8-lumen-vs-cathsim"
     out.mkdir(parents=True, exist_ok=True)
-    L, C = load(a.episodes, "lumen"), load(a.episodes, "cathsim")
     cmp = json.load(open(a.compare)) if a.compare and Path(a.compare).exists() else None
+    seeds = (cmp or {}).get("training_seeds") or range(6)
+    L, C = load(a.episodes, "lumen", seeds), load(a.episodes, "cathsim", seeds)
     layouts = {"landscape": ((1920, 1080), (300, 440), [(20, 150), (980, 150)], (3, 2)),
                "square": ((1080, 1080), (340, 205), [(30, 92), (30, 590)], (3, 2))}
     T = max([x["steps"] * float(x["dt"]) for x in L + C] + [0.1])
@@ -192,7 +193,7 @@ def main(argv=None):
             if cmp and i >= n_frames - int(a.hold * FPS):
                 Ls, Cs = cmp["lumen"]["summary"], cmp["cathsim"]["summary"]
                 if Cs["success_rate"]["mean"] is not None:
-                    txt = (f"Mean over 6 training seeds x 100 eval seeds:  success  Lumen "
+                    txt = (f"Mean over {len(cmp.get('training_seeds') or range(6))} training seeds x 100 eval seeds:  success  Lumen "
                            f"{100 * Ls['success_rate']['mean']:.0f}%  CathSim {100 * Cs['success_rate']['mean']:.0f}%"
                            f"   |   safe success  Lumen {100 * Ls['safe_success_rate']['mean']:.0f}%  CathSim "
                            f"{100 * Cs['safe_success_rate']['mean']:.0f}%")

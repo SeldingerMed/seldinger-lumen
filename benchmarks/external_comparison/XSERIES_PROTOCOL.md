@@ -3,9 +3,9 @@
 ## What is compared
 - **Task class:** branch / arch navigation. Lumen `Lumen/NavTreeBranch-v0` (procedural bifurcation, 50 mm trunk, 50 mm branches, 2 mm radius, 45 degrees, target = left branch outlet). CathSim `phantom3` aortic-arch phantom, target = brachiocephalic artery (CathSim's default task). The anatomies differ; the task class (steer a wire into a chosen branch) is the same, and each simulator is run on its own standard task.
 - **Learner:** Stable-Baselines3 PPO with identical settings in both: SB3 defaults plus a [64, 64] MLP trunk, n_steps 2048, batch 64. 600,000 environment steps per training run. MLP policy on Lumen's state vector; CathSim's MultiInputPolicy on its joint-state observation (`use_pixels=False`).
-- **Training seeds:** 0, 1, 2, 3, 4, 5 for each simulator. Every seed is reported, including failures. No reruns, no seed selection.
+- **Training seeds:** 0, 1 and 5 for each simulator (amended 2026-11-21 from 0 to 5 to fit CathSim's ~15 h per seed on CPU; the set is the three CathSim seeds already in training, fixed before any CathSim result existed). Lumen results for all six trained seeds are kept in the JSON as `lumen_all_trained_seeds`. Every compared seed is reported, including failures. No reruns, no seed selection by outcome.
 - **Evaluation:** each trained policy plays the same 100 frozen evaluation seeds (10000 to 10099), deterministic actions, 300-step cap.
-- **Statistics:** the training seed is the unit (n = 6 per simulator). Means with two-sided 95% t-intervals across training seeds; rates clipped to [0, 100%].
+- **Statistics:** the training seed is the unit (n = 3 per simulator). Means with two-sided 95% t-intervals across training seeds; rates clipped to [0, 100%].
 - **Hardware:** one Apple M4 Max (Mac Studio), CPU only, one environment per training run, single-threaded BLAS, same machine for both.
 - **Versions:** Lumen at the commit in `manifest.json`; CathSim `airvlab/cathsim` main @ `adfabb2`, MuJoCo 2.3.7, dm-control 1.0.14, SB3 2.4.0 (CathSim's supported stack). Lumen: Newton/Warp 1.14, SB3 2.9.2.
 

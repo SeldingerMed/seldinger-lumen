@@ -129,7 +129,7 @@ def main(argv=None):
         if cmp:
             L, C = cmp["lumen"]["summary"], cmp["cathsim"]["summary"]
             if C["success_rate"]["mean"] is not None:
-                lines = [("Lumen vs CathSim, matched PPO (600k steps, 6 training seeds)", 34, (235, 240, 245)),
+                lines = [(f"Lumen vs CathSim, matched PPO (600k steps, {len(cmp.get('training_seeds') or range(6))} training seeds)", 34, (235, 240, 245)),
                          (f"Raw success   Lumen {100 * L['success_rate']['mean']:.0f}%   "
                           f"CathSim {100 * C['success_rate']['mean']:.0f}%", 30, (190, 198, 208)),
                          (f"Training wall-clock   Lumen {L['train_hours']['mean']:.1f} h   "

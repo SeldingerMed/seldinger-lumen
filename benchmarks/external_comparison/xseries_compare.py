@@ -2,7 +2,7 @@
 
 Reads the per-training-seed result JSONs written by train_sb3.py (both environments) and
 the post-hoc CathSim tip-contact-force evaluation (eval_cathsim_contact.py), and writes one
-JSON + Markdown table. Statistical unit: the training seed (n = 6 per environment); each
+JSON + Markdown table. Statistical unit: the training seed (the --seeds set, same seeds in both environments); each
 seed's policy is scored on the same 100 frozen evaluation seeds (10000..10099). Every
 training seed is listed, including failures. Means carry two-sided 95% t-intervals across
 training seeds.
@@ -92,18 +92,25 @@ def main(argv=None):
     ap.add_argument("--bench", required=True)
     ap.add_argument("--contact", default=None)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--seeds", default="0,1,2,3,4,5", help="training seeds compared (same set in both sims)")
     a = ap.parse_args(argv)
+    seeds = [int(x) for x in a.seeds.split(",")]
     B = Path(a.bench)
     contact = json.load(open(a.contact)) if a.contact and Path(a.contact).exists() else None
     L = [lumen_seed(p) for p in sorted(glob.glob(str(B / "lumen-nav_tree_branch-ppo-main-s*.json")))]
     C = [cathsim_seed(p, contact) for p in sorted(glob.glob(str(B / "cathsim-phantom3_bca-ppo-main-s*.json")))]
+    L_all = list(L)
+    L = [r for r in L if r["seed"] in seeds]
+    C = [r for r in C if r["seed"] in seeds]
     have = {r["seed"] for r in C}
-    C += [{"seed": s, "status": "not_finished"} for s in range(6) if s not in have]
+    C += [{"seed": s, "status": "not_finished"} for s in seeds if s not in have]
     C.sort(key=lambda r: r["seed"])
     keys = ["success_rate", "safe_success_rate", "time_to_target_s", "train_hours", "train_env_steps_per_s",
             "eval_env_steps_per_s"]
-    res = {"protocol": "lumen-common-endovascular-bench main_budget: PPO, 600k env steps, training seeds 0-5, "
-                       "100 common frozen eval seeds from 10000, deterministic policy",
+    res = {"protocol": f"lumen-common-endovascular-bench main_budget: PPO, 600k env steps, training seeds "
+                       f"{', '.join(map(str, seeds))} in both simulators, 100 common frozen eval seeds from 10000, "
+                       "deterministic policy",
+           "training_seeds": seeds,
            "task_class": "branch_or_arch_navigation",
            "tasks": {"lumen": "Lumen/NavTreeBranch-v0", "cathsim": "CathSim phantom3 / bca"},
            "thresholds": {"lumen": "surface overlap <= 0.3 mm", "cathsim": "peak tip contact force <= 1.0 N "
@@ -112,6 +119,9 @@ def main(argv=None):
            "cathsim": {"per_seed": C, "summary": {k: ci([r.get(k) for r in C if r["status"] == "ok"], "rate" in k)
                                                    for k in keys + ["safe_success_rate_0.5N", "safe_success_rate_1.5N",
                                                                     "peak_tip_force_N", "mean_tip_force_N"]}}}
+    if len(L_all) > len(L):
+        res["lumen_all_trained_seeds"] = {"seeds": [r["seed"] for r in L_all],
+                                          "summary": {k: ci([r.get(k) for r in L_all], "rate" in k) for k in keys}}
     nat = [r["cathsim_native"] for r in C if r.get("cathsim_native")]
     if nat:
         res["cathsim"]["native_metrics_mean"] = {k: sum(x[k] for x in nat) / len(nat) for k in nat[0]}
