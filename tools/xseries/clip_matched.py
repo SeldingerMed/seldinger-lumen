@@ -142,6 +142,7 @@ def main(argv=None):
     ap.add_argument("--compare", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--hold", type=float, default=3.0)
+    ap.add_argument("--slow", type=float, default=2.0, help="simulated-time slowdown factor")
     ap.add_argument("--only", default="")
     a = ap.parse_args(argv)
     only = [int(x) for x in a.only.split(",") if x]
@@ -150,8 +151,14 @@ def main(argv=None):
     cmp = json.load(open(a.compare)) if a.compare and Path(a.compare).exists() else None
     seeds = (cmp or {}).get("training_seeds") or range(6)
     L, C = load(a.episodes, "lumen", seeds), load(a.episodes, "cathsim", seeds)
-    layouts = {"landscape": ((1920, 1080), (300, 440), [(20, 150), (980, 150)], (3, 2)),
-               "square": ((1080, 1080), (340, 205), [(30, 92), (30, 590)], (3, 2))}
+    global SLOW
+    SLOW = a.slow
+    one_row = max(len(L), len(C)) <= 3          # 3 training seeds: one tall row per simulator
+    layouts = {"landscape": ((1920, 1080), (300, 820 if one_row else 440), [(20, 150), (980, 150)],
+                             (3, 1 if one_row else 2)),
+               "square": ((1080, 1080), (340, 390 if one_row else 205),
+                          [(30, 125), (30, 575)] if one_row else [(30, 92), (30, 590)],
+                          (3, 1 if one_row else 2))}
     T = max([x["steps"] * float(x["dt"]) for x in L + C] + [0.1])
     n_frames = int(T * SLOW * FPS) + int(a.hold * FPS)
     rec = {"clip": "8-lumen-vs-cathsim", "commit": git_sha(), "lumen_tree_dirty": git_dirty(),
@@ -197,7 +204,7 @@ def main(argv=None):
                            f"{100 * Ls['success_rate']['mean']:.0f}%  CathSim {100 * Cs['success_rate']['mean']:.0f}%"
                            f"   |   safe success  Lumen {100 * Ls['safe_success_rate']['mean']:.0f}%  CathSim "
                            f"{100 * Cs['safe_success_rate']['mean']:.0f}%")
-                    y = 1080 - 60 if kind == "landscape" else 1080 - 40
+                    y = 1080 - 60 if kind == "landscape" else (980 if one_row else 1080 - 40)
                     label(img, txt, (size[0] // 2, y), 22 if kind == "landscape" else 15, (235, 240, 245),
                           anchor="ma", bg=(10, 13, 18))
             corner_tag(img, top=(kind == "landscape"))
