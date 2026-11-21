@@ -34,14 +34,20 @@ SEGMENTS = [
 ]
 
 
+def SW(v: int) -> int:
+    """Clip footage is scaled to 90% and top-aligned so captions sit in their own band below it."""
+    return int(round(v * 0.9 / 2)) * 2
+
+
 def frames_from(mp4: Path, start_s: float, secs: float, size, dst: Path, k0: int) -> int:
     tmp = dst.parent / "_seg"
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir()
     W, H = size
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{start_s:.3f}", "-i", str(mp4), "-t", f"{secs:.3f}",
-                    "-vf", f"fps={FPS},scale={W}:{H}:flags=lanczos", str(tmp / "%05d.png")], check=True)
-    files = sorted(tmp.glob("*.png"))
+                    "-vf", f"fps={FPS},scale={SW(W)}:{SW(H)}:flags=lanczos,pad={W}:{H}:{(W - SW(W)) // 2}:0:color=0x07090d",
+                    str(tmp / "%05d.png")], check=True)
+    files = sorted(f for f in tmp.glob("*.png") if not f.name.startswith("._"))   # exFAT AppleDouble
     for j, f in enumerate(files):
         f.rename(dst / f"{k0 + j:05d}.png")
     shutil.rmtree(tmp, ignore_errors=True)
@@ -62,7 +68,7 @@ def caption(img: Image.Image, text: str, n: int, i: int):
         return
     ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
     od = ImageDraw.Draw(ov)
-    y = H - 118 if W > 1500 else H - 130
+    y = SW(H) + (H - SW(H) - sz) // 2 - 2
     od.rounded_rectangle(((W - tw) // 2 - 22, y - 12, (W + tw) // 2 + 22, y + sz + 16), 10,
                          fill=(8, 10, 14, int(225 * a)))
     od.text((W // 2, y), text, font=font(sz), fill=(240, 244, 248, int(255 * a)), anchor="ma")
