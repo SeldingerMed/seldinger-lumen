@@ -103,6 +103,11 @@ class Tile:
         tg = self.uv(self.tgt)[0]
         d.ellipse((tg[0] - 9, tg[1] - 9, tg[0] + 9, tg[1] + 9), outline=(112, 211, 141), width=2)
         w = np.asarray(self.wire[k], float)
+        # CathSim feeds the wire from a base outside the phantom; draw only the part within the
+        # vessel's extent (3 mm margin) so the external feed segment does not cross the image.
+        inside = np.all((w >= self.V.min(0) - 3.0) & (w <= self.V.max(0) + 3.0), axis=1)
+        if inside.any():
+            w = w[int(np.argmax(inside)):]
         if len(w) > 1:
             d.line([tuple(x) for x in self.uv(w)], fill=WIRE, width=3, joint="curve")
         tp = self.uv(w[-1])[0]
