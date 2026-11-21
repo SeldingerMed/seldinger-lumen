@@ -28,8 +28,17 @@ T975 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8
 LUMEN_DT = 4 * 5e-3          # TreeNavEnv: substeps=4 x 5 ms
 
 
-def ci(vals, bounded=False):
-    """Mean with a two-sided 95% t-interval; rates are clipped to [0, 1]."""
+def train_rate(j):
+    """(env-steps/s, hours for the full budget). A resumed run times only its final segment, so the rate
+    is the steps trained in that segment over its time, and hours = budget / rate."""
+    e = j["extra"]
+    resumed = max([r.get("resumed_from_step") or 0 for r in e.get("runs", [])] or [0])
+    sps = (e["timesteps"] - resumed) / e["train_elapsed_sec"]
+    return sps, e["timesteps"] / sps / 3600
+
+
+def ci(vals, bounded=False, nonneg=False):
+    """Mean with a two-sided 95% t-interval; rates are clipped to [0, 1], nonnegative quantities at 0."""
     v = [x for x in vals if x is not None]
     n = len(v)
     if n == 0:
@@ -42,6 +51,8 @@ def ci(vals, bounded=False):
     lo, hi = m - h, m + h
     if bounded:
         lo, hi = max(0.0, lo), min(1.0, hi)
+    if nonneg:
+        lo = max(0.0, lo)
     return {"mean": m, "lo": lo, "hi": hi, "n": n}
 
 
@@ -55,8 +66,8 @@ def lumen_seed(path):
             "peak_overlap_mm": max(e["safety_value"] for e in eps),
             "peak_wall_load_sim_units": a["max_wall_load"],
             "time_to_target_s": (sum(e["steps"] for e in succ) / len(succ) * LUMEN_DT) if succ else None,
-            "train_hours": j["extra"]["train_elapsed_sec"] / 3600,
-            "train_env_steps_per_s": j["extra"]["timesteps"] / j["extra"]["train_elapsed_sec"],
+            "train_hours": train_rate(j)[1],
+            "train_env_steps_per_s": train_rate(j)[0],
             "eval_env_steps_per_s": a["steps_per_second"],
             "distinct_eval_outcomes": len({(e["steps"], round(e["safety_value"], 6), e["success"]) for e in eps}),
             "eval_episodes": len(eps)}
@@ -66,8 +77,8 @@ def cathsim_seed(train_path, contact):
     j = json.load(open(train_path))
     s = int(j["extra"]["seed"])
     a = j["aggregate"][0]
-    row = {"seed": s, "status": "ok", "train_hours": j["extra"]["train_elapsed_sec"] / 3600,
-           "train_env_steps_per_s": j["extra"]["timesteps"] / j["extra"]["train_elapsed_sec"],
+    row = {"seed": s, "status": "ok", "train_hours": train_rate(j)[1],
+           "train_env_steps_per_s": train_rate(j)[0],
            "resumed_from_step": [r.get("resumed_from_step") for r in j["extra"].get("runs", [])],
            "success_rate_train_eval": a["success_rate"], "eval_env_steps_per_s": a["steps_per_second"]}
     c = (contact or {}).get("per_seed", {}).get(str(s))
@@ -115,8 +126,8 @@ def main(argv=None):
            "tasks": {"lumen": "Lumen/NavTreeBranch-v0", "cathsim": "CathSim phantom3 / bca"},
            "thresholds": {"lumen": "surface overlap <= 0.3 mm", "cathsim": "peak tip contact force <= 1.0 N "
                           "(sensitivity 0.5 N, 1.5 N)"},
-           "lumen": {"per_seed": L, "summary": {k: ci([r.get(k) for r in L], "rate" in k) for k in keys}},
-           "cathsim": {"per_seed": C, "summary": {k: ci([r.get(k) for r in C if r["status"] == "ok"], "rate" in k)
+           "lumen": {"per_seed": L, "summary": {k: ci([r.get(k) for r in L], "rate" in k, nonneg=True) for k in keys}},
+           "cathsim": {"per_seed": C, "summary": {k: ci([r.get(k) for r in C if r["status"] == "ok"], "rate" in k, nonneg=True)
                                                    for k in keys + ["safe_success_rate_0.5N", "safe_success_rate_1.5N",
                                                                     "peak_tip_force_N", "mean_tip_force_N"]}}}
     if len(L_all) > len(L):
@@ -151,7 +162,7 @@ def main(argv=None):
           "Per training seed (success / safe success):", ""]
     md.append("| Seed | Lumen | CathSim |")
     md.append("|---|---|---|")
-    for s in range(6):
+    for s in seeds:
         lr = next((r for r in L if r["seed"] == s), None)
         cr = next((r for r in C if r["seed"] == s), None)
         lt = f"{100 * lr['success_rate']:.0f}% / {100 * lr['safe_success_rate']:.0f}%" if lr else "missing"
