@@ -348,8 +348,11 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
                 remaining = max(0, args.timesteps - int(model.num_timesteps))
                 args._resumed_from = int(model.num_timesteps)
             callbacks = CheckpointCallback(save_freq=every, save_path=str(ckpt_dir), name_prefix="ckpt")
-        model.learn(total_timesteps=remaining, progress_bar=False, callback=callbacks,
-                    reset_num_timesteps=not getattr(args, "_resumed_from", 0))
+        if callbacks is None:
+            model.learn(total_timesteps=remaining, progress_bar=False)
+        else:
+            model.learn(total_timesteps=remaining, progress_bar=False, callback=callbacks,
+                        reset_num_timesteps=not getattr(args, "_resumed_from", 0))
         train_elapsed = time.perf_counter() - train_started
     except Exception as exc:
         failed = True
