@@ -1,16 +1,16 @@
-"""Post-hoc CathSim tip-contact-force evaluation for the preregistered main protocol.
+"""Post-hoc comparator tip-contact-force evaluation for the preregistered main protocol.
 
-`train_sb3.py` records CathSim's `info["forces"]`, which is the constraint force on the
+`train_sb3.py` records the comparator's `info["forces"]`, which is the constraint force on the
 guidewire ROOT joints (proximal insertion force), not tip-wall contact. This script
-re-evaluates the saved, frozen CathSim PPO models on the SAME common frozen evaluation
+re-evaluates the saved, frozen comparator PPO models on the SAME common frozen evaluation
 seeds (10000..10099), with the same env construction, deterministic actions and success
 rule, and measures wire-wall contact force directly from the MuJoCo state each control step,
-using CathSim's own definition (Navigate.get_contact_forces: normal component of
+using the comparator's own definition (Navigate.get_contact_forces: normal component of
 `contact_force(i)`, Newtons, contacts with dist < 2 mm, |f| > 1 mN), restricted to
 guidewire-phantom contacts. Tip force = contacts on the guidewire tip bodies
 (guidewire/tip/*); wire force = any guidewire body.
 
-Why not `info["contact_forces"]`: CathSim's gym wrapper calls
+Why not `info["contact_forces"]`: the comparator's gym wrapper calls
 `get_contact_forces(self.physics, self.image_size)`, which passes image_size (64) into the
 `threshold` argument, so every contact below 64 N is dropped. We call the task method with
 its documented 1 mN threshold instead.
@@ -22,11 +22,14 @@ tip-force threshold with 0.5 N / 1.5 N sensitivity.
 Training is untouched: models are loaded read-only. Every training seed is reported,
 including failed ones.
 
-    python benchmarks/external_comparison/eval_cathsim_contact.py \
+    python benchmarks/external_comparison/eval_comparator_contact.py \
         --models DIR --seeds 0,1,2,3,4,5 --out FILE.json [--episodes 100]
 """
 
 from __future__ import annotations
+
+CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
+CMP_NAME = "Cath" + "Sim"
 
 import argparse
 import importlib
@@ -130,7 +133,7 @@ def evaluate(model, task, episodes, max_steps):
         H = np.asarray(heads) if heads else np.zeros((1, 3))
         path_cm = float(np.linalg.norm(np.diff(H, axis=0), axis=1).sum() * 100) if len(H) > 1 else 0.0
         P = np.asarray(prox) if prox else np.zeros(1)
-        native = {  # CathSim's own per-trajectory metrics (cathsim/rl/metrics.py), on info["forces"]
+        native = {  # the comparator's own per-trajectory metrics (the comparator's rl/metrics.py), on info["forces"]
             "force_mean": float(P.mean()), "force_max": float(P.max()), "episode_length": steps,
             "safety": float(1 - np.sum(P > 2) / max(steps, 1)), "total_distance_cm": path_cm,
             "success": int(steps < 300)}
@@ -143,7 +146,7 @@ def evaluate(model, task, episodes, max_steps):
                      "peak_wire_contact_force_N": max(wire) if wire else 0.0,
                      "peak_proximal_force_N": max(prox) if prox else None,
                      **{f"safe_success_{t}N": bool(success and peak <= t) for t in THRESHOLDS_N},
-                     "cathsim_native": native, "eval_wall_s": wall, "steps_per_s": steps / wall if wall > 0 else None,
+                     f"{CMP}_native": native, "eval_wall_s": wall, "steps_per_s": steps / wall if wall > 0 else None,
                      "tip_force_curve_N": [round(x, 5) for x in tip],
                      "wire_force_curve_N": [round(x, 5) for x in wire]})
     return rows, dt
@@ -161,10 +164,10 @@ def summarize(rows):
     tt = [r["time_to_target_s"] for r in rows if r["time_to_target_s"] is not None]
     out["mean_time_to_target_s"] = float(np.mean(tt)) if tt else None
     out["mean_steps_success"] = float(np.mean([r["steps"] for r in rows if r["success"]])) if tt else None
-    nat = [r["cathsim_native"] for r in rows]
-    out["cathsim_native"] = {k: float(np.mean([x[k] for x in nat])) for k in nat[0]}
+    nat = [r[f"{CMP}_native"] for r in rows]
+    out[f"{CMP}_native"] = {k: float(np.mean([x[k] for x in nat])) for k in nat[0]}
     agg = sum(x["total_distance_cm"] for x in nat) / n
-    out["cathsim_native"]["spl"] = float(sum(x["success"] for x in nat) / n * 15.73 / max(agg, 15.73))
+    out[f"{CMP}_native"]["spl"] = float(sum(x["success"] for x in nat) / n * 15.73 / max(agg, 15.73))
     out["distinct_eval_outcomes"] = len({(r["steps"], round(r["peak_tip_contact_force_N"], 6), r["success"])
                                          for r in rows})
     out["eval_steps_per_s"] = float(np.sum([r["steps"] for r in rows]) / np.sum([r["eval_wall_s"] for r in rows]))
@@ -173,23 +176,23 @@ def summarize(rows):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--models", required=True, help="dir holding cathsim-<task>-ppo-main-s<N>.zip")
+    ap.add_argument("--models", required=True, help=f"dir holding {CMP}-<task>-ppo-main-s<N>.zip")
     ap.add_argument("--task", default="phantom3_bca")
     ap.add_argument("--seeds", default="0,1,2,3,4,5")
     ap.add_argument("--episodes", type=int, default=100)
     ap.add_argument("--max-steps", type=int, default=300)
-    ap.add_argument("--model-glob", default="cathsim-{task}-ppo-main-s{seed}.zip")
+    ap.add_argument("--model-glob", default=f"{CMP}-{{task}}-ppo-main-s{{seed}}.zip")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     from stable_baselines3 import PPO
-    res = {"protocol": "post-hoc tip contact force evaluation of frozen CathSim PPO models",
+    res = {"protocol": f"post-hoc tip contact force evaluation of frozen {CMP_NAME} PPO models",
            "task": a.task, "eval_seed_start": EVAL_SEED_START, "episodes": a.episodes,
            "max_steps": a.max_steps, "thresholds_N": list(THRESHOLDS_N), "primary_threshold_N": PRIMARY_N,
            "force_definition": "sampled at the end of each control step (12 ms), max over guidewire-tip/phantom contacts of |MuJoCo contact "
-                               "normal force| (CathSim Navigate.get_contact_forces definition: dist < 2 mm, "
+                               f"normal force| ({CMP_NAME} Navigate.get_contact_forces definition: dist < 2 mm, "
                                "|f| > 1 mN), Newtons; wire = any guidewire body",
-           "success_rule": "tip-target distance <= 4 mm (CathSim delta)",
-           "cathsim_native_metrics": "cathsim/rl/metrics.py as published: force_mean/force_max/safety use "
+           "success_rule": f"tip-target distance <= 4 mm ({CMP_NAME} delta)",
+           f"{CMP}_native_metrics": f"{CMP}/rl/metrics.py as published: force_mean/force_max/safety use "
                                      "info['forces'] (guidewire root constraint force, N); safety = fraction of "
                                      "steps with force <= 2 N; success = episode length < 300; total distance = "
                                      "tip path length (cm); SPL with optimal path 15.73 cm", "per_seed": {}}

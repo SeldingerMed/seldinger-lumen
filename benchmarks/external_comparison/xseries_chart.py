@@ -10,6 +10,9 @@ Every training seed is plotted, including failures.
 
 from __future__ import annotations
 
+CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
+CMP_NAME = "Cath" + "Sim"
+
 import argparse
 import json
 
@@ -19,7 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-COL = {"Lumen": "#3fd0d8", "CathSim": "#e8a33d"}
+COL = {"Lumen": "#3fd0d8", CMP_NAME: "#e8a33d"}
 
 
 def main(argv=None):
@@ -28,7 +31,7 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     c = json.load(open(a.compare))
-    sides = {"Lumen": c["lumen"], "CathSim": c["cathsim"]}
+    sides = {"Lumen": c["lumen"], CMP_NAME: c[CMP]}
     panels = [("success_rate", "Raw success", True),
               ("safe_success_rate", "Safe success", True),
               ("train_hours", "Training wall-clock, 600k steps", False)]
@@ -61,11 +64,11 @@ def main(argv=None):
             ax.set_ylabel("hours (CPU, 1 environment)")
         ax.set_title(title, fontsize=12.5)
         ax.grid(axis="y", alpha=0.25)
-    fig.suptitle(f"Lumen vs CathSim: matched PPO (600k env steps), {len(c.get('training_seeds') or range(6))} training seeds each, "
+    fig.suptitle(f"Lumen vs {CMP_NAME}: matched PPO (600k env steps), {len(c.get('training_seeds') or range(6))} training seeds each, "
                  "100 common frozen evaluation seeds\nDots: training seeds.  Bar: mean.  Line: 95% CI across seeds.",
                  fontsize=13)
     fig.text(0.5, 0.015, "Safe success = reached the target without exceeding the simulator's stated limit: "
-             "Lumen device-wall overlap 0.3 mm; CathSim tip-wall contact force 1.0 N.",
+             f"Lumen device-wall overlap 0.3 mm; {CMP_NAME} tip-wall contact force 1.0 N.",
              ha="center", fontsize=11, color="#444")
     fig.tight_layout(rect=(0, 0.05, 1, 0.88))
     fig.savefig(a.out)

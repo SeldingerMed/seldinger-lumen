@@ -69,3 +69,18 @@ python benchmarks/external_comparison/summarize_results.py \
   benchmarks/external_comparison/results/lumen-pilot-30.json \
   benchmarks/external_comparison/results/cathsim-pilot-30.json
 ```
+## Lumen vs CathSim head-to-head (X series)
+
+The matched PPO comparison (600k environment steps, training seeds 0, 1 and 5 in each
+simulator, 100 shared frozen evaluation seeds) is specified in
+[`XSERIES_PROTOCOL.md`](XSERIES_PROTOCOL.md), including the safety thresholds, their
+physical justification and the exact reproduce commands. Scripts:
+
+- `train_sb3.py`: training and frozen evaluation for both simulators.
+- `eval_comparator_contact.py`: post-hoc CathSim tip-wall contact force on the frozen models.
+- `xseries_compare.py`: per-seed and summary table (JSON and Markdown), 95% t-intervals.
+- `xseries_chart.py`: three-panel results chart.
+- `record_matched.py`: records one matched evaluation episode per trained policy.
+- `tools/xseries/clip_matched.py`: renders the side-by-side video from those episodes.
+
+CathSim is installed separately in its own environment and is never vendored here.

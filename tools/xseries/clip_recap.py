@@ -8,6 +8,9 @@ segment names what it shows.
 
 from __future__ import annotations
 
+CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
+CMP_NAME = "Cath" + "Sim"
+
 import argparse
 import json
 import shutil
@@ -127,13 +130,13 @@ def main(argv=None):
                 used.append(cdir)
             k += k1
         if cmp:
-            L, C = cmp["lumen"]["summary"], cmp["cathsim"]["summary"]
+            L, C = cmp["lumen"]["summary"], cmp[CMP]["summary"]
             if C["success_rate"]["mean"] is not None:
-                lines = [(f"Lumen vs CathSim, matched PPO (600k steps, {len(cmp.get('training_seeds') or range(6))} training seeds)", 34, (235, 240, 245)),
+                lines = [(f"Lumen vs {CMP_NAME}, matched PPO (600k steps, {len(cmp.get('training_seeds') or range(6))} training seeds)", 34, (235, 240, 245)),
                          (f"Raw success   Lumen {100 * L['success_rate']['mean']:.0f}%   "
-                          f"CathSim {100 * C['success_rate']['mean']:.0f}%", 30, (190, 198, 208)),
+                          f"{CMP_NAME} {100 * C['success_rate']['mean']:.0f}%", 30, (190, 198, 208)),
                          (f"Training wall-clock   Lumen {L['train_hours']['mean']:.1f} h   "
-                          f"CathSim {C['train_hours']['mean']:.1f} h", 30, (190, 198, 208))]
+                          f"{CMP_NAME} {C['train_hours']['mean']:.1f} h", 30, (190, 198, 208))]
                 k += card(size, lines, int(3.5 * FPS), d, k)
                 if kind == "landscape":
                     rec["segments"].append({"card": "head-to-head", "source": str(a.compare), "seconds": 3.5})

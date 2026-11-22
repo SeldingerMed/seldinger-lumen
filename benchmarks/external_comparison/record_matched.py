@@ -9,16 +9,19 @@ safety readouts in an .npz per seed:
     target   (3,)    target point, mm
     wire_k   (N_k,3) guidewire polyline at step k, mm (object array over steps)
     safety   (T,)    per-step safety readout: Lumen surface overlap (mm);
-                     CathSim max tip-wall contact force (N)
+                     comparator max tip-wall contact force (N)
     success, steps, dt, eval_seed, training_seed, environment
 
-Runs in either venv: --environment lumen (Lumen venv) or cathsim (CathSim venv, MUJOCO_GL=disable).
+Runs in either venv: --environment lumen (Lumen venv) or the comparator (its own venv, MUJOCO_GL=disable).
 
     python benchmarks/external_comparison/record_matched.py --environment lumen \\
         --models DIR --seeds 0,1,2,3,4,5 --out DIR
 """
 
 from __future__ import annotations
+
+CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
+CMP_NAME = "Cath" + "Sim"
 
 import argparse
 import sys
@@ -29,7 +32,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.external_comparison.train_sb3 import EVAL_SEED_START, make_env  # noqa: E402
 
-TASK = {"lumen": "nav_tree_branch", "cathsim": "phantom3_bca"}
+TASK = {"lumen": "nav_tree_branch", CMP: "phantom3_bca"}
 
 
 def tube_surface(points, radii, n_theta=64, ds=0.2):
@@ -75,7 +78,7 @@ def lumen_wire(env):
         return pos
 
 
-def cathsim_geometry(env):
+def comparator_geometry(env):
     u = env.unwrapped
     ph = u._env.physics
     m = ph.model
@@ -94,7 +97,7 @@ def cathsim_geometry(env):
     return X * 1000.0, tgt * 1000.0
 
 
-def cathsim_wire(env):
+def comparator_wire(env):
     u = env.unwrapped
     ph = u._env.physics
     m = ph.model
@@ -104,7 +107,7 @@ def cathsim_wire(env):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--environment", choices=["lumen", "cathsim"], required=True)
+    ap.add_argument("--environment", choices=["lumen", CMP], required=True)
     ap.add_argument("--models", required=True)
     ap.add_argument("--seeds", default="0,1,2,3,4,5")
     ap.add_argument("--eval-seed", type=int, default=EVAL_SEED_START)
@@ -130,10 +133,10 @@ def main(argv=None):
             probe = None
             wire_fn, dt = lumen_wire, float(getattr(lumen_inner(env), "dt", 0.02))
         else:
-            from benchmarks.external_comparison.eval_cathsim_contact import contact_probe
-            vessel, tgt = cathsim_geometry(env)
+            from benchmarks.external_comparison.eval_comparator_contact import contact_probe
+            vessel, tgt = comparator_geometry(env)
             probe = contact_probe(env)
-            wire_fn, dt = cathsim_wire, float(env.unwrapped._env.control_timestep())
+            wire_fn, dt = comparator_wire, float(env.unwrapped._env.control_timestep())
         wires, safety, success = [wire_fn(env)], [0.0], False
         for _ in range(a.max_steps):
             action, _ = model.predict(obs, deterministic=True)

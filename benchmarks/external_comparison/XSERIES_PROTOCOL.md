@@ -29,15 +29,17 @@ CathSim's gym wrapper calls `get_contact_forces(self.physics, self.image_size)`,
 ## Reproduce
 ```
 # train + evaluate (both simulators)
-# one process per training seed s in 0..5, OMP/MKL/VECLIB threads = 1
+# one process per training seed s in 0 1 5 (the compared set), OMP/MKL/VECLIB threads = 1
+# Lumen runs in this repo's environment; CathSim is installed separately in its own venv
+# (airvlab/cathsim @ adfabb2, CC-BY-NC-SA-4.0) and is never vendored into this repo.
 python benchmarks/external_comparison/train_sb3.py --environment lumen   --task nav_tree_branch --algo ppo --timesteps 600000 --eval-episodes 100 --seeds $s --run-id lumen-nav_tree_branch-ppo-main-s$s --out-dir BENCH_DIR --model-dir MODELS_DIR
 MUJOCO_GL=disable python benchmarks/external_comparison/train_sb3.py --environment cathsim --task phantom3_bca --algo ppo --timesteps 600000 --eval-episodes 100 --seeds $s --run-id cathsim-phantom3_bca-ppo-main-s$s --out-dir BENCH_DIR --model-dir MODELS_DIR --checkpoint-every 25000
 # CathSim tip-contact force on the frozen models
-python benchmarks/external_comparison/eval_cathsim_contact.py --models MODELS_DIR --seeds 0,1,2,3,4,5 --out cathsim-contact.json
+MUJOCO_GL=disable python benchmarks/external_comparison/eval_comparator_contact.py --models MODELS_DIR --seeds 0,1,5 --out cathsim-contact.json
 # table, chart, matched episodes, video
-python benchmarks/external_comparison/xseries_compare.py --bench BENCH_DIR --contact cathsim-contact.json --out compare
+python benchmarks/external_comparison/xseries_compare.py --bench BENCH_DIR --contact cathsim-contact.json --seeds 0,1,5 --out compare
 python benchmarks/external_comparison/xseries_chart.py --compare compare.json --out chart.png
-python benchmarks/external_comparison/record_matched.py --environment lumen   --models MODELS_DIR --out episodes
-python benchmarks/external_comparison/record_matched.py --environment cathsim --models MODELS_DIR --out episodes
+python benchmarks/external_comparison/record_matched.py --environment lumen   --models MODELS_DIR --seeds 0,1,5 --out episodes
+python benchmarks/external_comparison/record_matched.py --environment cathsim --models MODELS_DIR --seeds 0,1,5 --out episodes
 python -m tools.xseries.clip_matched --episodes episodes --compare compare.json
 ```

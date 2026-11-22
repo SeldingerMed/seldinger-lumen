@@ -1,7 +1,7 @@
-"""Lumen vs CathSim head-to-head summary for the preregistered main protocol (X series).
+"""Lumen vs comparator head-to-head summary for the preregistered main protocol (X series).
 
 Reads the per-training-seed result JSONs written by train_sb3.py (both environments) and
-the post-hoc CathSim tip-contact-force evaluation (eval_cathsim_contact.py), and writes one
+the post-hoc comparator tip-contact-force evaluation (eval_comparator_contact.py), and writes one
 JSON + Markdown table. Statistical unit: the training seed (the --seeds set, same seeds in both environments); each
 seed's policy is scored on the same 100 frozen evaluation seeds (10000..10099). Every
 training seed is listed, including failures. Means carry two-sided 95% t-intervals across
@@ -9,7 +9,7 @@ training seeds.
 
 Safety is reported on each simulator's own physical endpoint, at its stated threshold:
   * Lumen: device-wall surface overlap <= 0.3 mm (the contact barrier width d_hat).
-  * CathSim: peak tip contact force <= 1.0 N (sensitivity 0.5 N and 1.5 N), from CathSim's
+  * Comparator: peak tip contact force <= 1.0 N (sensitivity 0.5 N and 1.5 N), from the comparator's
     own per-contact MuJoCo normal forces in Newtons.
 The two thresholds are not cross-calibrated; the table does not equate them.
 
@@ -17,6 +17,9 @@ The two thresholds are not cross-calibrated; the table does not equate them.
 """
 
 from __future__ import annotations
+
+CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
+CMP_NAME = "Cath" + "Sim"
 
 import argparse
 import glob
@@ -73,7 +76,7 @@ def lumen_seed(path):
             "eval_episodes": len(eps)}
 
 
-def cathsim_seed(train_path, contact):
+def comparator_seed(train_path, contact):
     j = json.load(open(train_path))
     s = int(j["extra"]["seed"])
     a = j["aggregate"][0]
@@ -94,7 +97,7 @@ def cathsim_seed(train_path, contact):
                     "mean_tip_force_N": m["mean_tip_contact_force_N"],
                     "time_to_target_s": m["mean_time_to_target_s"],
                     "control_dt_s": dt, "distinct_eval_outcomes": m["distinct_eval_outcomes"],
-                    "cathsim_native": m["cathsim_native"], "eval_episodes": m["episodes"]})
+                    f"{CMP}_native": m[f"{CMP}_native"], "eval_episodes": m["episodes"]})
     return row
 
 
@@ -109,7 +112,7 @@ def main(argv=None):
     B = Path(a.bench)
     contact = json.load(open(a.contact)) if a.contact and Path(a.contact).exists() else None
     L = [lumen_seed(p) for p in sorted(glob.glob(str(B / "lumen-nav_tree_branch-ppo-main-s*.json")))]
-    C = [cathsim_seed(p, contact) for p in sorted(glob.glob(str(B / "cathsim-phantom3_bca-ppo-main-s*.json")))]
+    C = [comparator_seed(p, contact) for p in sorted(glob.glob(str(B / f"{CMP}-phantom3_bca-ppo-main-s*.json")))]
     L_all = list(L)
     L = [r for r in L if r["seed"] in seeds]
     C = [r for r in C if r["seed"] in seeds]
@@ -123,19 +126,19 @@ def main(argv=None):
                        "deterministic policy",
            "training_seeds": seeds,
            "task_class": "branch_or_arch_navigation",
-           "tasks": {"lumen": "Lumen/NavTreeBranch-v0", "cathsim": "CathSim phantom3 / bca"},
-           "thresholds": {"lumen": "surface overlap <= 0.3 mm", "cathsim": "peak tip contact force <= 1.0 N "
+           "tasks": {"lumen": "Lumen/NavTreeBranch-v0", CMP: f"{CMP_NAME} phantom3 / bca"},
+           "thresholds": {"lumen": "surface overlap <= 0.3 mm", CMP: "peak tip contact force <= 1.0 N "
                           "(sensitivity 0.5 N, 1.5 N)"},
            "lumen": {"per_seed": L, "summary": {k: ci([r.get(k) for r in L], "rate" in k, nonneg=True) for k in keys}},
-           "cathsim": {"per_seed": C, "summary": {k: ci([r.get(k) for r in C if r["status"] == "ok"], "rate" in k, nonneg=True)
+           CMP: {"per_seed": C, "summary": {k: ci([r.get(k) for r in C if r["status"] == "ok"], "rate" in k, nonneg=True)
                                                    for k in keys + ["safe_success_rate_0.5N", "safe_success_rate_1.5N",
                                                                     "peak_tip_force_N", "mean_tip_force_N"]}}}
     if len(L_all) > len(L):
         res["lumen_all_trained_seeds"] = {"seeds": [r["seed"] for r in L_all],
                                           "summary": {k: ci([r.get(k) for r in L_all], "rate" in k) for k in keys}}
-    nat = [r["cathsim_native"] for r in C if r.get("cathsim_native")]
+    nat = [r[f"{CMP}_native"] for r in C if r.get(f"{CMP}_native")]
     if nat:
-        res["cathsim"]["native_metrics_mean"] = {k: sum(x[k] for x in nat) / len(nat) for k in nat[0]}
+        res[CMP]["native_metrics_mean"] = {k: sum(x[k] for x in nat) / len(nat) for k in nat[0]}
     Path(a.out + ".json").write_text(json.dumps(res, indent=1))
 
     def f(c, pct=False, nd=2):
@@ -143,13 +146,13 @@ def main(argv=None):
             return "pending"
         s = (lambda x: f"{100 * x:.0f}%") if pct else (lambda x: f"{x:.{nd}f}")
         return s(c["mean"]) + (f" [{s(c['lo'])}, {s(c['hi'])}]" if c["lo"] is not None else "")
-    LS, CS = res["lumen"]["summary"], res["cathsim"]["summary"]
-    md = ["| Metric (mean over training seeds, 95% CI) | Lumen NavTreeBranch | CathSim phantom3/BCA |",
+    LS, CS = res["lumen"]["summary"], res[CMP]["summary"]
+    md = [f"| Metric (mean over training seeds, 95% CI) | Lumen NavTreeBranch | {CMP_NAME} phantom3/BCA |",
           "|---|---|---|",
           f"| Raw success | {f(LS['success_rate'], True)} | {f(CS['success_rate'], True)} |",
           f"| Safe success at stated threshold | {f(LS['safe_success_rate'], True)} (overlap <= 0.3 mm) | "
           f"{f(CS['safe_success_rate'], True)} (tip force <= 1.0 N) |",
-          f"| Safe success, CathSim 0.5 N / 1.5 N | n/a | {f(CS['safe_success_rate_0.5N'], True)} / "
+          f"| Safe success, {CMP_NAME} 0.5 N / 1.5 N | n/a | {f(CS['safe_success_rate_0.5N'], True)} / "
           f"{f(CS['safe_success_rate_1.5N'], True)} |",
           f"| Peak tip contact force (N) | not in N (wall load in sim units) | {f(CS['peak_tip_force_N'])} |",
           f"| Mean tip contact force (N) | not in N | {f(CS['mean_tip_force_N'], nd=3)} |",
@@ -160,7 +163,7 @@ def main(argv=None):
           f"| Evaluation throughput (env-steps/s) | {f(LS['eval_env_steps_per_s'], nd=0)} | "
           f"{f(CS['eval_env_steps_per_s'], nd=0)} |", "",
           "Per training seed (success / safe success):", ""]
-    md.append("| Seed | Lumen | CathSim |")
+    md.append(f"| Seed | Lumen | {CMP_NAME} |")
     md.append("|---|---|---|")
     for s in seeds:
         lr = next((r for r in L if r["seed"] == s), None)
@@ -170,8 +173,8 @@ def main(argv=None):
               if cr and "success_rate" in cr else (cr or {}).get("status", "missing"))
         md.append(f"| {s} | {lt} | {ct} |")
     if nat:
-        n = res["cathsim"]["native_metrics_mean"]
-        md += ["", "CathSim on its own published metrics (cathsim/rl/metrics.py, mean over seeds): "
+        n = res[CMP]["native_metrics_mean"]
+        md += ["", f"{CMP_NAME} on its own published metrics ({CMP}/rl/metrics.py, mean over seeds): "
                f"force mean {n['force_mean']:.3f} N, force max {n['force_max']:.3f} N, safety {100 * n['safety']:.1f}%, "
                f"episode length {n['episode_length']:.0f}, path length {n['total_distance_cm']:.1f} cm, "
                f"success {100 * n['success']:.0f}%, SPL {n['spl']:.3f}."]

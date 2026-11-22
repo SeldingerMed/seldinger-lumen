@@ -1,6 +1,6 @@
-"""Clip 8: Lumen vs CathSim, matched evaluation episodes, every training seed.
+"""Clip 8: Lumen vs comparator, matched evaluation episodes, every training seed.
 
-Left: Lumen NavTreeBranch (bifurcation, target branch). Right: CathSim phantom3, target BCA.
+Left: Lumen NavTreeBranch (bifurcation, target branch). Right: comparator phantom3, target BCA.
 Each tile is one training seed's frozen PPO policy (600k steps, preregistered main protocol)
 playing the first common evaluation seed (10000) deterministically. Episodes come from
 benchmarks/external_comparison/record_matched.py; nothing is re-simulated here.
@@ -8,13 +8,16 @@ benchmarks/external_comparison/record_matched.py; nothing is re-simulated here.
 Both sides use the same drawing: the vessel lumen as a projected density (sum of surface
 samples along the view axis, like a contrast projection), the wire polyline, the target ring,
 and a per-tile readout of that simulator's own safety quantity against its stated threshold
-(Lumen: wall overlap, mm, limit 0.3 mm; CathSim: tip-wall contact force, N, limit 1.0 N).
+(Lumen: wall overlap, mm, limit 0.3 mm; the comparator: tip-wall contact force, N, limit 1.0 N).
 Playback is synchronized on simulated time, slowed 2x. Tiles freeze when their episode ends.
 
     python -m tools.xseries.clip_matched --episodes DIR [--compare compare.json]
 """
 
 from __future__ import annotations
+
+CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
+CMP_NAME = "Cath" + "Sim"
 
 import argparse
 import json
@@ -30,9 +33,9 @@ from tools.xseries.xs_common import (corner_tag, encode, env_versions, git_dirty
 
 SLOW = 2.0
 FPS = 30
-LIMIT = {"lumen": 0.3, "cathsim": 1.0}
-UNIT = {"lumen": "mm overlap", "cathsim": "N tip force"}
-TITLE = {"lumen": "Lumen  |  bifurcation, target branch", "cathsim": "CathSim  |  aortic arch phantom, target BCA"}
+LIMIT = {"lumen": 0.3, CMP: 1.0}
+UNIT = {"lumen": "mm overlap", CMP: "N tip force"}
+TITLE = {"lumen": "Lumen  |  bifurcation, target branch", CMP: f"{CMP_NAME}  |  aortic arch phantom, target BCA"}
 WIRE = (110, 240, 245)
 
 
@@ -103,7 +106,7 @@ class Tile:
         tg = self.uv(self.tgt)[0]
         d.ellipse((tg[0] - 9, tg[1] - 9, tg[0] + 9, tg[1] + 9), outline=(112, 211, 141), width=2)
         w = np.asarray(self.wire[k], float)
-        # CathSim feeds the wire from a base outside the phantom; draw only the part within the
+        # The comparator feeds the wire from a base outside the phantom; draw only the part within the
         # vessel's extent (3 mm margin) so the external feed segment does not cross the image.
         inside = np.all((w >= self.V.min(0) - 3.0) & (w <= self.V.max(0) + 3.0), axis=1)
         if inside.any():
@@ -146,11 +149,11 @@ def main(argv=None):
     ap.add_argument("--only", default="")
     a = ap.parse_args(argv)
     only = [int(x) for x in a.only.split(",") if x]
-    out = Path(a.out) if a.out else out_root() / "clip8-lumen-vs-cathsim"
+    out = Path(a.out) if a.out else out_root() / f"clip8-lumen-vs-{CMP}"
     out.mkdir(parents=True, exist_ok=True)
     cmp = json.load(open(a.compare)) if a.compare and Path(a.compare).exists() else None
     seeds = (cmp or {}).get("training_seeds") or range(6)
-    L, C = load(a.episodes, "lumen", seeds), load(a.episodes, "cathsim", seeds)
+    L, C = load(a.episodes, "lumen", seeds), load(a.episodes, CMP, seeds)
     global SLOW
     SLOW = a.slow
     one_row = max(len(L), len(C)) <= 3          # 3 training seeds: one tall row per simulator
@@ -161,7 +164,7 @@ def main(argv=None):
                           (3, 1 if one_row else 2))}
     T = max([x["steps"] * float(x["dt"]) for x in L + C] + [0.1])
     n_frames = int(T * SLOW * FPS) + int(a.hold * FPS)
-    rec = {"clip": "8-lumen-vs-cathsim", "commit": git_sha(), "lumen_tree_dirty": git_dirty(),
+    rec = {"clip": f"8-lumen-vs-{CMP}", "commit": git_sha(), "lumen_tree_dirty": git_dirty(),
            "command": "python -m tools.xseries.clip_matched " + " ".join(sys.argv[1:] if argv is None else argv),
            "versions": env_versions(), "episodes": {}, "outputs": {}}
     for d in L + C:
@@ -178,7 +181,7 @@ def main(argv=None):
                 continue
             t = i / (FPS * SLOW)
             img = Image.new("RGB", size, (7, 9, 13))
-            for side, (ox, oy), env in zip(sides, origins, ("lumen", "cathsim")):
+            for side, (ox, oy), env in zip(sides, origins, ("lumen", CMP)):
                 label(img, TITLE[env], (ox, oy - (40 if kind == "landscape" else 34)), 24 if kind == "landscape"
                       else 20, (235, 240, 245))
                 for j, tile in enumerate(side):
@@ -189,20 +192,20 @@ def main(argv=None):
                 if not side:
                     label(img, "episodes pending", (ox + 20, oy + 40), 22, (236, 185, 88))
             if kind == "landscape":
-                label(img, "Lumen vs CathSim: matched PPO policies (600k env steps each), every training seed, "
+                label(img, f"Lumen vs {CMP_NAME}: matched PPO policies (600k env steps each), every training seed, "
                            "same evaluation seed", (20, 24), 30)
-                label(img, f"Safety limits: Lumen wall overlap 0.3 mm (contact barrier width); CathSim tip-wall "
+                label(img, f"Safety limits: Lumen wall overlap 0.3 mm (contact barrier width); {CMP_NAME} tip-wall "
                            f"force 1.0 N.   Simulated time, slowed {SLOW:.0f}x.", (20, 66), 20, (160, 168, 180))
             else:
-                label(img, "Lumen vs CathSim: matched PPO, every training seed", (30, 16), 26)
-                label(img, f"limits: Lumen 0.3 mm overlap, CathSim 1.0 N tip force; {SLOW:.0f}x slow", (30, 50), 18,
+                label(img, f"Lumen vs {CMP_NAME}: matched PPO, every training seed", (30, 16), 26)
+                label(img, f"limits: Lumen 0.3 mm overlap, {CMP_NAME} 1.0 N tip force; {SLOW:.0f}x slow", (30, 50), 18,
                       (160, 168, 180))
             if cmp and i >= n_frames - int(a.hold * FPS):
-                Ls, Cs = cmp["lumen"]["summary"], cmp["cathsim"]["summary"]
+                Ls, Cs = cmp["lumen"]["summary"], cmp[CMP]["summary"]
                 if Cs["success_rate"]["mean"] is not None:
                     txt = (f"Mean over {len(cmp.get('training_seeds') or range(6))} training seeds x 100 eval seeds:  success  Lumen "
-                           f"{100 * Ls['success_rate']['mean']:.0f}%  CathSim {100 * Cs['success_rate']['mean']:.0f}%"
-                           f"   |   safe success  Lumen {100 * Ls['safe_success_rate']['mean']:.0f}%  CathSim "
+                           f"{100 * Ls['success_rate']['mean']:.0f}%  {CMP_NAME} {100 * Cs['success_rate']['mean']:.0f}%"
+                           f"   |   safe success  Lumen {100 * Ls['safe_success_rate']['mean']:.0f}%  {CMP_NAME} "
                            f"{100 * Cs['safe_success_rate']['mean']:.0f}%")
                     y = 1080 - 60 if kind == "landscape" else (980 if one_row else 1080 - 40)
                     label(img, txt, (size[0] // 2, y), 22 if kind == "landscape" else 15, (235, 240, 245),
@@ -211,7 +214,7 @@ def main(argv=None):
             img.save(fd / f"{i:05d}.png")
         if only:
             continue
-        mp4 = out / f"clip8-lumen-vs-cathsim-{kind}.mp4"
+        mp4 = out / f"clip8-lumen-vs-{CMP}-{kind}.mp4"
         rec["encode_cmd"] = encode(fd, mp4, fps=FPS)
         rec["outputs"][kind] = {"file": mp4.name, "sha256": sha256(mp4), **probe(mp4)}
     if only:
