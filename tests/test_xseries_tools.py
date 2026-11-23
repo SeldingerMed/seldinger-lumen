@@ -120,6 +120,13 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
     monkeypatch.setattr(eval_comparator_contact, "make_env", lambda task, max_steps, seed: BoomEnv())
     rows, _ = eval_comparator_contact.evaluate(object(), "phantom3_bca", 2, 10)   # each episode recorded
     assert closed == [True, True]
+
+    def bad_close():
+        closed.append(True)
+        raise OSError("close boom")
+    monkeypatch.setattr(BoomEnv, "close", lambda self: bad_close())
+    rows2, _ = eval_comparator_contact.evaluate(object(), "phantom3_bca", 2, 10)   # teardown error tolerated
+    assert len(rows2) == 2 and "reset boom" in rows2[1]["error"]
     assert [r["status"] for r in rows] == ["failed", "failed"] and "reset boom" in rows[0]["error"]
     summ = eval_comparator_contact.summarize(rows)
     assert summ["failed_episodes"] == 2 and summ["success_rate"] == 0.0

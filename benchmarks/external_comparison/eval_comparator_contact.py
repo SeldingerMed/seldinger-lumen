@@ -191,7 +191,10 @@ def evaluate(model, task, episodes, max_steps):
             continue
         finally:
             if env is not None:
-                env.close()
+                try:
+                    env.close()
+                except Exception as close_exc:  # teardown failure never discards the schedule
+                    print(f"eval seed {seed}: env.close() failed: {close_exc!r}", file=sys.stderr, flush=True)
         peak = max(tip) if tip else 0.0
         H = np.asarray(heads) if heads else np.zeros((1, 3))
         path_cm = float(np.linalg.norm(np.diff(H, axis=0), axis=1).sum() * 100) if len(H) > 1 else 0.0

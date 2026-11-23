@@ -183,7 +183,10 @@ def _record_one(a, PPO, env_name, task, s, mp, out):
                             eval_seed=a.eval_seed, training_seed=s, environment=env_name, model=str(mp))
         print(env_name, s, "success", success, "steps", len(wires) - 1, "peak", max(safety), flush=True)
     finally:
-        env.close()
+        try:            # a teardown error neither masks the real one nor fails a saved recording
+            env.close()
+        except Exception as close_exc:
+            print(f"{env_name} seed {s}: env.close() failed: {close_exc!r}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

@@ -135,7 +135,8 @@ def load(ep_dir, env, seeds=range(6)):
     for s in seeds:
         f = Path(ep_dir) / f"{env}-s{s}.npz"
         if f.exists():
-            out.append(np.load(f, allow_pickle=True))
+            with np.load(f, allow_pickle=True) as d:        # materialized: no handle held during render
+                out.append({k: d[k] for k in d.files})
     return out
 
 
