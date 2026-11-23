@@ -44,7 +44,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.external_comparison.train_sb3 import (  # noqa: E402
-    COMPARATOR_ENV, COMPARATOR_TASKS, EVAL_SEED_START)
+    COMPARATOR_ENV, COMPARATOR_TASKS, EVAL_SEED_START, _parse_seeds, seed_comparator_rng)
 
 THRESHOLDS_N = (0.5, 1.0, 1.5)
 PRIMARY_N = 1.0
@@ -57,9 +57,8 @@ def make_env(task: str, max_steps: int, seed: int):
     env = gym.make(env_id, dense_reward=True, success_reward=10.0, delta=0.004, use_pixels=False,
                    use_segment=False, image_size=64, return_info=True, use_force=True, **dict(kwargs))
     env = gym.wrappers.TimeLimit(env, max_episode_steps=max_steps)
+    seed_comparator_rng(env, seed)
     env.reset(seed=seed)
-    if hasattr(env.action_space, "seed"):
-        env.action_space.seed(seed)
     return env
 
 
@@ -72,71 +71,108 @@ def control_dt(env) -> float | None:
 
 
 def contact_probe(env):
-    """Return f() -> (max tip-wall force, max wire-wall force) in N for the current state."""
+    """Return f() -> (max tip-wall force, max wire-wall force) in N for the current state.
+
+    Probes a copy of the MuJoCo physics state once per sample so querying contact forces never
+    runs forward/constraint passes on live physics (which would mutate qacc_warmstart).
+    """
     u = env.unwrapped
     ph, task = u._env.physics, u._env._task
     m = ph.model
     names = [m.id2name(i, "body") for i in range(m.nbody)]
     gb = m.geom_bodyid
+    try:
+        import mujoco as _mj
+    except Exception:
+        _mj = None
+    wrench = np.empty(6, dtype=np.float64)
 
     def f():
         d = ph.data
-        tip = wire = 0.0
+        cands = []
         for i in range(d.ncon):
             c = d.contact[i]
             b1, b2 = names[gb[c.geom1]], names[gb[c.geom2]]
             if ("phantom" in b1) == ("phantom" in b2) or c.dist >= 0.002:
                 continue
-            fn = abs(float(d.contact_force(i)[0][0]))
-            if fn <= 0.001:
-                continue
             w = b1 if "guidewire" in b1 else b2
-            wire = max(wire, fn)
-            if "/tip/" in w:
-                tip = max(tip, fn)
+            cands.append((i, "/tip/" in w))
+        if not cands:
+            return 0.0, 0.0
+        cp = ph.copy(share_model=True)
+        tip = wire = 0.0
+        if _mj is not None and hasattr(cp.model, "ptr") and hasattr(cp.data, "_data"):
+            mp_, dp_ = cp.model.ptr, cp.data._data
+            _mj.mj_fwdActuation(mp_, dp_)
+            _mj.mj_fwdAcceleration(mp_, dp_)
+            _mj.mj_fwdConstraint(mp_, dp_)
+            for i, is_tip in cands:
+                _mj.mj_contactForce(mp_, dp_, i, wrench)
+                fn = abs(float(wrench[0]))
+                if fn <= 0.001:
+                    continue
+                wire = max(wire, fn)
+                if is_tip:
+                    tip = max(tip, fn)
+        else:
+            cd = cp.data
+            for i, is_tip in cands:
+                fn = abs(float(cd.contact_force(i)[0][0]))
+                if fn <= 0.001:
+                    continue
+                wire = max(wire, fn)
+                if is_tip:
+                    tip = max(tip, fn)
         return tip, wire
     assert hasattr(task, "get_contact_forces")
     return f
 
 
 def evaluate(model, task, episodes, max_steps):
+    if episodes <= 0:
+        raise ValueError("episodes must be positive")
+    if max_steps <= 0:
+        raise ValueError("max_steps must be positive")
     rows = []
     dt = None
     for i in range(episodes):
         seed = EVAL_SEED_START + i
         env = make_env(task, max_steps, seed)
-        dt = dt or control_dt(env)
-        obs, _ = env.reset(seed=seed)
-        probe = contact_probe(env)
-        t0 = time.perf_counter()
-        tip, wire, prox, steps, success, dist, heads = [], [], [], 0, False, None, []
-        for _ in range(max_steps):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
-            steps += 1
-            ft, fw = probe()
-            tip.append(ft)
-            wire.append(fw)
-            if "forces" in info:
-                prox.append(float(np.asarray(info["forces"]).reshape(-1)[0]))
-            if "head_pos" in info:
-                heads.append(np.asarray(info["head_pos"], float).reshape(-1)[:3])
-            if "head_pos" in info and "target_pos" in info:
-                dist = float(np.linalg.norm(np.asarray(info["head_pos"]) - np.asarray(info["target_pos"])))
-                success = success or dist <= 0.004
-            success = success or bool(terminated and dist is not None and dist <= 0.004)
-            if terminated or truncated:
-                break
-        wall = time.perf_counter() - t0
-        env.close()
+        try:
+            dt = dt or control_dt(env)
+            seed_comparator_rng(env, seed)
+            obs, _ = env.reset(seed=seed)
+            probe = contact_probe(env)
+            t0 = time.perf_counter()
+            tip, wire, prox, steps, success, dist, heads = [], [], [], 0, False, None, []
+            for _ in range(max_steps):
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, info = env.step(action)
+                steps += 1
+                ft, fw = probe()
+                tip.append(ft)
+                wire.append(fw)
+                if "forces" in info:
+                    prox.append(float(np.asarray(info["forces"]).reshape(-1)[0]))
+                if "head_pos" in info:
+                    heads.append(np.asarray(info["head_pos"], float).reshape(-1)[:3])
+                if "head_pos" in info and "target_pos" in info:
+                    dist = float(np.linalg.norm(np.asarray(info["head_pos"]) - np.asarray(info["target_pos"])))
+                    success = success or dist <= 0.004
+                success = success or bool(terminated and dist is not None and dist <= 0.004)
+                if terminated or truncated:
+                    break
+            wall = time.perf_counter() - t0
+        finally:
+            env.close()
         peak = max(tip) if tip else 0.0
         H = np.asarray(heads) if heads else np.zeros((1, 3))
         path_cm = float(np.linalg.norm(np.diff(H, axis=0), axis=1).sum() * 100) if len(H) > 1 else 0.0
         P = np.asarray(prox) if prox else np.zeros(1)
-        native = {  # the comparator's own per-trajectory metrics (the comparator's rl/metrics.py), on info["forces"]
+        native = {  # the comparator's own per-trajectory metrics (rl/metrics.py), on info["forces"] (generalized norm, not N)
             "force_mean": float(P.mean()), "force_max": float(P.max()), "episode_length": steps,
             "safety": float(1 - np.sum(P > 2) / max(steps, 1)), "total_distance_cm": path_cm,
-            "success": int(steps < 300)}
+            "success": int(steps < max_steps)}
         rows.append({"seed": seed, "success": bool(success), "steps": steps,
                      "time_to_target_s": (steps * dt if (success and dt) else None),
                      "final_distance_m": dist, "peak_tip_contact_force_N": peak,
@@ -144,7 +180,7 @@ def evaluate(model, task, episodes, max_steps):
                      "mean_tip_contact_force_in_contact_N": (float(np.mean([x for x in tip if x > 0]))
                                                              if any(x > 0 for x in tip) else 0.0),
                      "peak_wire_contact_force_N": max(wire) if wire else 0.0,
-                     "peak_proximal_force_N": max(prox) if prox else None,
+                     "peak_root_constraint_norm": max(prox) if prox else None,
                      **{f"safe_success_{t}N": bool(success and peak <= t) for t in THRESHOLDS_N},
                      f"{CMP}_native": native, "eval_wall_s": wall, "steps_per_s": steps / wall if wall > 0 else None,
                      "tip_force_curve_N": [round(x, 5) for x in tip],
@@ -154,6 +190,8 @@ def evaluate(model, task, episodes, max_steps):
 
 def summarize(rows):
     n = len(rows)
+    if n == 0:
+        raise ValueError("rows must be non-empty")
     out = {"episodes": n, "success_rate": sum(r["success"] for r in rows) / n}
     for t in THRESHOLDS_N:
         out[f"safe_success_rate_{t}N"] = sum(r[f"safe_success_{t}N"] for r in rows) / n
@@ -163,14 +201,18 @@ def summarize(rows):
     out["mean_tip_contact_force_N"] = float(np.mean([r["mean_tip_contact_force_N"] for r in rows]))
     tt = [r["time_to_target_s"] for r in rows if r["time_to_target_s"] is not None]
     out["mean_time_to_target_s"] = float(np.mean(tt)) if tt else None
-    out["mean_steps_success"] = float(np.mean([r["steps"] for r in rows if r["success"]])) if tt else None
+    succ_steps = [r["steps"] for r in rows if r["success"]]
+    out["mean_steps_success"] = float(np.mean(succ_steps)) if succ_steps else None
     nat = [r[f"{CMP}_native"] for r in rows]
     out[f"{CMP}_native"] = {k: float(np.mean([x[k] for x in nat])) for k in nat[0]}
-    agg = sum(x["total_distance_cm"] for x in nat) / n
-    out[f"{CMP}_native"]["spl"] = float(sum(x["success"] for x in nat) / n * 15.73 / max(agg, 15.73))
+    d_opt = 15.73
+    out[f"{CMP}_native"]["spl"] = float(
+        np.mean([x["success"] * d_opt / max(x["total_distance_cm"], d_opt) for x in nat])
+    )
     out["distinct_eval_outcomes"] = len({(r["steps"], round(r["peak_tip_contact_force_N"], 6), r["success"])
                                          for r in rows})
-    out["eval_steps_per_s"] = float(np.sum([r["steps"] for r in rows]) / np.sum([r["eval_wall_s"] for r in rows]))
+    total_wall = float(np.sum([r["eval_wall_s"] for r in rows]))
+    out["eval_steps_per_s"] = float(np.sum([r["steps"] for r in rows]) / total_wall) if total_wall > 0 else None
     return out
 
 
@@ -184,30 +226,45 @@ def main(argv=None):
     ap.add_argument("--model-glob", default=f"{CMP}-{{task}}-ppo-main-s{{seed}}.zip")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    if a.episodes <= 0:
+        raise ValueError("--episodes must be positive")
+    if a.max_steps <= 0:
+        raise ValueError("--max-steps must be positive")
+    seeds = _parse_seeds(a.seeds)
     from stable_baselines3 import PPO
+    out_path = Path(a.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     res = {"protocol": f"post-hoc tip contact force evaluation of frozen {CMP_NAME} PPO models",
            "task": a.task, "eval_seed_start": EVAL_SEED_START, "episodes": a.episodes,
            "max_steps": a.max_steps, "thresholds_N": list(THRESHOLDS_N), "primary_threshold_N": PRIMARY_N,
-           "force_definition": "sampled at the end of each control step (12 ms), max over guidewire-tip/phantom contacts of |MuJoCo contact "
+           "force_definition": "sampled at the end of each control step (12 ms) on a copied physics state, max over guidewire-tip/phantom contacts of |MuJoCo contact "
                                f"normal force| ({CMP_NAME} Navigate.get_contact_forces definition: dist < 2 mm, "
                                "|f| > 1 mN), Newtons; wire = any guidewire body",
            "success_rule": f"tip-target distance <= 4 mm ({CMP_NAME} delta)",
            f"{CMP}_native_metrics": f"{CMP}/rl/metrics.py as published: force_mean/force_max/safety use "
-                                     "info['forces'] (guidewire root constraint force, N); safety = fraction of "
-                                     "steps with force <= 2 N; success = episode length < 300; total distance = "
-                                     "tip path length (cm); SPL with optimal path 15.73 cm", "per_seed": {}}
-    for s in [int(x) for x in a.seeds.split(",") if x]:
+                                     "info['forces'] (norm of guidewire root generalized qfrc_constraint[0:3], "
+                                     "combining linear-force and torque DOFs, not N); safety = fraction of "
+                                     f"steps with norm <= 2; success = episode length < {a.max_steps}; total distance = "
+                                     "tip path length (cm); per-episode SPL with optimal path 15.73 cm", "per_seed": {}}
+    for s in seeds:
         p = Path(a.models) / a.model_glob.format(task=a.task, seed=s)
         if not p.exists():
             res["per_seed"][str(s)] = {"status": "missing_model", "model": str(p)}
+            out_path.write_text(json.dumps(res, indent=1))
             continue
-        model = PPO.load(str(p), device="cpu")
-        rows, dt = evaluate(model, a.task, a.episodes, a.max_steps)
-        res["control_dt_s"] = dt
-        res["per_seed"][str(s)] = {"status": "ok", "model": str(p), "summary": summarize(rows), "episodes": rows}
-        print(s, json.dumps(res["per_seed"][str(s)]["summary"]), flush=True)
-        Path(a.out).write_text(json.dumps(res, indent=1))
-    Path(a.out).write_text(json.dumps(res, indent=1))
+        try:
+            model = PPO.load(str(p), device="cpu")
+            rows, dt = evaluate(model, a.task, a.episodes, a.max_steps)
+            res["control_dt_s"] = dt
+            res["per_seed"][str(s)] = {"status": "ok", "model": str(p), "summary": summarize(rows), "episodes": rows}
+            print(s, json.dumps(res["per_seed"][str(s)]["summary"]), flush=True)
+        except Exception as exc:
+            res["per_seed"][str(s)] = {
+                "status": "failed", "model": str(p), "error": f"{type(exc).__name__}: {exc}"
+            }
+            print(s, json.dumps(res["per_seed"][str(s)]), flush=True)
+        out_path.write_text(json.dumps(res, indent=1))
+    out_path.write_text(json.dumps(res, indent=1))
 
 
 if __name__ == "__main__":

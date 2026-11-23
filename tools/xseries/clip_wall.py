@@ -245,7 +245,8 @@ def main(argv=None):
         sched += [(k, slow)] * (4 if slow else 1)
     sched += [(nst - 1, False)] * a.hold
     n_frames = len(sched)
-    tmax = (max(len(rigid), len(soft)) - 1) * DT
+    dt = float(rmeta.get("dt_s_per_step", DT))
+    tmax = (max(len(rigid), len(soft)) - 1) * dt
     vmax = 0.5
     ymax = max(1.0, 1.1 * max(max(rpen), min(max(wmax), 4.0)))
     red, amber = (232, 90, 92), (247, 181, 64)
@@ -259,7 +260,7 @@ def main(argv=None):
         k, slow = sched[i]
         fr = rigid[min(k, len(rigid) - 1)]
         fs = soft[min(k, len(soft) - 1)]
-        t_now = k * DT
+        t_now = k * dt
         pr = Image.fromarray(rv.render(fr.extra["wire"], None, target, heat=(fr.nodes, fr.extra.get("pen", np.zeros(len(fr.nodes))), thr)))
         ps = Image.fromarray(rv.render(fs.extra["wire"], fs.extra.get("w"), target, vmax=vmax))
         wnow = float(fs.extra["w"].max()) if "w" in fs.extra else 0.0
@@ -278,7 +279,7 @@ def main(argv=None):
               bg=(10, 13, 18))
         L.paste(chart(1920, 320, t_now, [("rigid: device-wall overlap", rpen, red),
                                          ("deformable: peak wall deflection", wmax, amber)],
-                      tmax, ymax, thr), (0, 760))
+                      tmax, ymax, thr, dt=dt), (0, 760))
         corner_tag(L, top=True)
         L.save(dirs["landscape"] / f"{i:05d}.png")
         S = Image.new("RGB", (1080, 1080), (7, 9, 13))
@@ -290,7 +291,7 @@ def main(argv=None):
         if slow:
             label(S, "slow motion x4", (540, 52), 20, (236, 185, 88), anchor="ma", bg=(10, 13, 18))
         S.paste(chart(1080, 440, t_now, [("rigid overlap", rpen, red), ("wall deflection", wmax, amber)],
-                      tmax, ymax, thr), (0, 600))
+                      tmax, ymax, thr, dt=dt), (0, 600))
         corner_tag(S)
         S.save(dirs["square"] / f"{i:05d}.png")
         if i % 40 == 0:
