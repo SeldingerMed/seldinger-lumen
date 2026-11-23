@@ -132,10 +132,12 @@ def main(argv=None):
     for s in [int(x) for x in a.seeds.split(",") if x]:
         mp = Path(a.models) / a.model_glob.format(env=env_name, task=task, seed=s)
         if not mp.exists():
+            (out / f"{env_name}-s{s}.npz").unlink(missing_ok=True)
             print("missing", mp, flush=True)
             failures[s] = f"missing model {mp}"
             continue
         try:
+            (out / f"{env_name}-s{s}.npz").unlink(missing_ok=True)   # a failed re-record leaves no stale episode
             _record_one(a, PPO, env_name, task, s, mp, out)
         except Exception as exc:          # one bad seed never aborts the other recordings
             failures[s] = repr(exc)

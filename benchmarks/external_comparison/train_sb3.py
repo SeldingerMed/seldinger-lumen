@@ -584,6 +584,14 @@ def main() -> None:
         parser.error(str(exc))
     model_dir = Path(args.model_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
+    if int(getattr(args, "checkpoint_every", 0) or 0) > 0:
+        # Refused before anything is trained or written: a rerun of a completed checkpointed seed would
+        # otherwise replace that run's result files with a failed-seed record.
+        for seed in seeds:
+            mp = model_dir / (f"{run_id}.zip" if len(seeds) == 1 else f"{run_id}-seed{seed}.zip")
+            if (mp.parent / (mp.stem + "-ckpt") / "completed.json").exists():
+                parser.error(f"seed {seed} of {run_id} already completed (its checkpoint directory is "
+                             "marked complete); a rerun needs a new --run-id or an emptied checkpoint directory")
     model_paths = []
     runs = []
     episodes = []
