@@ -83,3 +83,10 @@ retrained. All other runs are new.
      Target sites lie 0.56 mm (bca) and
      0.63 mm (lcca) from their centerlines; the inlet seed
      0.19 mm. Full report: `import_report.json` in the v2 manifest.
+2. 2026-11-22, before any v2 checkpoint is scored: checkpoint evaluation stops early once the
+   threshold is unreachable (`checkpoint_curve.py`). Seeds run in schedule order; after 11 failures a
+   checkpoint cannot reach 90% and is recorded as below threshold, with the success over its evaluated
+   prefix kept for the learning-curve plot and marked as partial. Every checkpoint that reaches 90% is
+   scored on all 100 seeds, so the headline (first checkpoint at >= 90%) is unchanged. The snapshot at
+   the full budget is replaced by the final saved model, because SB3 writes that snapshot before the
+   last policy update.
