@@ -145,7 +145,14 @@ def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, e
     import pickle
     # The captured fields depend on extra_fn, so it is part of the cache identity: a cache
     # written without it is never served to a caller that needs it, and vice versa.
-    tag = f"-x{getattr(extra_fn, '__name__', 'fn')}" if extra_fn is not None else ""
+    tag = ""
+    if extra_fn is not None:              # keyed on the function's source, not just its name
+        import inspect
+        try:
+            src = inspect.getsource(extra_fn)
+        except (OSError, TypeError):
+            src = getattr(extra_fn, "__qualname__", "fn")
+        tag = f"-x{getattr(extra_fn, '__name__', 'fn')}-{hashlib.sha256(src.encode()).hexdigest()[:8]}"
     path = out_root() / "rollouts" / f"{name}{tag}-seed{seed}.pkl"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():

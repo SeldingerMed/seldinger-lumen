@@ -41,6 +41,15 @@ def _parse_seeds(raw: str) -> list[int]:
     return seeds
 
 
+def _sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _run_failed(j) -> bool:
     """train_sb3.py marks a failed seed with runs[i]["status"] == "failed" and lists it in failed_seeds."""
     e = j.get("extra", {})
@@ -200,10 +209,16 @@ def comparator_seed(train_path, contact):
         c = contact.get("per_seed", {}).get(str(s))
         if c and c.get("status") == "ok":
             # the contact pass must score the same frozen policy this training run produced
-            want = [Path(r["model_path"]).name for r in j["extra"].get("runs", []) if r.get("model_path")]
+            paths = [Path(r["model_path"]) for r in j["extra"].get("runs", []) if r.get("model_path")]
+            want = [p.name for p in paths]
             if want and Path(c.get("model", "")).name not in want:
                 raise ValueError(f"contact result for seed {s} scored {c.get('model')!r}, "
                                  f"not this run's model {want}")
+            # and the same bytes: a model rewritten under the same name is a different policy
+            here = [p for p in paths if p.name == Path(c.get("model", "")).name and p.is_file()]
+            if c.get("model_sha256") and here and _sha256(here[0]) != c["model_sha256"]:
+                raise ValueError(f"contact result for seed {s} scored a model whose sha256 differs from "
+                                 f"{here[0]} (rewritten after the contact pass)")
     if c and c.get("status") == "ok":
         m = c["summary"]
         dt = contact.get("control_dt_s")
