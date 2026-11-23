@@ -533,10 +533,6 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
     stage = "save"
     try:
         model.save(model_path)
-        if int(getattr(args, "checkpoint_every", 0) or 0) > 0:
-            ck = model_path.parent / (model_path.stem + "-ckpt")
-            (ck / "completed.json").write_text(json.dumps({"timesteps": int(args.timesteps),
-                                                           "model": str(model_path)}))
     except Exception as exc:
         raise SeedRunError(
             stage,
@@ -816,6 +812,14 @@ def main() -> None:
         episodes,
         extra=extra,
     )
+    if int(getattr(args, "checkpoint_every", 0) or 0) > 0:
+        # Marked complete only once trained, evaluated and written: a seed that failed in evaluation
+        # (or whose results were never written) stays resumable from its last snapshot.
+        for run in runs:
+            if run["status"] == "completed":
+                mp = Path(run["model_path"])
+                (mp.parent / (mp.stem + "-ckpt") / "completed.json").write_text(
+                    json.dumps({"timesteps": int(args.timesteps), "model": str(mp)}))
     print(json.dumps(_main_payload(model_paths, seeds, elapsed, runs), indent=2))
 
 

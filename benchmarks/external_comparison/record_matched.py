@@ -144,6 +144,8 @@ def main(argv=None):
             print(env_name, s, "FAILED", repr(exc), flush=True)
     if failures:
         (out / f"{env_name}-failures.json").write_text(json.dumps({str(k): v for k, v in failures.items()}, indent=1))
+    else:                               # a fully successful rerun leaves no stale failure report
+        (out / f"{env_name}-failures.json").unlink(missing_ok=True)
     return 1 if failures else 0
 
 

@@ -519,3 +519,17 @@ def test_record_matched_failed_rerecord_leaves_no_stale_episode(tmp_path: Path, 
     assert not (out / "lumen-s1.npz").exists()          # model now missing
     fails = json.loads((out / "lumen-failures.json").read_text())
     assert "sim boom" in fails["0"] and "missing model" in fails["1"]
+
+
+def test_record_matched_success_clears_stale_failure_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import sys
+    from benchmarks.external_comparison import record_matched
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=object()))
+    models, out = tmp_path / "m", tmp_path / "o"
+    models.mkdir()
+    out.mkdir()
+    (models / "lumen-nav_tree_branch-ppo-main-s0.zip").write_text("m")
+    (out / "lumen-failures.json").write_text('{"0": "old failure"}')
+    monkeypatch.setattr(record_matched, "_record_one", lambda *_a, **_k: None)
+    assert record_matched.main(["--environment", "lumen", "--models", str(models), "--seeds", "0", "--out", str(out)]) == 0
+    assert not (out / "lumen-failures.json").exists()
