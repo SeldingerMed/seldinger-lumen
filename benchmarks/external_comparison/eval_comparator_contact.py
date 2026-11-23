@@ -294,7 +294,8 @@ def main(argv=None):
         try:
             model = PPO.load(str(p), device="cpu")
             rows, dt = evaluate(model, a.task, a.episodes, a.max_steps)
-            res["control_dt_s"] = dt
+            if dt is not None:                # a seed whose envs never built has no timestep to report
+                res["control_dt_s"] = dt
             failed = [r for r in rows if r.get("status") == "failed"]
             if len(failed) == len(rows):      # nothing ran: a failed seed, never a 0% result
                 raise RuntimeError(f"all {len(rows)} episodes failed; first: {failed[0]['error']}")

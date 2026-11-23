@@ -154,6 +154,24 @@ def _rollout_code_version() -> str:
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:8]
 
 
+def _source_key(obj, n: int) -> str:
+    """Short hash of an object's source; falls back to its qualified or type name."""
+    import inspect
+    if obj is None:
+        return "none"
+    try:
+        src = inspect.getsource(obj)
+    except (OSError, TypeError):
+        src = getattr(obj, "__qualname__", None) or type(obj).__name__
+    return hashlib.sha256(src.encode()).hexdigest()[:n]
+
+
+def _anatomy_version() -> str:
+    """Hash of the scene geometry module (tools/xseries/anatomy.py)."""
+    f = Path(__file__).with_name("anatomy.py")
+    return hashlib.sha256(f.read_bytes()).hexdigest()[:8] if f.exists() else "noanatomy"
+
+
 def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, extra_fn=None):
     """Run a rollout once and keep the solver states on the external drive, so clips that
     show the same episode (hero, auto-labels, safety, replay) use byte-identical states."""
@@ -162,17 +180,14 @@ def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, e
     # written without it is never served to a caller that needs it, and vice versa.
     tag = ""
     if extra_fn is not None:              # keyed on the function's source, not just its name
-        import inspect
-        try:
-            src = inspect.getsource(extra_fn)
-        except (OSError, TypeError):
-            src = getattr(extra_fn, "__qualname__", "fn")
-        tag = f"-x{getattr(extra_fn, '__name__', 'fn')}-{hashlib.sha256(src.encode()).hexdigest()[:8]}"
-    # and on the code that records a rollout, so a cache written by older code is never reused
-    pol = getattr(policy, "__qualname__", None) or type(policy).__name__
-    pol = hashlib.sha256(pol.encode()).hexdigest()[:6]
+        tag = f"-x{getattr(extra_fn, '__name__', 'fn')}-{_source_key(extra_fn, 8)}"
+    # and on the code that records a rollout, so a cache written by older code is never reused;
+    # on the policy's source (every lambda has the same qualname); and on the scene: the env
+    # factory's source plus the anatomy module, so an edited geometry never serves old physics
+    pol = _source_key(policy, 6)
+    scene = hashlib.sha256((_source_key(make_env, 8) + _anatomy_version()).encode()).hexdigest()[:8]
     path = (out_root() / "rollouts" /
-            f"{name}{tag}-v{_rollout_code_version()}-p{pol}-m{max_steps}-seed{seed}.pkl")
+            f"{name}{tag}-v{_rollout_code_version()}-s{scene}-p{pol}-m{max_steps}-seed{seed}.pkl")
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return pickle.loads(path.read_bytes()), path

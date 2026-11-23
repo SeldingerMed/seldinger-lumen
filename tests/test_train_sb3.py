@@ -422,3 +422,33 @@ def test_sb3_checkpoint_round_trip_resumes_with_seed_kwarg(tmp_path):
     resumed._last_obs = None
     resumed.learn(128, reset_num_timesteps=False)
     assert resumed.num_timesteps == 384
+
+
+def test_completed_checkpointed_seed_is_not_silently_resumed(tmp_path, monkeypatch, capsys):
+    """A finished checkpointed seed is marked complete; rerunning its command refuses to resume."""
+    pytest.importorskip("stable_baselines3")
+    gym = pytest.importorskip("gymnasium")
+    from benchmarks.external_comparison import train_sb3
+
+    monkeypatch.setattr(train_sb3, "make_env", lambda *_args: gym.make("CartPole-v1"))
+    monkeypatch.setattr(train_sb3, "policy_name", lambda _env: "MlpPolicy")
+    monkeypatch.setattr(train_sb3, "evaluate_model", lambda *a, **k: [])
+    monkeypatch.setattr(train_sb3, "_write_results", lambda *a, **k: None)
+    monkeypatch.setattr(train_sb3, "_aggregate", lambda episodes: {"episodes": len(episodes)})
+    monkeypatch.setattr(train_sb3, "_host_snapshot", lambda: {})
+    monkeypatch.setattr(train_sb3, "_git_commit", lambda _path: "commit")
+    argv = ["train_sb3.py", "--environment", "lumen", "--task", "nav_tube", "--algo", "ppo",
+            "--timesteps", "128", "--eval-episodes", "1", "--seeds", "3", "--run-id", "ck",
+            "--checkpoint-every", "64", "--ppo-n-steps", "64", "--batch-size", "32",
+            "--out-dir", str(tmp_path / "r"), "--model-dir", str(tmp_path / "m"), "--verbose", "0"]
+    monkeypatch.setattr(sys, "argv", argv)
+    train_sb3.main()
+    capsys.readouterr()
+    ck = tmp_path / "m" / "ck-ckpt"
+    assert (ck / "completed.json").exists() and list(ck.glob("ckpt_*_steps.zip"))
+    try:
+        train_sb3.main()
+    except SystemExit:
+        pass
+    out = capsys.readouterr()
+    assert "belongs to a completed run" in out.out + out.err
