@@ -84,8 +84,11 @@ def capture(out: Path, every: int, nu: int, seed: int):
 
 def reload_and_verify(root: Path, hashes):
     from lumen.data.replay import EpisodeDataset, replay
-    ds = EpisodeDataset(str(root.parent))
-    ep = ds[0]
+    ds = EpisodeDataset(str(root.parent))   # parent may hold episodes from earlier --seed runs
+    idx = [i for i, d in enumerate(ds.dirs) if Path(d).resolve() == root.resolve()]
+    if len(idx) != 1:
+        raise RuntimeError(f"expected exactly one saved episode at {root}, found {len(idx)}")
+    ep = ds[idx[0]]
     assert not isinstance(ep, list)
     loaded = []
     ok_img = ok_nodes = 0

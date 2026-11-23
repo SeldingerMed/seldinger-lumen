@@ -474,6 +474,11 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
             ckpt_dir = model_path.parent / (model_path.stem + "-ckpt")
             ckpt_dir.mkdir(parents=True, exist_ok=True)
             _check_checkpoint_identity(ckpt_dir, _checkpoint_identity(args, seed))
+            if (ckpt_dir / "completed.json").exists():
+                # Snapshots are kept for learning curves, never to resume a finished run: a rerun of a
+                # completed seed must not silently continue from its last snapshot.
+                raise ValueError(f"{ckpt_dir} belongs to a completed run; a rerun needs a new --run-id "
+                                 "or an emptied checkpoint directory")
             # Only snapshots strictly before the budget: SB3's CheckpointCallback fires before the
             # final rollout is consumed by an update, so a snapshot at the full budget is not a
             # finished model. Resuming from it would skip the last update.
@@ -528,6 +533,10 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
     stage = "save"
     try:
         model.save(model_path)
+        if int(getattr(args, "checkpoint_every", 0) or 0) > 0:
+            ck = model_path.parent / (model_path.stem + "-ckpt")
+            (ck / "completed.json").write_text(json.dumps({"timesteps": int(args.timesteps),
+                                                           "model": str(model_path)}))
     except Exception as exc:
         raise SeedRunError(
             stage,

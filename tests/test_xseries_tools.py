@@ -159,8 +159,10 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
     eval_comparator_contact.main([
         "--models", str(tmp_path), "--seeds", "0", "--episodes", "2", "--max-steps", "20", "--out", str(out_file)
     ])
-    p0 = json.loads(out_file.read_text())["per_seed"]["0"]
+    full = json.loads(out_file.read_text())
+    p0 = full["per_seed"]["0"]
     assert p0["status"] == "failed" and "all 2 episodes failed" in p0["error"]
+    assert full.get("control_dt_s", 0.0) is not None   # a failed seed never nulls the timestep
 
 
 def test_eval_comparator_contact_time_to_target_is_first_reach(monkeypatch: pytest.MonkeyPatch):
@@ -421,6 +423,15 @@ def test_cached_rollout_keys_on_extra_fn(tmp_path: Path, monkeypatch: pytest.Mon
     (_, _), p4 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)
     assert p4 != p3 and len(calls) == 4          # recording code changed: cache not reused
 
+    slow = lambda obs: 0.2  # noqa: E731
+    fast = lambda obs: 0.9  # noqa: E731
+    (_, _), q1 = xs_common.cached_rollout("arch", Env, slow, 5)
+    (_, _), q2 = xs_common.cached_rollout("arch", Env, fast, 5)
+    assert q1 != q2                              # two lambdas are two policies
+    monkeypatch.setattr(xs_common, "_anatomy_version", lambda: "editedgeo")
+    (_, _), q3 = xs_common.cached_rollout("arch", Env, slow, 5)
+    assert q3 != q1                              # edited scene geometry: cache not reused
+
 
 def test_clip_matched_validates_inputs(tmp_path: Path):
     pytest.importorskip("PIL")
@@ -435,3 +446,28 @@ def test_clip_matched_validates_inputs(tmp_path: Path):
     with pytest.raises(FileNotFoundError, match="matched recordings missing"):
         clip_matched.main(["--episodes", str(tmp_path), "--compare", str(cmp), "--out", str(tmp_path / "m")])
     assert not (tmp_path / "m").exists()
+
+
+def test_clip_replay_reloads_this_runs_episode_not_a_leftover(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pytest.importorskip("PIL")
+    import importlib
+    replay_mod = importlib.import_module("lumen.data.replay")
+    from tools.xseries import clip_replay
+    for name in ("hero-lcca-seed10", "hero-lcca-seed2"):      # lexicographic order puts the leftover first
+        (tmp_path / name).mkdir()
+    picked = []
+
+    class FakeDS:
+        def __init__(self, root, **_k):
+            self.dirs = [str(Path(root) / "hero-lcca-seed10"), str(Path(root) / "hero-lcca-seed2")]
+
+        def __getitem__(self, i):
+            picked.append(self.dirs[i])
+            raise StopIteration
+
+    monkeypatch.setattr(replay_mod, "EpisodeDataset", FakeDS)
+    with pytest.raises(StopIteration):
+        clip_replay.reload_and_verify(tmp_path / "hero-lcca-seed2", [])
+    assert picked == [str(tmp_path / "hero-lcca-seed2")]
+    with pytest.raises(RuntimeError, match="exactly one saved episode"):
+        clip_replay.reload_and_verify(tmp_path / "hero-lcca-seed7", [])
