@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 TAG = "Lumen (open source, Apache-2.0)"
-FONT = "/System/Library/Fonts/Helvetica.ttc"
+FONT = os.environ.get("LUMEN_XS_FONT", "/System/Library/Fonts/Helvetica.ttc")
 
 
 # --------------------------------------------------------------------------- output
@@ -407,8 +407,17 @@ class View3D:
 
 # --------------------------------------------------------------------------- compose
 def font(size):
+    """Helvetica on the authoring Mac; LUMEN_XS_FONT overrides; else DejaVu or PIL's default font."""
     from PIL import ImageFont
-    return ImageFont.truetype(FONT, size)
+    for path in (FONT, "DejaVuSans.ttf"):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=size)      # Pillow >= 10.1
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def label(img, text, xy, size=26, color=(210, 218, 228), anchor="la", bg=None):

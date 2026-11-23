@@ -151,6 +151,7 @@ def evaluate(model, task, episodes, max_steps):
             probe = contact_probe(env)
             t0 = time.perf_counter()
             tip, wire, prox, steps, success, dist, heads = [], [], [], 0, False, None, []
+            reach_step = None                 # first step within tolerance: time to target ends here
             for _ in range(max_steps):
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, terminated, truncated, info = env.step(action)
@@ -168,6 +169,8 @@ def evaluate(model, task, episodes, max_steps):
                     dist = float(np.linalg.norm(np.asarray(info["head_pos"]) - np.asarray(info["target_pos"])))
                     success = success or dist <= 0.004
                 success = success or bool(terminated and dist is not None and dist <= 0.004)
+                if success and reach_step is None:
+                    reach_step = steps
                 if terminated or truncated:
                     break
             wall = time.perf_counter() - t0
@@ -182,8 +185,8 @@ def evaluate(model, task, episodes, max_steps):
             "force_max": float(P.max()) if P is not None else None, "episode_length": steps,
             "safety": float(1 - np.sum(P > 2) / max(steps, 1)) if P is not None else None,
             "total_distance_cm": path_cm, "success": int(steps < max_steps)}
-        rows.append({"seed": seed, "success": bool(success), "steps": steps,
-                     "time_to_target_s": (steps * dt if (success and dt) else None),
+        rows.append({"seed": seed, "success": bool(success), "steps": steps, "reach_step": reach_step,
+                     "time_to_target_s": (reach_step * dt if (reach_step is not None and dt) else None),
                      "final_distance_m": dist, "peak_tip_contact_force_N": peak,
                      "mean_tip_contact_force_N": float(np.mean(tip)) if tip else 0.0,
                      "mean_tip_contact_force_in_contact_N": (float(np.mean([x for x in tip if x > 0]))
@@ -210,7 +213,7 @@ def summarize(rows):
     out["mean_tip_contact_force_N"] = float(np.mean([r["mean_tip_contact_force_N"] for r in rows]))
     tt = [r["time_to_target_s"] for r in rows if r["time_to_target_s"] is not None]
     out["mean_time_to_target_s"] = float(np.mean(tt)) if tt else None
-    succ_steps = [r["steps"] for r in rows if r["success"]]
+    succ_steps = [r["reach_step"] if r.get("reach_step") is not None else r["steps"] for r in rows if r["success"]]
     out["mean_steps_success"] = float(np.mean(succ_steps)) if succ_steps else None
     nat = [r[f"{CMP}_native"] for r in rows]
 
