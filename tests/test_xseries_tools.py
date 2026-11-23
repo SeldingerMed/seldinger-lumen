@@ -198,6 +198,20 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
     with pytest.raises(ValueError, match="not this run's model"):
         xseries_compare.main(["--bench", str(bench), "--contact", str(wrong_model), "--out", str(tmp_path / "c")])
 
+    # Contact that scored a model whose bytes no longer match the run's model file raises
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    (model_dir / "phantom3_bca-s0.zip").write_bytes(b"retrained")
+    j0 = json.loads((bench / f"{CMP}-phantom3_bca-ppo-main-s0.json").read_text())
+    j0["extra"]["runs"][0]["model_path"] = str(model_dir / "phantom3_bca-s0.zip")
+    w(f"{CMP}-phantom3_bca-ppo-main-s0.json", j0)
+    stale = tmp_path / "stale.json"
+    stale.write_text(json.dumps({"task": "phantom3_bca", "episodes": 1, "eval_seed_start": 10000,
+                                 "per_seed": {"0": {"status": "ok", "model": str(model_dir / "phantom3_bca-s0.zip"),
+                                                    "model_sha256": "0" * 64, "summary": {}}}}))
+    with pytest.raises(ValueError, match="sha256 differs"):
+        xseries_compare.main(["--bench", str(bench), "--contact", str(stale), "--out", str(tmp_path / "c")])
+
     # Default --seeds is 0,1,5; works without --contact and keeps known raw success
     out_prefix = tmp_path / "cmp"
     xseries_compare.main(["--bench", str(bench), "--out", str(out_prefix)])
@@ -287,6 +301,12 @@ def test_cached_rollout_keys_on_extra_fn(tmp_path: Path, monkeypatch: pytest.Mon
     assert p0 != p1 and p1 == p2
     assert f0[0].tag is None and f1[0].tag == "pen" and f2[0].tag == "pen"
     assert len(calls) == 2
+
+    def pen(env):  # noqa: F811  (a different function under the same name)
+        return {"pen": 2, "w": 0}
+
+    (_, _), p3 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)
+    assert p3 != p1 and len(calls) == 3
 
 
 def test_clip_matched_validates_inputs(tmp_path: Path):

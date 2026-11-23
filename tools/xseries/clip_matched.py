@@ -185,8 +185,7 @@ def main(argv=None):
         raise ValueError(f"the tile layout fits at most 6 training seeds per simulator, got {max(len(L), len(C))}")
     out = Path(a.out) if a.out else out_root() / f"clip8-lumen-vs-{CMP}"
     out.mkdir(parents=True, exist_ok=True)
-    global SLOW
-    SLOW = a.slow
+    slow = a.slow                      # local: a custom --slow never leaks into later calls
     one_row = max(len(L), len(C)) <= 3          # 3 training seeds: one tall row per simulator
     layouts = {"landscape": ((1920, 1080), (300, 820 if one_row else 440), [(20, 150), (980, 150)],
                              (3, 1 if one_row else 2)),
@@ -195,7 +194,7 @@ def main(argv=None):
                           (3, 1 if one_row else 2))}
     T = max([x["steps"] * float(x["dt"]) for x in L + C] + [0.1])
     # playback covers every episode's terminal step (frame t >= T), then the hold starts
-    n_play = int(np.ceil(T * SLOW * FPS)) + 1
+    n_play = int(np.ceil(T * slow * FPS)) + 1
     n_frames = n_play + int(a.hold * FPS)
     rec = {"clip": f"8-lumen-vs-{CMP}", "commit": git_sha(), "lumen_tree_dirty": git_dirty(),
            "command": "python -m tools.xseries.clip_matched " + " ".join(sys.argv[1:] if argv is None else argv),
@@ -212,7 +211,7 @@ def main(argv=None):
         for i in range(n_frames):
             if only and i not in only:
                 continue
-            t = i / (FPS * SLOW)
+            t = i / (FPS * slow)
             img = Image.new("RGB", size, (7, 9, 13))
             for side, (ox, oy), env in zip(sides, origins, ("lumen", CMP)):
                 label(img, TITLE[env], (ox, oy - (40 if kind == "landscape" else 34)), 24 if kind == "landscape"
@@ -228,10 +227,10 @@ def main(argv=None):
                 label(img, f"Lumen vs {CMP_NAME}: matched PPO policies (600k env steps each), every training seed, "
                            "same evaluation seed", (20, 24), 30)
                 label(img, f"Safety limits: Lumen wall overlap 0.3 mm (contact barrier width); {CMP_NAME} tip-wall "
-                           f"force 1.0 N.   Simulated time, slowed {SLOW:g}x.", (20, 66), 20, (160, 168, 180))
+                           f"force 1.0 N.   Simulated time, slowed {slow:g}x.", (20, 66), 20, (160, 168, 180))
             else:
                 label(img, f"Lumen vs {CMP_NAME}: matched PPO, every training seed", (30, 16), 26)
-                label(img, f"limits: Lumen 0.3 mm overlap, {CMP_NAME} 1.0 N tip force; {SLOW:g}x slow", (30, 50), 18,
+                label(img, f"limits: Lumen 0.3 mm overlap, {CMP_NAME} 1.0 N tip force; {slow:g}x slow", (30, 50), 18,
                       (160, 168, 180))
             if cmp and i >= n_play:
                 txt = summary_line(cmp)

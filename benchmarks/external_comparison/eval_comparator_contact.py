@@ -45,6 +45,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.external_comparison.train_sb3 import (  # noqa: E402
     COMPARATOR_ENV, COMPARATOR_TASKS, EVAL_SEED_START, seed_comparator_rng)
+from benchmarks.external_comparison.common_bench import _as_float  # noqa: E402
 from benchmarks.external_comparison.train_sb3 import parse_seed_schedule as _parse_seeds  # noqa: E402
 
 THRESHOLDS_N = (0.5, 1.0, 1.5)
@@ -158,7 +159,9 @@ def evaluate(model, task, episodes, max_steps):
                 tip.append(ft)
                 wire.append(fw)
                 if "forces" in info:
-                    prox.append(float(np.asarray(info["forces"]).reshape(-1)[0]))
+                    v = _as_float(info["forces"])     # same extractor as train_sb3.evaluate_model
+                    if v is not None:
+                        prox.append(v)
                 if "head_pos" in info:
                     heads.append(np.asarray(info["head_pos"], float).reshape(-1)[:3])
                 if "head_pos" in info and "target_pos" in info:
