@@ -139,6 +139,21 @@ def rollout(env, policy, max_steps: int, seed: int = 0, record_wall=True, extra_
     return frames
 
 
+def _rollout_code_version() -> str:
+    """Short hash of the source that produces cached rollouts (Frame, rollout, shaft_polyline)."""
+    import inspect
+    mod = sys.modules[__name__]
+    parts = []
+    for nm in ("Frame", "rollout", "shaft_polyline"):
+        obj = getattr(mod, nm, None)
+        if obj is not None:
+            try:
+                parts.append(inspect.getsource(obj))
+            except (OSError, TypeError):
+                parts.append(nm)
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:8]
+
+
 def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, extra_fn=None):
     """Run a rollout once and keep the solver states on the external drive, so clips that
     show the same episode (hero, auto-labels, safety, replay) use byte-identical states."""
@@ -153,7 +168,8 @@ def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, e
         except (OSError, TypeError):
             src = getattr(extra_fn, "__qualname__", "fn")
         tag = f"-x{getattr(extra_fn, '__name__', 'fn')}-{hashlib.sha256(src.encode()).hexdigest()[:8]}"
-    path = out_root() / "rollouts" / f"{name}{tag}-seed{seed}.pkl"
+    # and on the code that records a rollout, so a cache written by older code is never reused
+    path = out_root() / "rollouts" / f"{name}{tag}-v{_rollout_code_version()}-seed{seed}.pkl"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return pickle.loads(path.read_bytes()), path

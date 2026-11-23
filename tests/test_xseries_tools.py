@@ -211,6 +211,9 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
                                                     "model_sha256": "0" * 64, "summary": {}}}}))
     with pytest.raises(ValueError, match="sha256 differs"):
         xseries_compare.main(["--bench", str(bench), "--contact", str(stale), "--out", str(tmp_path / "c")])
+    (model_dir / "phantom3_bca-s0.zip").unlink()
+    with pytest.raises(ValueError, match="not on disk"):
+        xseries_compare.main(["--bench", str(bench), "--contact", str(stale), "--out", str(tmp_path / "c")])
 
     # Default --seeds is 0,1,5; works without --contact and keeps known raw success
     out_prefix = tmp_path / "cmp"
@@ -307,6 +310,10 @@ def test_cached_rollout_keys_on_extra_fn(tmp_path: Path, monkeypatch: pytest.Mon
 
     (_, _), p3 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)
     assert p3 != p1 and len(calls) == 3
+
+    monkeypatch.setattr(xs_common, "_rollout_code_version", lambda: "changed0")
+    (_, _), p4 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)
+    assert p4 != p3 and len(calls) == 4          # recording code changed: cache not reused
 
 
 def test_clip_matched_validates_inputs(tmp_path: Path):
