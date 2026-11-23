@@ -234,6 +234,7 @@ def comparator_seed(train_path, contact):
     if c and c.get("status") == "ok" and c["summary"].get("failed_episodes") == c["summary"].get("episodes"):
         # a pass in which no episode ran carries no measurement: keep the training-eval success
         row["contact_status"] = "all_episodes_failed"
+        row["contact_failed_episodes"] = int(c["summary"].get("failed_episodes") or 0)
         c = None
     if c and c.get("status") == "ok":
         row["contact_failed_episodes"] = int(c["summary"].get("failed_episodes") or 0)

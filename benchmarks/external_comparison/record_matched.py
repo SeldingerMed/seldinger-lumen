@@ -31,7 +31,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.external_comparison.train_sb3 import (  # noqa: E402
-    EVAL_SEED_START, make_env, seed_comparator_rng)
+    EVAL_SEED_START, make_env, parse_seed_schedule, seed_comparator_rng)
 
 TASK = {"lumen": "nav_tree_branch", CMP: "phantom3_bca"}
 
@@ -123,13 +123,17 @@ def main(argv=None):
     ap.add_argument("--model-glob", default="{env}-{task}-ppo-main-s{seed}.zip")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    try:                                  # same validation as the other X-series tools
+        seeds = parse_seed_schedule(a.seeds)
+    except ValueError as exc:
+        ap.error(str(exc))
     from stable_baselines3 import PPO
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     env_name = a.environment
     task = TASK[env_name]
     failures = {}
-    for s in [int(x) for x in a.seeds.split(",") if x]:
+    for s in seeds:
         mp = Path(a.models) / a.model_glob.format(env=env_name, task=task, seed=s)
         if not mp.exists():
             (out / f"{env_name}-s{s}.npz").unlink(missing_ok=True)
