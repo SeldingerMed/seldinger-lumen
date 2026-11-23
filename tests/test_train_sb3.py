@@ -452,3 +452,12 @@ def test_completed_checkpointed_seed_is_not_silently_resumed(tmp_path, monkeypat
     assert stop.value.code == 2
     assert "already completed" in capsys.readouterr().err
     assert (results.read_bytes() if results.exists() else None) == before   # finished run's results untouched
+
+    # A seed whose evaluation failed is not marked complete: it stays resumable
+    (ck / "completed.json").unlink()
+    monkeypatch.setattr(train_sb3, "evaluate_model", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("eval boom")))
+    monkeypatch.setattr(sys, "argv", argv[:argv.index("--run-id") + 1] + ["ck2"] + argv[argv.index("--run-id") + 2:])
+    train_sb3.main()
+    capsys.readouterr()
+    ck2 = tmp_path / "m" / "ck2-ckpt"
+    assert list(ck2.glob("ckpt_*_steps.zip")) and not (ck2 / "completed.json").exists()
