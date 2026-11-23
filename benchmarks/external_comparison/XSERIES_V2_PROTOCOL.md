@@ -105,3 +105,13 @@ retrained. All other runs are new.
      Candidates: in-process DummyVecEnv with 4 and 8 environments, and SubprocVecEnv with 2 workers;
      the fastest is used. Measured values and the choice are appended below before any CathSim
      multi-environment run.
+4. 2026-11-23, supplementary resolution check (declared after the Lumen single-environment learning curves
+   were scored, so it is reported as supplementary and never replaces the preregistered metric).
+   - Observation: every Lumen single-environment run (BCA and LCCA, seeds 0, 1, 5) was at >= 90% success at
+     its first checkpoint (25,000 steps). Its preregistered time to 90% is therefore an upper bound set by the
+     checkpoint grid, and is reported as such ("<=").
+   - Check: the same Lumen configuration retrained from scratch for 25,000 steps per seed and target, with a
+     snapshot every 2,500 steps, each snapshot scored by the same checkpoint_curve rule (100 frozen evaluation
+     seeds, early stop after 11 failures). Run ids "fine". The first snapshot at >= 90% gives a point estimate
+     within 2,500 steps.
+   - Reporting: shown beside, never instead of, the preregistered 25,000-step-grid values.
