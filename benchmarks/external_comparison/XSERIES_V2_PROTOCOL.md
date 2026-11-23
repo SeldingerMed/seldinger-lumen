@@ -90,3 +90,18 @@ retrained. All other runs are new.
    scored on all 100 seeds, so the headline (first checkpoint at >= 90%) is unchanged. The snapshot at
    the full budget is replaced by the final saved model, because SB3 writes that snapshot before the
    last policy update.
+3. 2026-11-23, before any v2 Lumen training and before any batched or multi-worker run: choice of the
+   best configuration.
+   - Admissible parallel counts divide gcd(2048, 25000) = 8, so every configuration keeps the same
+     2,048-transition rollout per update and the same 25,000-step checkpoint grid as the single
+     environment (the learning curves are scored at identical step counts). Candidates: 1, 2, 4, 8.
+   - Probe: 20 s of uniformly random actions per configuration on phantom3 BCA, env-steps/s, run under
+     the admission queue on this machine (the planned 120 s was shortened; the ranking is stable well
+     within 20 s). The same probe script shape is used for both simulators.
+   - Lumen (BatchedTreeNavEnv, CPU warp): E=1 69.8, E=4 118.9, E=8 134.6 env-steps/s (E=16 144.0 and
+     E=32 149.8 were measured but are not admissible under the rule above). Chosen: E = 8.
+   - CathSim: each SubprocVecEnv worker is a separate Python process of about 1 GB, and the shared
+     machine policy admits at most 3 heavy processes, so subprocess parallelism is capped at 2 workers.
+     Candidates: in-process DummyVecEnv with 4 and 8 environments, and SubprocVecEnv with 2 workers;
+     the fastest is used. Measured values and the choice are appended below before any CathSim
+     multi-environment run.
