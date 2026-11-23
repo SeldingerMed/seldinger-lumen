@@ -152,8 +152,6 @@ def main(argv=None):
     ap.add_argument("--hold", type=int, default=45)
     ap.add_argument("--only", default="")
     a = ap.parse_args(argv)
-    if a.steps <= 0:
-        raise ValueError("--steps must be positive")
     if a.every <= 0:
         raise ValueError("--every must be positive")
     only = [int(x) for x in a.only.split(",") if x]

@@ -63,7 +63,7 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     asset, target, frames, meta, rpath = arch_rollout("lcca_out", 0.45, seed=a.seed)
     cam = FluoroCam(asset, axis=(0.0, 1.0, 0.0), nu=a.nu, fov=1.0)
-    vmask = None
+    vmask = cam.vessel_mask()          # anatomy and camera are static: project the vessel once
     dirs = {k: out / f"frames_{k}" for k in ("landscape", "square")}
     for d in dirs.values():
         shutil.rmtree(d, ignore_errors=True)
@@ -72,14 +72,10 @@ def main(argv=None):
     sample_labels = []
     for i, fi in enumerate(seq):
         fr = frames[fi]
-        if vmask is None:
-            vmask = cam.masks(fr.extra["wire"])["vessel"]
         if only and i not in only:
             continue
         g = cam.image(fr.extra["wire"], seed=fi)
-        m = cam.masks(fr.extra["wire"])
-        if vmask is None:
-            vmask = m["vessel"]
+        m = {"device": cam.device_mask(fr.extra["wire"])}
         tip = cam.project(fr.nodes[-1])["uv"]
         gi, vm, dm = np.flipud(g), np.flipud(vmask), np.flipud(m["device"])
         raw = Image.fromarray(gray_to_rgb(gi)).resize((960, 960), LZ)
@@ -117,14 +113,16 @@ def main(argv=None):
     rec = {"clip": "2-autolabels",
            "description": "Lumen synthetic fluoroscopy and the labels its sensor emits with every "
            "frame: vessel mask (projected asset lumen), device mask (projected device polyline at "
-           "its physical radius), device-tip keypoint. Labels are exact by construction because "
+           "its physical radius, floored at 1 px where that projects below one pixel), device-tip keypoint. Labels are exact by construction because "
            "they come from the same solver state as the image; no annotator or model produced them.",
            "commit": git_sha(), "lumen_tree_dirty": git_dirty(),
            "command": "python -m tools.xseries.clip_labels " + " ".join(sys.argv[1:] if argv is None else argv),
            "rollout_file": str(rpath), "label_samples": sample_labels,
            "scene": {"asset": "tools.xseries.anatomy.femoral_arch()", "target": "lcca_out",
                      "max_insertion_mm_per_step": 0.45, "seed": a.seed, **meta},
-           "fluoro": cam.params, "versions": env_versions(), "outputs": {}}
+           "fluoro": cam.params, "device_mask": {"radius_mm": 0.2, "min_radius_px": 1.0,
+                                                 "note": "projected radius floored at 1 px"},
+           "versions": env_versions(), "outputs": {}}
     for k, d in dirs.items():
         mp4 = out / f"clip2-autolabels-{k}.mp4"
         rec["encode_cmd"] = encode(d, mp4)

@@ -133,7 +133,7 @@ def main(argv=None):
         if env_name == "lumen":
             vessel, tgt = lumen_geometry(env)
             probe = None
-            wire_fn, dt = lumen_wire, float(getattr(lumen_inner(env), "dt", 0.02))
+            wire_fn, dt = lumen_wire, 5e-3 * float(getattr(lumen_inner(env), "substeps", 4))
         else:
             from benchmarks.external_comparison.eval_comparator_contact import contact_probe
             vessel, tgt = comparator_geometry(env)
@@ -149,8 +149,9 @@ def main(argv=None):
                 success = success or bool(info.get("success", False))
             else:
                 safety.append(probe()[0])
-                d = float(np.linalg.norm(np.asarray(info["head_pos"]) - np.asarray(info["target_pos"])))
-                success = success or d <= 0.004
+                if "head_pos" in info and "target_pos" in info:
+                    d = float(np.linalg.norm(np.asarray(info["head_pos"]) - np.asarray(info["target_pos"])))
+                    success = success or d <= 0.004
             if term or trunc:
                 break
         w = np.empty(len(wires), dtype=object)

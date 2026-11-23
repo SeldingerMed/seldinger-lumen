@@ -362,6 +362,7 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
 
             ckpt_dir = model_path.parent / (model_path.stem + "-ckpt")
             ckpt_dir.mkdir(parents=True, exist_ok=True)
+            _check_checkpoint_identity(ckpt_dir, _checkpoint_identity(args, seed))
             # Only snapshots strictly before the budget: SB3's CheckpointCallback fires before the
             # final rollout is consumed by an update, so a snapshot at the full budget is not a
             # finished model. Resuming from it would skip the last update.
@@ -429,6 +430,28 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
             train_elapsed,
         ) from exc
     return model_path, train_elapsed, time.perf_counter() - started, episodes
+
+
+def _checkpoint_identity(args: argparse.Namespace, seed: int) -> dict:
+    """What a resumable snapshot must match: the run it continues."""
+    return {"environment": args.environment, "task": args.task, "algo": args.algo, "seed": int(seed),
+            "timesteps": int(args.timesteps), "ppo_n_steps": int(args.ppo_n_steps),
+            "batch_size": int(args.batch_size), "max_steps": int(args.max_steps)}
+
+
+def _check_checkpoint_identity(ckpt_dir: Path, ident: dict) -> None:
+    """Refuse to resume snapshots written by a different configuration under the same run id.
+
+    The identity is stored next to the snapshots on first use; a directory from before this
+    record existed is adopted as-is (its snapshots carry the seed and rollout settings SB3 saved)."""
+    f = ckpt_dir / "run_identity.json"
+    if f.exists():
+        prev = json.loads(f.read_text())
+        diff = {k: (prev.get(k), v) for k, v in ident.items() if prev.get(k) != v}
+        if diff:
+            raise ValueError(f"checkpoint dir {ckpt_dir} belongs to a different run configuration: {diff}")
+        return
+    f.write_text(json.dumps(ident, indent=1))
 
 
 def _failed_seed_episodes(
@@ -599,6 +622,7 @@ def main() -> None:
                 "train_elapsed_sec": train_elapsed,
                 "elapsed_sec": failure_elapsed,
                 "eval_episodes": args.eval_episodes,
+                "resumed_from_step": int(getattr(args, "_resumed_from", 0)),
             })
         episodes.extend(seed_episodes)
     elapsed = float(sum(run["train_elapsed_sec"] for run in runs))

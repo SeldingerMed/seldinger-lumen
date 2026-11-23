@@ -63,6 +63,15 @@ def make_env(task: str, max_steps: int, seed: int):
     return env
 
 
+def _sha256(path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def control_dt(env) -> float | None:
     inner = env.unwrapped
     try:
@@ -93,7 +102,7 @@ def contact_probe(env):
         cands = []
         for i in range(d.ncon):
             c = d.contact[i]
-            b1, b2 = names[gb[c.geom1]], names[gb[c.geom2]]
+            b1, b2 = names[gb[c.geom1]] or "", names[gb[c.geom2]] or ""
             if ("phantom" in b1) == ("phantom" in b2) or c.dist >= 0.002:
                 continue
             w = b1 if "guidewire" in b1 else b2
@@ -169,11 +178,12 @@ def evaluate(model, task, episodes, max_steps):
         peak = max(tip) if tip else 0.0
         H = np.asarray(heads) if heads else np.zeros((1, 3))
         path_cm = float(np.linalg.norm(np.diff(H, axis=0), axis=1).sum() * 100) if len(H) > 1 else 0.0
-        P = np.asarray(prox) if prox else np.zeros(1)
+        P = np.asarray(prox) if prox else None     # info["forces"] absent: unknown, never a perfect score
         native = {  # the comparator's own per-trajectory metrics (rl/metrics.py), on info["forces"] (generalized norm, not N)
-            "force_mean": float(P.mean()), "force_max": float(P.max()), "episode_length": steps,
-            "safety": float(1 - np.sum(P > 2) / max(steps, 1)), "total_distance_cm": path_cm,
-            "success": int(steps < max_steps)}
+            "force_mean": float(P.mean()) if P is not None else None,
+            "force_max": float(P.max()) if P is not None else None, "episode_length": steps,
+            "safety": float(1 - np.sum(P > 2) / max(steps, 1)) if P is not None else None,
+            "total_distance_cm": path_cm, "success": int(steps < max_steps)}
         rows.append({"seed": seed, "success": bool(success), "steps": steps,
                      "time_to_target_s": (steps * dt if (success and dt) else None),
                      "final_distance_m": dist, "peak_tip_contact_force_N": peak,
@@ -205,7 +215,11 @@ def summarize(rows):
     succ_steps = [r["steps"] for r in rows if r["success"]]
     out["mean_steps_success"] = float(np.mean(succ_steps)) if succ_steps else None
     nat = [r[f"{CMP}_native"] for r in rows]
-    out[f"{CMP}_native"] = {k: float(np.mean([x[k] for x in nat])) for k in nat[0]}
+
+    def _mean(k):
+        v = [x[k] for x in nat if x.get(k) is not None]
+        return float(np.mean(v)) if v else None
+    out[f"{CMP}_native"] = {k: _mean(k) for k in nat[0]}
     d_opt = 15.73
     out[f"{CMP}_native"]["spl"] = float(
         np.mean([x["success"] * d_opt / max(x["total_distance_cm"], d_opt) for x in nat])
@@ -257,7 +271,8 @@ def main(argv=None):
             model = PPO.load(str(p), device="cpu")
             rows, dt = evaluate(model, a.task, a.episodes, a.max_steps)
             res["control_dt_s"] = dt
-            res["per_seed"][str(s)] = {"status": "ok", "model": str(p), "summary": summarize(rows), "episodes": rows}
+            res["per_seed"][str(s)] = {"status": "ok", "model": str(p), "model_sha256": _sha256(p),
+                                       "summary": summarize(rows), "episodes": rows}
             print(s, json.dumps(res["per_seed"][str(s)]["summary"]), flush=True)
         except Exception as exc:
             res["per_seed"][str(s)] = {

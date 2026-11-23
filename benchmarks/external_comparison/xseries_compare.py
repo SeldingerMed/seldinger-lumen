@@ -42,11 +42,36 @@ def _parse_seeds(raw: str) -> list[int]:
 
 
 def _run_failed(j) -> bool:
+    """train_sb3.py marks a failed seed with runs[i]["status"] == "failed" and lists it in failed_seeds."""
     e = j.get("extra", {})
-    if e.get("failed"):
-        return True
     runs = e.get("runs") or []
-    return bool(runs) and all(r.get("failed") for r in runs)
+    if runs:
+        return all(r.get("status") == "failed" for r in runs)
+    return bool(e.get("failed_seeds"))
+
+
+def _run_error(j):
+    errs = [r.get("error") for r in j.get("extra", {}).get("runs") or [] if r.get("error")]
+    return errs[0] if errs else None
+
+
+def _seed_of(j, path) -> int:
+    """Training seed of a single-seed result file (the X-series layout: one file per seed)."""
+    e = j.get("extra", {})
+    if e.get("seed") is not None:
+        return int(e["seed"])
+    runs = e.get("runs") or []
+    if len(runs) == 1 and runs[0].get("seed") is not None:
+        return int(runs[0]["seed"])
+    raise ValueError(f"{path}: multi-seed result file (seeds {e.get('seeds')}); "
+                     "run one seed per --run-id for the X-series summary")
+
+
+def _task_of(j) -> str | None:
+    tasks = j.get("task_specs") or j.get("tasks") or []
+    if tasks and isinstance(tasks[0], dict):
+        return tasks[0].get("name")
+    return j.get("task")
 
 
 def _resumed_step(j) -> int:
@@ -100,9 +125,10 @@ def lumen_seed(path):
     failed = _run_failed(j)
     sps, hours = (None, None) if failed else train_rate(j)
     resumed = _resumed_step(j)
+    seed = _seed_of(j, path)
     if failed:
-        return {"seed": int(j["extra"]["seed"]), "status": "failed",
-                "error": j["extra"].get("error"),
+        return {"seed": seed, "status": "failed",
+                "error": _run_error(j),
                 "success_rate": None, "safe_success_rate": None,
                 "peak_overlap_mm": None, "peak_wall_load_sim_units": None,
                 "time_to_target_s": None, "train_hours": None,
@@ -111,7 +137,7 @@ def lumen_seed(path):
                 "distinct_eval_outcomes": 0, "eval_episodes": len(eps)}
     succ = [e for e in eps if e["success"]]
     svs = [e["safety_value"] for e in eps if e.get("safety_value") is not None]
-    return {"seed": int(j["extra"]["seed"]), "status": "ok",
+    return {"seed": seed, "status": "ok",
             "success_rate": a["success_rate"], "safe_success_rate": a["native_safety_pass_rate"],
             "peak_overlap_mm": max(svs) if svs else None,
             "peak_wall_load_sim_units": a["max_wall_load"],
@@ -126,8 +152,9 @@ def lumen_seed(path):
             "eval_episodes": len(eps)}
 
 
-def _validate_contact(contact: dict, expected_task: str, expected_episodes: int | None, expected_seed_start: int | None):
-    if contact.get("task") != expected_task:
+def _validate_contact(contact: dict, expected_task: str | None, expected_episodes: int | None,
+                      expected_seed_start: int | None):
+    if expected_task is not None and contact.get("task") != expected_task:
         raise ValueError(
             f"Contact file task mismatch: got {contact.get('task')!r}, expected {expected_task!r}"
         )
@@ -144,13 +171,13 @@ def _validate_contact(contact: dict, expected_task: str, expected_episodes: int 
 
 def comparator_seed(train_path, contact):
     j = json.load(open(train_path))
-    s = int(j["extra"]["seed"])
+    s = _seed_of(j, train_path)
     a = j["aggregate"][0]
     failed = _run_failed(j)
     resumed = _resumed_step(j)
     sps, hours = (None, None) if failed else train_rate(j)
     if failed:
-        return {"seed": s, "status": "failed", "error": j["extra"].get("error"),
+        return {"seed": s, "status": "failed", "error": _run_error(j),
                 "train_hours": None, "train_hours_projected": bool(resumed > 0),
                 "train_env_steps_per_s": None,
                 "resumed_from_step": [r.get("resumed_from_step") for r in j["extra"].get("runs", [])],
@@ -161,14 +188,22 @@ def comparator_seed(train_path, contact):
            "resumed_from_step": [r.get("resumed_from_step") for r in j["extra"].get("runs", [])],
            "success_rate": a["success_rate"],
            "success_rate_train_eval": a["success_rate"], "eval_env_steps_per_s": a["steps_per_second"]}
+    c = None
     if contact is not None:
+        sched = j["extra"].get("evaluation_seed_schedule") or []
         _validate_contact(
             contact,
-            expected_task=j.get("task", "phantom3_bca"),
-            expected_episodes=j["extra"].get("eval_episodes"),
-            expected_seed_start=j["extra"].get("eval_seed_start"),
+            expected_task=_task_of(j),
+            expected_episodes=j["extra"].get("eval_episodes_per_seed"),
+            expected_seed_start=sched[0] if sched else None,
         )
-    c = (contact or {}).get("per_seed", {}).get(str(s))
+        c = contact.get("per_seed", {}).get(str(s))
+        if c and c.get("status") == "ok":
+            # the contact pass must score the same frozen policy this training run produced
+            want = [Path(r["model_path"]).name for r in j["extra"].get("runs", []) if r.get("model_path")]
+            if want and Path(c.get("model", "")).name not in want:
+                raise ValueError(f"contact result for seed {s} scored {c.get('model')!r}, "
+                                 f"not this run's model {want}")
     if c and c.get("status") == "ok":
         m = c["summary"]
         dt = contact.get("control_dt_s")
@@ -195,6 +230,7 @@ def main(argv=None):
     ap.add_argument("--contact", default=None)
     ap.add_argument("--out", required=True)
     ap.add_argument("--seeds", default="0,1,5", help="training seeds compared (same set in both sims)")
+    ap.add_argument("--task", default="bca", choices=["bca", "lcca"], help=f"{CMP_NAME} phantom3 target")
     a = ap.parse_args(argv)
     seeds = _parse_seeds(a.seeds)
     B = Path(a.bench)
@@ -204,9 +240,10 @@ def main(argv=None):
         if not cpath.exists():
             raise FileNotFoundError(f"--contact file not found: {cpath}")
         contact = json.load(open(cpath))
-        _validate_contact(contact, expected_task="phantom3_bca", expected_episodes=None, expected_seed_start=None)
+        _validate_contact(contact, expected_task=f"phantom3_{a.task}", expected_episodes=None,
+                          expected_seed_start=None)
     L = [lumen_seed(p) for p in sorted(glob.glob(str(B / "lumen-nav_tree_branch-ppo-main-s*.json")))]
-    C = [comparator_seed(p, contact) for p in sorted(glob.glob(str(B / f"{CMP}-phantom3_bca-ppo-main-s*.json")))]
+    C = [comparator_seed(p, contact) for p in sorted(glob.glob(str(B / f"{CMP}-phantom3_{a.task}-ppo-main-s*.json")))]
     L_all = list(L)
     L = [r for r in L if r["seed"] in seeds]
     C = [r for r in C if r["seed"] in seeds]
@@ -222,7 +259,7 @@ def main(argv=None):
                        "deterministic policy",
            "training_seeds": seeds,
            "task_class": "branch_or_arch_navigation",
-           "tasks": {"lumen": "Lumen/NavTreeBranch-v0", CMP: f"{CMP_NAME} phantom3 / bca"},
+           "tasks": {"lumen": "Lumen/NavTreeBranch-v0", CMP: f"{CMP_NAME} phantom3 / {a.task}"},
            "thresholds": {"lumen": "surface overlap <= 0.3 mm", CMP: "peak tip contact force <= 1.0 N "
                           "(sensitivity 0.5 N, 1.5 N)"},
            "lumen": {"per_seed": L, "any_resumed_train_hours_projected": l_proj,
@@ -238,7 +275,10 @@ def main(argv=None):
         }
     nat = [r[f"{CMP}_native"] for r in C if r["status"] == "ok" and r.get(f"{CMP}_native")]
     if nat:
-        res[CMP]["native_metrics_mean"] = {k: sum(x[k] for x in nat) / len(nat) for k in nat[0]}
+        def _nm(k):
+            v = [x[k] for x in nat if x.get(k) is not None]
+            return sum(v) / len(v) if v else None
+        res[CMP]["native_metrics_mean"] = {k: _nm(k) for k in nat[0]}
     out_prefix = Path(a.out)
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     Path(a.out + ".json").write_text(json.dumps(res, indent=1))
@@ -251,7 +291,7 @@ def main(argv=None):
     LS, CS = res["lumen"]["summary"], res[CMP]["summary"]
     l_hr = f(LS["train_hours"]) + (" (projected)" if l_proj and LS["train_hours"]["mean"] is not None else "")
     c_hr = f(CS["train_hours"]) + (" (projected)" if c_proj and CS["train_hours"]["mean"] is not None else "")
-    md = [f"| Metric (mean over training seeds, 95% CI) | Lumen NavTreeBranch | {CMP_NAME} phantom3/BCA |",
+    md = [f"| Metric (mean over training seeds, 95% CI) | Lumen NavTreeBranch | {CMP_NAME} phantom3/{a.task.upper()} |",
           "|---|---|---|",
           f"| Raw success | {f(LS['success_rate'], True)} | {f(CS['success_rate'], True)} |",
           f"| Safe success at stated threshold | {f(LS['safe_success_rate'], True)} (overlap <= 0.3 mm) | "
@@ -286,11 +326,15 @@ def main(argv=None):
         md.append(f"| {s} | {fmt_seed(lr)} | {fmt_seed(cr)} |")
     if nat:
         n = res[CMP]["native_metrics_mean"]
+
+        def g(k, fmt, scale=1.0):
+            return "n/a" if n.get(k) is None else format(scale * n[k], fmt)
         md += ["", f"{CMP_NAME} on its own published metrics ({CMP}/rl/metrics.py, mean over seeds; "
                "root constraint norm is ||qfrc_constraint[0:3]|| in generalized units, not N): "
-               f"constraint norm mean {n['force_mean']:.3f}, max {n['force_max']:.3f}, safety {100 * n['safety']:.1f}%, "
-               f"episode length {n['episode_length']:.0f}, path length {n['total_distance_cm']:.1f} cm, "
-               f"success {100 * n['success']:.0f}%, SPL {n['spl']:.3f}."]
+               f"constraint norm mean {g('force_mean', '.3f')}, max {g('force_max', '.3f')}, "
+               f"safety {g('safety', '.1f', 100)}%, episode length {g('episode_length', '.0f')}, "
+               f"path length {g('total_distance_cm', '.1f')} cm, success {g('success', '.0f', 100)}%, "
+               f"SPL {g('spl', '.3f')}."]
     if l_proj or c_proj:
         md += ["", "Note: training hours marked (projected) extrapolate 600k steps from the final resumed segment's rate."]
     Path(a.out + ".md").write_text("\n".join(md) + "\n")
