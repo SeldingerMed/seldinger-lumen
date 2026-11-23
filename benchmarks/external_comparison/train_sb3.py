@@ -77,12 +77,34 @@ def seed_comparator_rng(env: Any, seed: int) -> None:
         state.seed(seed % (2**32))
 
 
+PHANTOM3_ENV = "external:phantom3"
+
+
+def make_phantom3_env(asset_path: str | None = None, **kw):
+    """Lumen TreeNavEnv on the imported phantom3 arch, wrapped as a gymnasium.Env."""
+    from lumen.assets.schema import Asset
+    from lumen.envs.registration import _gym_entry_point
+    from lumen.envs.tree_nav import TreeNavEnv
+
+    path = asset_path or os.environ.get("LUMEN_PHANTOM3_ASSET")
+    if not path or not Path(path).is_file():
+        raise FileNotFoundError("set LUMEN_PHANTOM3_ASSET to the asset.json written by phantom_import.py")
+    asset = Asset.load(path)
+    return _gym_entry_point(lambda **k: TreeNavEnv(asset, **k))(**kw)
+
+
 LUMEN_TASKS = {
     "nav_tube": ("Lumen/NavTube-v0", "simple_target_navigation", {"max_steps": 300}),
     "nav_stenotic": ("Lumen/NavStenotic-v0", "tortuous_or_stenotic_navigation", {"max_steps": 300}),
     "nav_tree_branch": ("Lumen/NavTreeBranch-v0", "branch_or_arch_navigation", {"max_steps": 300}),
     "nav_tortuous": ("Lumen/NavTortuous-v0", "tortuous_or_stenotic_navigation", {"max_steps": 300}),
     "nav_tortuous_tree": ("Lumen/NavTortuousTree-v0", "branch_or_arch_navigation", {"max_steps": 300}),
+    # X series v2: the comparator's phantom3 arch imported by phantom_import.py (asset read at runtime from
+    # $LUMEN_PHANTOM3_ASSET; nothing derived from the comparator mesh is committed). Same 4 mm tolerance.
+    "phantom3_bca": (PHANTOM3_ENV, "branch_or_arch_navigation",
+                     {"max_steps": 300, "target_node": "bca", "success_tol": 4.0, "max_insertion": 1.8}),
+    "phantom3_lcca": (PHANTOM3_ENV, "branch_or_arch_navigation",
+                      {"max_steps": 300, "target_node": "lcca", "success_tol": 4.0, "max_insertion": 1.8}),
 }
 
 
@@ -100,7 +122,10 @@ def make_env(environment: str, task: str, max_steps: int, seed: int) -> gym.Env:
         env_id, _, kwargs = LUMEN_TASKS[task]
         kwargs = dict(kwargs)
         kwargs["max_steps"] = max_steps
-        env = gym.make(env_id, **kwargs)
+        if env_id == PHANTOM3_ENV:
+            env = gym.wrappers.TimeLimit(make_phantom3_env(**kwargs), max_episode_steps=max_steps)
+        else:
+            env = gym.make(env_id, **kwargs)
     elif environment == COMPARATOR_ENV:
         os.environ.setdefault("MUJOCO_GL", "disable")
         importlib.import_module(COMPARATOR_ENV + ".gym.envs")
@@ -143,11 +168,18 @@ def evaluate_model(
     *,
     training_seed: int | None = None,
     model_id: str | None = None,
+    max_failures: int | None = None,
 ) -> list[EpisodeResult]:
-    """Evaluate a trained model on one common frozen evaluation seed schedule."""
+    """Evaluate a trained model on one common frozen evaluation seed schedule.
+
+    ``max_failures``: stop once more than this many episodes have failed (the schedule's success
+    rate can then no longer reach the threshold it was chosen for); episodes run in schedule order,
+    so the evaluated prefix is the same for every model."""
     training_seed = args.seed if training_seed is None else training_seed
     episodes: list[EpisodeResult] = []
     for ep_idx in range(args.eval_episodes):
+        if max_failures is not None and sum(not e.success for e in episodes) > max_failures:
+            break
         seed = EVAL_SEED_START + ep_idx
         env = None
         start = time.perf_counter()
