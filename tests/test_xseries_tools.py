@@ -255,6 +255,11 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
                                                           "summary": {}}}}))
     with pytest.raises(ValueError, match="not this run's model"):
         xseries_compare.main(["--bench", str(bench), "--contact", str(wrong_model), "--out", str(tmp_path / "c")])
+    null_model = tmp_path / "null_model.json"
+    null_model.write_text(json.dumps({"task": "phantom3_bca", "episodes": 1, "eval_seed_start": 10000,
+                                      "per_seed": {"0": {"status": "ok", "model": None, "summary": {}}}}))
+    with pytest.raises(ValueError, match="not this run's model"):
+        xseries_compare.main(["--bench", str(bench), "--contact", str(null_model), "--out", str(tmp_path / "c")])
 
     # Contact that scored a model whose bytes no longer match the run's model file raises
     model_dir = tmp_path / "models"

@@ -216,11 +216,11 @@ def comparator_seed(train_path, contact):
             # the contact pass must score the same frozen policy this training run produced
             paths = [Path(r["model_path"]) for r in j["extra"].get("runs", []) if r.get("model_path")]
             want = [p.name for p in paths]
-            if want and Path(c.get("model", "")).name not in want:
+            if want and Path(c.get("model") or "").name not in want:
                 raise ValueError(f"contact result for seed {s} scored {c.get('model')!r}, "
                                  f"not this run's model {want}")
             # and the same bytes: a model rewritten under the same name is a different policy
-            here = [p for p in paths if p.name == Path(c.get("model", "")).name]
+            here = [p for p in paths if p.name == Path(c.get("model") or "").name]
             if c.get("model_sha256") and here and not here[0].is_file():
                 raise ValueError(f"cannot verify the contact result for seed {s}: the run's model {here[0]} "
                                  "is not on disk (mount the model directory or rerun the contact pass)")

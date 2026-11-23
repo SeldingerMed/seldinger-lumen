@@ -408,3 +408,17 @@ def test_training_cleanup_failure_does_not_mask_training_error(monkeypatch):
 
     assert exc_info.value.stage == "train"
     assert "synthetic training failure" in repr(exc_info.value.cause)
+
+
+def test_sb3_checkpoint_round_trip_resumes_with_seed_kwarg(tmp_path):
+    """The resume path's exact call: load(snapshot, env=env, seed=seed), then continue training."""
+    sb3 = pytest.importorskip("stable_baselines3")
+    gym = pytest.importorskip("gymnasium")
+    model = sb3.PPO("MlpPolicy", gym.make("CartPole-v1"), n_steps=128, batch_size=64, seed=3)
+    model.learn(256)
+    model.save(tmp_path / "ckpt_256_steps.zip")
+    resumed = sb3.PPO.load(tmp_path / "ckpt_256_steps.zip", env=gym.make("CartPole-v1"), seed=5)
+    assert resumed.num_timesteps == 256 and resumed.n_steps == 128
+    resumed._last_obs = None
+    resumed.learn(128, reset_num_timesteps=False)
+    assert resumed.num_timesteps == 384
