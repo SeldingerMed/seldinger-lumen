@@ -37,6 +37,17 @@ def test_time_to_target_not_reached_and_identity(tmp_path: Path):
     assert r5["reached"] is False and r5["hours_to_target"] is None and r5["best_success"] == pytest.approx(0.8)
     md = (tmp_path / "out.md").read_text()
     assert "2/3" in md and "not reached" in md
+    assert not any(r["reached_at_first_checkpoint"] for r in res["runs"]) and "upper bound" not in md
+    t, c = tmp_path / "tf.json", tmp_path / "cf.json"
+    _train(t, 0, 6000.0)
+    _curve(c, 0, "lcca", 25000, [(25000, 1.0, True), (50000, 1.0, True)])
+    (tmp_path / "firstspec.json").write_text(json.dumps([{"sim": "lumen", "config": "single", "task": "lcca",
+                                                           "seed": 0, "train": str(t), "curve": str(c)}]))
+    v2.main(["--spec", str(tmp_path / "firstspec.json"), "--out", str(tmp_path / "first")])
+    rf = json.loads((tmp_path / "first.json").read_text())["runs"][0]
+    assert rf["reached_at_first_checkpoint"] is True
+    mdf = (tmp_path / "first.md").read_text()
+    assert "<= 25,000" in mdf and "upper bound" in mdf
     bad = [dict(spec[0], seed=1)]
     (tmp_path / "bad.json").write_text(json.dumps(bad))
     with pytest.raises(ValueError, match="is for seed 0"):

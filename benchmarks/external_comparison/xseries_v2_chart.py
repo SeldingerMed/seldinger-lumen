@@ -59,11 +59,15 @@ def main(argv=None):
                 ax.bar(i, h["mean"], color=COLOR[key], yerr=err, capsize=4)
             for r in runs:
                 if (r["sim"], r["config"], r["task"]) == (*key, task) and r["hours_to_target"] is not None:
-                    ax.plot(i, r["hours_to_target"], "k.", ms=5)
+                    # "v": reached at the first checkpoint, so the value is an upper bound
+                    ax.plot(i, r["hours_to_target"], "kv" if r.get("reached_at_first_checkpoint") else "k.", ms=5)
             ax.text(i, 0, f"{g['reached']}/{g['runs']} reached", ha="center", va="bottom", fontsize=8, color="w"
                     if h["mean"] else "k")
         ax.set_xticks(range(len(keys)), [LABEL[k] for k in keys], fontsize=8)
         ax.set(title=f"{task.upper()}: hours to 90% success (mean, 95% CI)", ylabel="hours")
+        if any(r.get("reached_at_first_checkpoint") for r in runs if r["task"] == task):
+            ax.annotate("\u25bc at or before the first checkpoint (upper bound)", (0.99, 0.98),
+                        xycoords="axes fraction", ha="right", va="top", fontsize=7)
     fig.tight_layout()
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(a.out, dpi=160)

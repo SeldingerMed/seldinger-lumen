@@ -46,6 +46,8 @@ def run_row(spec: dict) -> dict:
         "n_envs": int(t["extra"].get("n_envs") or spec.get("n_envs") or 1),
         "reached": steps is not None,
         "steps_to_target": steps,
+        # reached at the first scored checkpoint: the true crossing is at or before it (grid resolution)
+        "reached_at_first_checkpoint": bool(steps is not None and pts and steps == min(p["steps"] for p in pts)),
         "train_env_steps_per_s": sps,
         "hours_to_target": (steps / sps / 3600) if (steps is not None and sps) else None,
         "train_hours_projected": bool(runs[0].get("resumed_from_step")),
@@ -96,12 +98,16 @@ def markdown(summary: dict, rows: list[dict]) -> str:
     md += ["", "Per training seed:", "", "| Simulator | Configuration | Target | Seed | Steps to 90% | Hours to 90% | "
            "Best success |", "|---|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda r: (r["sim"], r["config"], r["task"], r["seed"])):
-        hrs = "not reached" if r["hours_to_target"] is None else f"{r['hours_to_target']:.2f}"
-        stp = "not reached" if r["steps_to_target"] is None else f"{r['steps_to_target']:,}"
+        le = "<= " if r.get("reached_at_first_checkpoint") else ""
+        hrs = "not reached" if r["hours_to_target"] is None else f"{le}{r['hours_to_target']:.2f}"
+        stp = "not reached" if r["steps_to_target"] is None else f"{le}{r['steps_to_target']:,}"
         best = "n/a" if r["best_success"] is None else f"{100 * r['best_success']:.0f}%"
         md.append(f"| {SIM_NAME[r['sim']]} | {r['config']} | {r['task'].upper()} | {r['seed']} | {stp} | {hrs} | {best} |")
     md += ["", "Hours to 90% = steps to the first checkpoint at >= 90% success on evaluation seeds 10000-10099 "
            "divided by the run's measured training throughput. Means are over the runs that reached 90%."]
+    if any(r.get("reached_at_first_checkpoint") for r in rows):
+        md += ["", "\"<=\" marks a run already at >= 90% at its first checkpoint (25,000 steps): its crossing is at "
+               "or before that point, so its value is an upper bound set by the checkpoint grid."]
     return "\n".join(md) + "\n"
 
 
