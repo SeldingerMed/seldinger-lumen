@@ -73,7 +73,7 @@ retrained. All other runs are new.
      (0, 2.0, -0.5) mm to geodesically farthest uncovered lumen voxels; side openings are closed by
      periodic interpolation of R in theta. Edges are split at the CathSim target sites, which become
      the Lumen target nodes.
-   - Conversion error, measured on 60,000 source-surface samples under the Newton tree-contact
+   - Conversion error, measured on 59,423 source-surface samples (open vessel end caps excluded) under the Newton tree-contact
      projection (the rule that produces wall forces): median 0.02 mm,
      RMS 0.76 mm, p95 1.40 mm,
      max 9.3 mm. Imported wall to source surface: median
