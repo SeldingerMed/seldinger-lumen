@@ -215,7 +215,10 @@ def comparator_seed(train_path, contact):
                 raise ValueError(f"contact result for seed {s} scored {c.get('model')!r}, "
                                  f"not this run's model {want}")
             # and the same bytes: a model rewritten under the same name is a different policy
-            here = [p for p in paths if p.name == Path(c.get("model", "")).name and p.is_file()]
+            here = [p for p in paths if p.name == Path(c.get("model", "")).name]
+            if c.get("model_sha256") and here and not here[0].is_file():
+                raise ValueError(f"cannot verify the contact result for seed {s}: the run's model {here[0]} "
+                                 "is not on disk (mount the model directory or rerun the contact pass)")
             if c.get("model_sha256") and here and _sha256(here[0]) != c["model_sha256"]:
                 raise ValueError(f"contact result for seed {s} scored a model whose sha256 differs from "
                                  f"{here[0]} (rewritten after the contact pass)")

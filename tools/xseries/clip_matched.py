@@ -109,12 +109,12 @@ class Tile:
         # The comparator feeds the wire from a base outside the phantom; draw only the part within the
         # vessel's extent (3 mm margin) so the external feed segment does not cross the image.
         inside = np.all((w >= self.V.min(0) - 3.0) & (w <= self.V.max(0) + 3.0), axis=1)
-        if inside.any():
+        if inside.any():                   # nothing inside yet: draw no wire rather than the feed segment
             w = w[int(np.argmax(inside)):]
-        if len(w) > 1:
-            d.line([tuple(x) for x in self.uv(w)], fill=WIRE, width=3, joint="curve")
-        tp = self.uv(w[-1])[0]
-        d.ellipse((tp[0] - 4, tp[1] - 4, tp[0] + 4, tp[1] + 4), fill=(240, 250, 252))
+            if len(w) > 1:
+                d.line([tuple(x) for x in self.uv(w)], fill=WIRE, width=3, joint="curve")
+            tp = self.uv(w[-1])[0]
+            d.ellipse((tp[0] - 4, tp[1] - 4, tp[0] + 4, tp[1] + 4), fill=(240, 250, 252))
         peak = float(self.safety[: k + 1].max())
         over = peak > LIMIT[self.env]
         label(img, f"training seed {self.seed}", (10, 8), 18, (200, 206, 214))
