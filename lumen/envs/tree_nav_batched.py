@@ -34,10 +34,16 @@ class BatchedTreeNavEnv(TreeNavEnv):
         self._ids = [np.asarray(self.sim.bodies[e * n:(e + 1) * n], dtype=np.int64) for e in range(self.n_envs)]
 
     def reset(self, *, seed=None, options=None):
+        if seed is not None:
+            self._jitter_rng = np.random.default_rng(seed)
         if getattr(self, "sim", None) is None:
             self._build_sim()
         else:
             self.sim.reset()
+        for e in range(self.n_envs):                 # each world draws its own start offset
+            v = self._sample_start_offset()
+            if v is not None:
+                self._offset_bodies(self._ids[e], v)
         E = self.n_envs
         self.steps = np.zeros(E, dtype=np.int64)
         self._impulse = np.zeros(E, dtype=float)
@@ -58,6 +64,9 @@ class BatchedTreeNavEnv(TreeNavEnv):
             qd = st.body_qd.numpy()
             qd[ids] = 0.0
             st.body_qd = wp.array(qd, dtype=st.body_qd.dtype, device=dev)
+        v = self._sample_start_offset()
+        if v is not None:
+            self._offset_bodies(ids, v)
         self.steps[e] = 0
         self._impulse[e] = 0.0
         f = self._features_from(sim.env_positions()[e])

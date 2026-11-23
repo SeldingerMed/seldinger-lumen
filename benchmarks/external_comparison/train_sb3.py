@@ -100,11 +100,14 @@ LUMEN_TASKS = {
     "nav_tortuous": ("Lumen/NavTortuous-v0", "tortuous_or_stenotic_navigation", {"max_steps": 300}),
     "nav_tortuous_tree": ("Lumen/NavTortuousTree-v0", "branch_or_arch_navigation", {"max_steps": 300}),
     # X series v2: the comparator's phantom3 arch imported by phantom_import.py (asset read at runtime from
-    # $LUMEN_PHANTOM3_ASSET; nothing derived from the comparator mesh is committed). Same 4 mm tolerance.
+    # $LUMEN_PHANTOM3_ASSET; nothing derived from the comparator mesh is committed). Same 4 mm tolerance and
+    # the same start-pose randomization: a point uniform in a 1 mm ball (the comparator's random_init_distance).
     "phantom3_bca": (PHANTOM3_ENV, "branch_or_arch_navigation",
-                     {"max_steps": 300, "target_node": "bca", "success_tol": 4.0, "max_insertion": 1.8}),
+                     {"max_steps": 300, "target_node": "bca", "success_tol": 4.0, "max_insertion": 1.8,
+                      "start_jitter_mm": 1.0}),
     "phantom3_lcca": (PHANTOM3_ENV, "branch_or_arch_navigation",
-                      {"max_steps": 300, "target_node": "lcca", "success_tol": 4.0, "max_insertion": 1.8}),
+                      {"max_steps": 300, "target_node": "lcca", "success_tol": 4.0, "max_insertion": 1.8,
+                       "start_jitter_mm": 1.0}),
 }
 
 
@@ -226,7 +229,9 @@ class LumenBatchedVecEnv:
                 return [False] * len(self._get_indices(indices))
 
             def seed(self, seed=None):
-                return [None] * self.num_envs     # the scene has no random state
+                if seed is not None:              # the start-pose offsets are the only random state
+                    self.env._jitter_rng = np.random.default_rng(seed)
+                return [seed] * self.num_envs
 
         return _Vec()
 

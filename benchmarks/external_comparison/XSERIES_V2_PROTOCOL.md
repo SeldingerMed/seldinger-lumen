@@ -115,3 +115,21 @@ retrained. All other runs are new.
      seeds, early stop after 11 failures). Run ids "fine". The first snapshot at >= 90% gives a point estimate
      within 2,500 steps.
    - Reporting: shown beside, never instead of, the preregistered 25,000-step-grid values.
+5. 2026-11-23, matched start-pose randomization (declared before any run with it was trained or scored).
+   - Finding: the comparator draws each episode's guidewire start offset uniformly from a ball of radius
+     `random_init_distance` = 0.001 m (1 mm) at the pinned revision, so its 100 evaluation seeds are 100
+     distinct cases. Lumen's tree environment reset to one fixed spawn pose, so its evaluation episodes were
+     identical (one distinct trajectory per trained model across the 100 seeds; the same holds for the v1
+     nav_tree_branch runs). Those Lumen results measure one start pose, not the evaluation distribution.
+   - Change: Lumen phantom3 tasks now translate the whole device by a point uniform in a 1 mm ball each
+     episode (`start_jitter_mm=1.0`, same sampling law as the comparator's UniformSphere). An evaluation
+     episode's offset is fixed by its evaluation seed; training draws from an RNG seeded by the training seed
+     (each batched world draws its own offset). The kinematic base keeps the offset's radial part as it
+     advances.
+   - Not matched: the comparator also adds observation noise (Normal, sd 1e-4, on joint positions; LogNormal
+     sigma 1e-4 on joint velocities). Lumen observes different quantities (5 task features), so there is no
+     like-for-like noise to add; Lumen observations stay noise-free. Stated in every v2 table.
+   - Runs: every Lumen v2 run is retrained and rescored with the matched start ("rsmain", "rsbest", and,
+     if a run is at >= 90% at its first checkpoint, "rsfine" per Amendment 4). The fixed-start Lumen runs
+     ("main", "best", "fine") stay on disk, are listed in the manifest as superseded, and are not used for
+     any v2 headline. Comparator runs are unchanged.

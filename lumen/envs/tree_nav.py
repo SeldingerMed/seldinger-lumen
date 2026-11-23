@@ -56,7 +56,15 @@ class TreeNavEnv:
     def __init__(self, asset, target_node=None, target_frac=1.0, max_insertion=2.0,
                  max_twist=1.0, substeps=4, max_steps=60, success_tol=2.5,
                  safety_max_pen=0.3, blend_len=4.0, terminate_on_unsafe: bool = False,
-                 device=None, device_radius_mm=0.2):
+                 device=None, device_radius_mm=0.2, start_jitter_mm: float = 0.0):
+        start_jitter_mm = float(start_jitter_mm)
+        if not np.isfinite(start_jitter_mm) or start_jitter_mm < 0:
+            raise ValueError(f"start_jitter_mm must be a finite non-negative number, got {start_jitter_mm!r}")
+        # Start-pose randomization: each episode the whole device is translated by a point drawn
+        # uniformly from a ball of this radius (0 = the fixed spawn pose). The kinematic base keeps the
+        # offset as it advances (actuate_bases preserves the radial lumen offset).
+        self.start_jitter_mm = start_jitter_mm
+        self._jitter_rng = np.random.default_rng(0)
         terminate_on_unsafe = validate_boolean(
             terminate_on_unsafe,
             "terminate_on_unsafe",
@@ -201,8 +209,32 @@ class TreeNavEnv:
     def _parse_action(self, action):
         return parse_nav_action(action)
 
-    def reset(self, *, seed=None, options=None):           # seed accepted for the Gym contract
+    def _sample_start_offset(self):
+        """A point uniform in the ball of radius start_jitter_mm (None when jitter is off)."""
+        R = self.start_jitter_mm
+        if R <= 0:
+            return None
+        rng = self._jitter_rng
+        theta = 2.0 * np.pi * rng.random()
+        phi = np.arccos(2.0 * rng.random() - 1.0)
+        r = R * rng.random() ** (1.0 / 3.0)
+        return np.array([r * np.sin(phi) * np.cos(theta), r * np.sin(phi) * np.sin(theta), r * np.cos(phi)])
+
+    def _offset_bodies(self, ids, v) -> None:
+        """Translate the given bodies (current and previous poses) by v, at rest."""
+        import warp as wp
+        sim, dev = self.sim, self.sim.device
+        ids = np.asarray(ids, dtype=np.int64)
+        for holder, name in ((sim.state_0, "body_q"), (sim.state_1, "body_q"), (sim.solver, "body_q_prev")):
+            q = getattr(holder, name).numpy()
+            q[ids, :3] += np.asarray(v, dtype=q.dtype)
+            setattr(holder, name, wp.array(q, dtype=wp.transform, device=dev))
+
+    def reset(self, *, seed=None, options=None):
+        """Restore the spawn pose; with start_jitter_mm > 0, `seed` fixes this episode's offset."""
         from lumen.newton.sim import NewtonGuidewireSim
+        if seed is not None:
+            self._jitter_rng = np.random.default_rng(seed)
         if getattr(self, "sim", None) is None:
             # the base follows the WHOLE route polyline so insertion can push past the
             # junction into the target branch (not just up the trunk).
@@ -213,6 +245,9 @@ class TreeNavEnv:
                                           route_centerline=np.asarray(self.route_frame.points))
         else:
             self.sim.reset()
+        v = self._sample_start_offset()
+        if v is not None:
+            self._offset_bodies(self.sim.bodies, v)
         self.steps = 0
         self._wall_load_impulse = 0.0
         self._prev = abs(self._features()["s"] - self.target_s)
