@@ -433,7 +433,6 @@ def test_completed_checkpointed_seed_is_not_silently_resumed(tmp_path, monkeypat
     monkeypatch.setattr(train_sb3, "make_env", lambda *_args: gym.make("CartPole-v1"))
     monkeypatch.setattr(train_sb3, "policy_name", lambda _env: "MlpPolicy")
     monkeypatch.setattr(train_sb3, "evaluate_model", lambda *a, **k: [])
-    monkeypatch.setattr(train_sb3, "_write_results", lambda *a, **k: None)
     monkeypatch.setattr(train_sb3, "_aggregate", lambda episodes: {"episodes": len(episodes)})
     monkeypatch.setattr(train_sb3, "_host_snapshot", lambda: {})
     monkeypatch.setattr(train_sb3, "_git_commit", lambda _path: "commit")
@@ -446,9 +445,10 @@ def test_completed_checkpointed_seed_is_not_silently_resumed(tmp_path, monkeypat
     capsys.readouterr()
     ck = tmp_path / "m" / "ck-ckpt"
     assert (ck / "completed.json").exists() and list(ck.glob("ckpt_*_steps.zip"))
-    try:
+    results = tmp_path / "r" / "ck.json"
+    before = results.read_bytes() if results.exists() else None
+    with pytest.raises(SystemExit) as stop:
         train_sb3.main()
-    except SystemExit:
-        pass
-    out = capsys.readouterr()
-    assert "belongs to a completed run" in out.out + out.err
+    assert stop.value.code == 2
+    assert "already completed" in capsys.readouterr().err
+    assert (results.read_bytes() if results.exists() else None) == before   # finished run's results untouched

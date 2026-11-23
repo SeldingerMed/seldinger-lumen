@@ -162,7 +162,32 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
     full = json.loads(out_file.read_text())
     p0 = full["per_seed"]["0"]
     assert p0["status"] == "failed" and "all 2 episodes failed" in p0["error"]
-    assert full.get("control_dt_s", 0.0) is not None   # a failed seed never nulls the timestep
+
+    # A recorded control timestep survives a later seed whose envs never build
+    built = iter([True, True, False, False])
+    monkeypatch.setattr(eval_comparator_contact, "make_env",
+                        lambda task, max_steps, seed: object() if next(built) else BoomEnv())
+    monkeypatch.setattr(eval_comparator_contact, "control_dt", lambda env: 0.008)
+
+    def fake_eval(model, task, episodes, max_steps):
+        rows, dt = [], None
+        for i in range(episodes):
+            env = eval_comparator_contact.make_env(task, max_steps, i)
+            if isinstance(env, BoomEnv):
+                rows.append({"status": "failed", "error": "reset boom"})
+            else:
+                dt = eval_comparator_contact.control_dt(env)
+                rows.append({"status": "ok", "success": 1.0})
+        return rows, dt
+    monkeypatch.setattr(eval_comparator_contact, "evaluate", fake_eval)
+    monkeypatch.setattr(eval_comparator_contact, "summarize", lambda rows: {"episodes": len(rows)})
+    (tmp_path / f"{CMP}-phantom3_bca-ppo-main-s1.zip").write_text("m")
+    eval_comparator_contact.main([
+        "--models", str(tmp_path), "--seeds", "0,1", "--episodes", "2", "--max-steps", "20", "--out", str(out_file)
+    ])
+    full = json.loads(out_file.read_text())
+    assert full["per_seed"]["0"]["status"] == "ok" and full["per_seed"]["1"]["status"] == "failed"
+    assert full["control_dt_s"] == pytest.approx(0.008)   # seed 1 (all failed, dt None) kept seed 0's value
 
 
 def test_eval_comparator_contact_time_to_target_is_first_reach(monkeypatch: pytest.MonkeyPatch):
@@ -471,3 +496,26 @@ def test_clip_replay_reloads_this_runs_episode_not_a_leftover(tmp_path: Path, mo
     assert picked == [str(tmp_path / "hero-lcca-seed2")]
     with pytest.raises(RuntimeError, match="exactly one saved episode"):
         clip_replay.reload_and_verify(tmp_path / "hero-lcca-seed7", [])
+
+
+def test_record_matched_failed_rerecord_leaves_no_stale_episode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import sys
+    from benchmarks.external_comparison import record_matched
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=object()))
+    models, out = tmp_path / "m", tmp_path / "o"
+    models.mkdir()
+    out.mkdir()
+    (models / "lumen-nav_tree_branch-ppo-main-s0.zip").write_text("m")
+    for s in (0, 1):                                    # recordings left by an earlier invocation
+        (out / f"lumen-s{s}.npz").write_text("stale")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("sim boom")
+    monkeypatch.setattr(record_matched, "_record_one", boom)
+    rc = record_matched.main(["--environment", "lumen", "--models", str(models), "--seeds", "0,1",
+                              "--out", str(out)])
+    assert rc == 1
+    assert not (out / "lumen-s0.npz").exists()          # failed re-record
+    assert not (out / "lumen-s1.npz").exists()          # model now missing
+    fails = json.loads((out / "lumen-failures.json").read_text())
+    assert "sim boom" in fails["0"] and "missing model" in fails["1"]
