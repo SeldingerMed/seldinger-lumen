@@ -222,6 +222,10 @@ def comparator_seed(train_path, contact):
             if c.get("model_sha256") and here and _sha256(here[0]) != c["model_sha256"]:
                 raise ValueError(f"contact result for seed {s} scored a model whose sha256 differs from "
                                  f"{here[0]} (rewritten after the contact pass)")
+            # Contact files from before model hashing carry no sha256: kept (they are the v1 record),
+            # but marked in the JSON and the table, never passed off as byte-verified.
+            row["contact_model_check"] = ("sha256" if (c.get("model_sha256") and here) else
+                                          "filename only (contact file records no model sha256)")
     if c and c.get("status") == "ok":
         m = c["summary"]
         dt = contact.get("control_dt_s")
@@ -299,7 +303,6 @@ def main(argv=None):
         res[CMP]["native_metrics_mean"] = {k: _nm(k) for k in nat[0]}
     out_prefix = Path(a.out)
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
-    Path(a.out + ".json").write_text(json.dumps(res, indent=1))
 
     def f(c, pct=False, nd=2):
         if c["mean"] is None:
@@ -354,8 +357,15 @@ def main(argv=None):
                f"safety {g('safety', '.1f', 100)}%, episode length {g('episode_length', '.0f')}, "
                f"path length {g('total_distance_cm', '.1f')} cm, success {g('success', '.0f', 100)}%, "
                f"SPL {g('spl', '.3f')}."]
+    unv = [r["seed"] for r in C if r.get("contact_model_check", "sha256") != "sha256"]
+    res[CMP]["contact_model_unverified_seeds"] = unv
+    if unv:
+        md += ["", f"Note: contact results for seed(s) {', '.join(map(str, unv))} are tied to the trained model by "
+               "filename only; that contact file predates model hashing. Rerun eval_comparator_contact.py to "
+               "verify by sha256."]
     if l_proj or c_proj:
         md += ["", "Note: training hours marked (projected) extrapolate 600k steps from the final resumed segment's rate."]
+    Path(a.out + ".json").write_text(json.dumps(res, indent=1))
     Path(a.out + ".md").write_text("\n".join(md) + "\n")
     print("\n".join(md))
 

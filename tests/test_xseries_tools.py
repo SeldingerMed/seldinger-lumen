@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from benchmarks.external_comparison import (
@@ -143,6 +144,44 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
     assert "< 20" in payload[f"{CMP}_native_metrics"]
 
 
+def test_eval_comparator_contact_time_to_target_is_first_reach(monkeypatch: pytest.MonkeyPatch):
+    class ReachEnv:          # tip within 4 mm from step 3 on; the episode only truncates at step 10
+        def __init__(self):
+            self.unwrapped, self.t = self, 0
+
+        def reset(self, seed=None):
+            self.t = 0
+            return np.zeros(3), {}
+
+        def step(self, action):
+            self.t += 1
+            d = 0.01 if self.t < 3 else 0.002
+            return np.zeros(3), 0.0, False, self.t >= 10, {"head_pos": [d, 0, 0], "target_pos": [0, 0, 0]}
+
+        def close(self):
+            pass
+
+    class Policy:
+        def predict(self, obs, deterministic=True):
+            return np.zeros(2), None
+
+    monkeypatch.setattr(eval_comparator_contact, "make_env", lambda task, max_steps, seed: ReachEnv())
+    monkeypatch.setattr(eval_comparator_contact, "seed_comparator_rng", lambda env, seed: None)
+    monkeypatch.setattr(eval_comparator_contact, "control_dt", lambda env: 0.1)
+    monkeypatch.setattr(eval_comparator_contact, "contact_probe", lambda env: (lambda: (0.0, 0.0)))
+    rows, dt = eval_comparator_contact.evaluate(Policy(), "phantom3_bca", 1, 20)
+    assert rows[0]["steps"] == 10 and rows[0]["reach_step"] == 3
+    assert rows[0]["time_to_target_s"] == pytest.approx(0.3)
+    assert eval_comparator_contact.summarize(rows)["mean_steps_success"] == pytest.approx(3)
+
+
+def test_font_falls_back_when_the_mac_font_is_missing(monkeypatch: pytest.MonkeyPatch):
+    pytest.importorskip("PIL")
+    from tools.xseries import xs_common
+    monkeypatch.setattr(xs_common, "FONT", "/nonexistent/font.ttc")
+    assert xs_common.font(18) is not None
+
+
 def _bench_result(task, seed, *, ok, sr=1.0, resumed=0, elapsed=3600.0, model_dir="/m", episodes=None,
                   aggregate=None, error="boom"):
     """A result JSON in the schema train_sb3.py writes (one training seed per file)."""
@@ -214,6 +253,26 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
     (model_dir / "phantom3_bca-s0.zip").unlink()
     with pytest.raises(ValueError, match="not on disk"):
         xseries_compare.main(["--bench", str(bench), "--contact", str(stale), "--out", str(tmp_path / "c")])
+
+    # A matching sha256 is reported as verified; a pre-hashing contact file is kept but marked
+    import hashlib
+    (model_dir / "phantom3_bca-s0.zip").write_bytes(b"frozen")
+    summ = {"success_rate": 0.8, "safe_success_rate_1.0N": 0.0, "safe_success_rate_0.5N": 0.0,
+            "safe_success_rate_1.5N": 0.0, "peak_tip_contact_force_N_max": 3.0, "peak_tip_contact_force_N_mean": 2.0,
+            "mean_tip_contact_force_N": 0.5, "mean_time_to_target_s": 0.4, "distinct_eval_outcomes": 1,
+            "episodes": 1, f"{CMP}_native": {"force_mean": 0.1}}
+    for sha, check in ((hashlib.sha256(b"frozen").hexdigest(), "sha256"), (None, "filename only")):
+        rec = {"status": "ok", "model": str(model_dir / "phantom3_bca-s0.zip"), "summary": summ}
+        if sha:
+            rec["model_sha256"] = sha
+        cf = tmp_path / "contact_ok.json"
+        cf.write_text(json.dumps({"task": "phantom3_bca", "episodes": 1, "eval_seed_start": 10000,
+                                  "per_seed": {"0": rec}}))
+        xseries_compare.main(["--bench", str(bench), "--contact", str(cf), "--out", str(tmp_path / "v")])
+        rv = json.loads((tmp_path / "v.json").read_text())
+        assert rv[CMP]["per_seed"][0]["contact_model_check"].startswith(check)
+        assert rv[CMP]["contact_model_unverified_seeds"] == ([] if sha else [0])
+        assert ("filename only" in (tmp_path / "v.md").read_text()) is (sha is None)
 
     # Default --seeds is 0,1,5; works without --contact and keeps known raw success
     out_prefix = tmp_path / "cmp"
