@@ -408,3 +408,56 @@ def test_training_cleanup_failure_does_not_mask_training_error(monkeypatch):
 
     assert exc_info.value.stage == "train"
     assert "synthetic training failure" in repr(exc_info.value.cause)
+
+
+def test_sb3_checkpoint_round_trip_resumes_with_seed_kwarg(tmp_path):
+    """The resume path's exact call: load(snapshot, env=env, seed=seed), then continue training."""
+    sb3 = pytest.importorskip("stable_baselines3")
+    gym = pytest.importorskip("gymnasium")
+    model = sb3.PPO("MlpPolicy", gym.make("CartPole-v1"), n_steps=128, batch_size=64, seed=3)
+    model.learn(256)
+    model.save(tmp_path / "ckpt_256_steps.zip")
+    resumed = sb3.PPO.load(tmp_path / "ckpt_256_steps.zip", env=gym.make("CartPole-v1"), seed=5)
+    assert resumed.num_timesteps == 256 and resumed.n_steps == 128
+    resumed._last_obs = None
+    resumed.learn(128, reset_num_timesteps=False)
+    assert resumed.num_timesteps == 384
+
+
+def test_completed_checkpointed_seed_is_not_silently_resumed(tmp_path, monkeypatch, capsys):
+    """A finished checkpointed seed is marked complete; rerunning its command refuses to resume."""
+    pytest.importorskip("stable_baselines3")
+    gym = pytest.importorskip("gymnasium")
+    from benchmarks.external_comparison import train_sb3
+
+    monkeypatch.setattr(train_sb3, "make_env", lambda *_args: gym.make("CartPole-v1"))
+    monkeypatch.setattr(train_sb3, "policy_name", lambda _env: "MlpPolicy")
+    monkeypatch.setattr(train_sb3, "evaluate_model", lambda *a, **k: [])
+    monkeypatch.setattr(train_sb3, "_aggregate", lambda episodes: {"episodes": len(episodes)})
+    monkeypatch.setattr(train_sb3, "_host_snapshot", lambda: {})
+    monkeypatch.setattr(train_sb3, "_git_commit", lambda _path: "commit")
+    argv = ["train_sb3.py", "--environment", "lumen", "--task", "nav_tube", "--algo", "ppo",
+            "--timesteps", "128", "--eval-episodes", "1", "--seeds", "3", "--run-id", "ck",
+            "--checkpoint-every", "64", "--ppo-n-steps", "64", "--batch-size", "32",
+            "--out-dir", str(tmp_path / "r"), "--model-dir", str(tmp_path / "m"), "--verbose", "0"]
+    monkeypatch.setattr(sys, "argv", argv)
+    train_sb3.main()
+    capsys.readouterr()
+    ck = tmp_path / "m" / "ck-ckpt"
+    assert (ck / "completed.json").exists() and list(ck.glob("ckpt_*_steps.zip"))
+    results = tmp_path / "r" / "ck.json"
+    before = results.read_bytes() if results.exists() else None
+    with pytest.raises(SystemExit) as stop:
+        train_sb3.main()
+    assert stop.value.code == 2
+    assert "already completed" in capsys.readouterr().err
+    assert (results.read_bytes() if results.exists() else None) == before   # finished run's results untouched
+
+    # A seed whose evaluation failed is not marked complete: it stays resumable
+    (ck / "completed.json").unlink()
+    monkeypatch.setattr(train_sb3, "evaluate_model", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("eval boom")))
+    monkeypatch.setattr(sys, "argv", argv[:argv.index("--run-id") + 1] + ["ck2"] + argv[argv.index("--run-id") + 2:])
+    train_sb3.main()
+    capsys.readouterr()
+    ck2 = tmp_path / "m" / "ck2-ckpt"
+    assert list(ck2.glob("ckpt_*_steps.zip")) and not (ck2 / "completed.json").exists()
