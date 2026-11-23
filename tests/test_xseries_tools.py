@@ -118,9 +118,12 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
             closed.append(True)
 
     monkeypatch.setattr(eval_comparator_contact, "make_env", lambda task, max_steps, seed: BoomEnv())
-    with pytest.raises(RuntimeError, match="reset boom"):
-        eval_comparator_contact.evaluate(object(), "phantom3_bca", 1, 10)
-    assert closed == [True]
+    rows, _ = eval_comparator_contact.evaluate(object(), "phantom3_bca", 2, 10)   # each episode recorded
+    assert closed == [True, True]
+    assert [r["status"] for r in rows] == ["failed", "failed"] and "reset boom" in rows[0]["error"]
+    summ = eval_comparator_contact.summarize(rows)
+    assert summ["failed_episodes"] == 2 and summ["success_rate"] == 0.0
+    assert summ["peak_tip_contact_force_N_max"] is None
 
     # Seed 0 fails load, seed 1 missing -> both recorded
     (tmp_path / f"{CMP}-phantom3_bca-ppo-main-s0.zip").write_text("corrupt")
@@ -273,6 +276,15 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
         assert rv[CMP]["per_seed"][0]["contact_model_check"].startswith(check)
         assert rv[CMP]["contact_model_unverified_seeds"] == ([] if sha else [0])
         assert ("filename only" in (tmp_path / "v.md").read_text()) is (sha is None)
+    # A seed the contact pass failed on is reported, not silently averaged over fewer seeds
+    cf.write_text(json.dumps({"task": "phantom3_bca", "episodes": 1, "eval_seed_start": 10000,
+                              "per_seed": {"0": {"status": "failed", "error": "mj boom"}}}))
+    xseries_compare.main(["--bench", str(bench), "--contact", str(cf), "--out", str(tmp_path / "v")])
+    rv = json.loads((tmp_path / "v.json").read_text())
+    assert rv[CMP]["contact_missing_seeds"] == [0]
+    assert rv[CMP]["per_seed"][0]["contact_error"] == "mj boom"
+    vmd = (tmp_path / "v.md").read_text()
+    assert "(contact failed)" in vmd and "no result for seed(s) 0" in vmd
 
     # Default --seeds is 0,1,5; works without --contact and keeps known raw success
     out_prefix = tmp_path / "cmp"
@@ -369,6 +381,9 @@ def test_cached_rollout_keys_on_extra_fn(tmp_path: Path, monkeypatch: pytest.Mon
 
     (_, _), p3 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)
     assert p3 != p1 and len(calls) == 3
+    (_, _), p5 = xs_common.cached_rollout("arch", Env, None, 7, extra_fn=pen)
+    assert p5 != p3 and len(calls) == 4          # different max_steps: different cache entry
+    calls.pop()
 
     monkeypatch.setattr(xs_common, "_rollout_code_version", lambda: "changed0")
     (_, _), p4 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)

@@ -134,6 +134,17 @@ def contact_probe(env):
     return f
 
 
+def _failed_episode(seed: int, steps: int, exc: BaseException) -> dict:
+    """An episode that raised: counted as a failure, excluded from force statistics."""
+    return {"seed": seed, "status": "failed", "error": repr(exc), "success": False, "steps": steps,
+            "reach_step": None, "time_to_target_s": None, "final_distance_m": None,
+            "peak_tip_contact_force_N": None, "mean_tip_contact_force_N": None,
+            "mean_tip_contact_force_in_contact_N": None, "peak_wire_contact_force_N": None,
+            "peak_root_constraint_norm": None, **{f"safe_success_{t}N": False for t in THRESHOLDS_N},
+            f"{CMP}_native": None, "eval_wall_s": 0.0, "steps_per_s": None,
+            "tip_force_curve_N": [], "wire_force_curve_N": []}
+
+
 def evaluate(model, task, episodes, max_steps):
     if episodes <= 0:
         raise ValueError("episodes must be positive")
@@ -143,8 +154,9 @@ def evaluate(model, task, episodes, max_steps):
     dt = None
     for i in range(episodes):
         seed = EVAL_SEED_START + i
-        env = make_env(task, max_steps, seed)
+        env, steps = None, 0
         try:
+            env = make_env(task, max_steps, seed)
             dt = dt or control_dt(env)
             seed_comparator_rng(env, seed)
             obs, _ = env.reset(seed=seed)
@@ -174,8 +186,12 @@ def evaluate(model, task, episodes, max_steps):
                 if terminated or truncated:
                     break
             wall = time.perf_counter() - t0
+        except Exception as exc:  # one bad episode is recorded and the frozen schedule continues
+            rows.append(_failed_episode(seed, steps, exc))
+            continue
         finally:
-            env.close()
+            if env is not None:
+                env.close()
         peak = max(tip) if tip else 0.0
         H = np.asarray(heads) if heads else np.zeros((1, 3))
         path_cm = float(np.linalg.norm(np.diff(H, axis=0), axis=1).sum() * 100) if len(H) > 1 else 0.0
@@ -204,31 +220,35 @@ def summarize(rows):
     n = len(rows)
     if n == 0:
         raise ValueError("rows must be non-empty")
-    out = {"episodes": n, "success_rate": sum(r["success"] for r in rows) / n}
+    ok = [r for r in rows if r.get("status", "ok") == "ok"]       # episodes that ran to the end
+    out = {"episodes": n, "failed_episodes": n - len(ok), "success_rate": sum(r["success"] for r in rows) / n}
     for t in THRESHOLDS_N:
         out[f"safe_success_rate_{t}N"] = sum(r[f"safe_success_{t}N"] for r in rows) / n
-    out["peak_tip_contact_force_N_max"] = max(r["peak_tip_contact_force_N"] for r in rows)
-    out["peak_tip_contact_force_N_mean"] = float(np.mean([r["peak_tip_contact_force_N"] for r in rows]))
-    out["peak_wire_contact_force_N_mean"] = float(np.mean([r["peak_wire_contact_force_N"] for r in rows]))
-    out["mean_tip_contact_force_N"] = float(np.mean([r["mean_tip_contact_force_N"] for r in rows]))
+
+    def _m(k, fn=np.mean):
+        v = [r[k] for r in ok if r.get(k) is not None]
+        return float(fn(v)) if v else None
+    out["peak_tip_contact_force_N_max"] = _m("peak_tip_contact_force_N", np.max)
+    out["peak_tip_contact_force_N_mean"] = _m("peak_tip_contact_force_N")
+    out["peak_wire_contact_force_N_mean"] = _m("peak_wire_contact_force_N")
+    out["mean_tip_contact_force_N"] = _m("mean_tip_contact_force_N")
     tt = [r["time_to_target_s"] for r in rows if r["time_to_target_s"] is not None]
     out["mean_time_to_target_s"] = float(np.mean(tt)) if tt else None
     succ_steps = [r["reach_step"] if r.get("reach_step") is not None else r["steps"] for r in rows if r["success"]]
     out["mean_steps_success"] = float(np.mean(succ_steps)) if succ_steps else None
-    nat = [r[f"{CMP}_native"] for r in rows]
+    nat = [r[f"{CMP}_native"] for r in ok if r.get(f"{CMP}_native")]
 
     def _mean(k):
         v = [x[k] for x in nat if x.get(k) is not None]
         return float(np.mean(v)) if v else None
-    out[f"{CMP}_native"] = {k: _mean(k) for k in nat[0]}
+    out[f"{CMP}_native"] = {k: _mean(k) for k in nat[0]} if nat else {}
     d_opt = 15.73
-    out[f"{CMP}_native"]["spl"] = float(
-        np.mean([x["success"] * d_opt / max(x["total_distance_cm"], d_opt) for x in nat])
-    )
-    out["distinct_eval_outcomes"] = len({(r["steps"], round(r["peak_tip_contact_force_N"], 6), r["success"])
-                                         for r in rows})
-    total_wall = float(np.sum([r["eval_wall_s"] for r in rows]))
-    out["eval_steps_per_s"] = float(np.sum([r["steps"] for r in rows]) / total_wall) if total_wall > 0 else None
+    out[f"{CMP}_native"]["spl"] = (float(np.sum([x["success"] * d_opt / max(x["total_distance_cm"], d_opt)
+                                                 for x in nat]) / n) if nat else None)
+    out["distinct_eval_outcomes"] = len({(r["steps"], None if r["peak_tip_contact_force_N"] is None
+                                          else round(r["peak_tip_contact_force_N"], 6), r["success"]) for r in rows})
+    total_wall = float(np.sum([r["eval_wall_s"] for r in ok]))
+    out["eval_steps_per_s"] = float(np.sum([r["steps"] for r in ok]) / total_wall) if total_wall > 0 else None
     return out
 
 
