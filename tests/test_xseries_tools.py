@@ -344,6 +344,8 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
     assert rv[CMP]["per_seed"][0]["success_rate"] == pytest.approx(0.8)
     assert rv[CMP]["contact_missing_seeds"] == [0]
     assert "all_episodes_failed" in (tmp_path / "v.md").read_text()
+    assert rv[CMP]["contact_failed_episodes"] == {"0": 1}
+    assert "seed 0: 1" in (tmp_path / "v.md").read_text()
 
     # Default --seeds is 0,1,5; works without --contact and keeps known raw success
     out_prefix = tmp_path / "cmp"
@@ -533,3 +535,14 @@ def test_record_matched_success_clears_stale_failure_report(tmp_path: Path, monk
     monkeypatch.setattr(record_matched, "_record_one", lambda *_a, **_k: None)
     assert record_matched.main(["--environment", "lumen", "--models", str(models), "--seeds", "0", "--out", str(out)]) == 0
     assert not (out / "lumen-failures.json").exists()
+
+
+@pytest.mark.parametrize("seeds", ["0,0", "-1", "a"])
+def test_record_matched_rejects_bad_seed_schedules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seeds):
+    import sys
+    from benchmarks.external_comparison import record_matched
+    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=object()))
+    with pytest.raises(SystemExit) as stop:
+        record_matched.main(["--environment", "lumen", "--models", str(tmp_path), "--seeds", seeds,
+                             "--out", str(tmp_path / "o")])
+    assert stop.value.code == 2
