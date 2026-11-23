@@ -369,10 +369,15 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
             done = sorted((p for p in ckpt_dir.glob("ckpt_*_steps.zip")
                            if int(p.stem.split("_")[-2]) < args.timesteps),
                           key=lambda p: int(p.stem.split("_")[-2]))
-            if done:
-                model = ALGOS[args.algo].load(done[-1], env=env, seed=seed)
+            for snap in reversed(done):   # newest readable snapshot; one cut short by a kill is skipped
+                try:
+                    model = ALGOS[args.algo].load(snap, env=env, seed=seed)
+                except Exception as exc:  # truncated or corrupt zip
+                    print(f"skipping unreadable checkpoint {snap.name}: {exc!r}", file=sys.stderr, flush=True)
+                    continue
                 remaining = max(0, args.timesteps - int(model.num_timesteps))
                 args._resumed_from = int(model.num_timesteps)
+                break
             callbacks = CheckpointCallback(save_freq=every, save_path=str(ckpt_dir), name_prefix="ckpt")
         if callbacks is None:
             model.learn(total_timesteps=remaining, progress_bar=False)

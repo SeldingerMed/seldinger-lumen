@@ -213,6 +213,8 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
     assert res[CMP]["any_resumed_train_hours_projected"] is True
     assert "(projected)" in md
     assert "failed" in md
+    raw_row = next(line for line in md.splitlines() if line.startswith("| Raw success"))
+    assert raw_row.count("80%") == 1      # an n=1 mean is printed once, without a duplicate
 
     # A multi-seed result file is rejected with a clear message, not a TypeError
     multi = _bench_result("nav_tree_branch", 2, ok=True)

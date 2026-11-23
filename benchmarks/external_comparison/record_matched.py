@@ -23,6 +23,7 @@ from __future__ import annotations
 CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -120,13 +121,27 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     env_name = a.environment
     task = TASK[env_name]
+    failures = {}
     for s in [int(x) for x in a.seeds.split(",") if x]:
         mp = Path(a.models) / a.model_glob.format(env=env_name, task=task, seed=s)
         if not mp.exists():
             print("missing", mp, flush=True)
+            failures[s] = f"missing model {mp}"
             continue
-        model = PPO.load(str(mp), device="cpu")
-        env = make_env(env_name, task, a.max_steps, a.eval_seed)
+        try:
+            _record_one(a, PPO, env_name, task, s, mp, out)
+        except Exception as exc:          # one bad seed never aborts the other recordings
+            failures[s] = repr(exc)
+            print(env_name, s, "FAILED", repr(exc), flush=True)
+    if failures:
+        (out / f"{env_name}-failures.json").write_text(json.dumps({str(k): v for k, v in failures.items()}, indent=1))
+    return 1 if failures else 0
+
+
+def _record_one(a, PPO, env_name, task, s, mp, out):
+    model = PPO.load(str(mp), device="cpu")
+    env = make_env(env_name, task, a.max_steps, a.eval_seed)
+    try:
         if env_name == CMP:
             seed_comparator_rng(env, a.eval_seed)
         obs, _ = env.reset(seed=a.eval_seed)
@@ -160,8 +175,9 @@ def main(argv=None):
                             safety=np.asarray(safety), success=success, steps=len(wires) - 1, dt=dt,
                             eval_seed=a.eval_seed, training_seed=s, environment=env_name, model=str(mp))
         print(env_name, s, "success", success, "steps", len(wires) - 1, "peak", max(safety), flush=True)
+    finally:
         env.close()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

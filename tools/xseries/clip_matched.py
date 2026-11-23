@@ -228,10 +228,10 @@ def main(argv=None):
                 label(img, f"Lumen vs {CMP_NAME}: matched PPO policies (600k env steps each), every training seed, "
                            "same evaluation seed", (20, 24), 30)
                 label(img, f"Safety limits: Lumen wall overlap 0.3 mm (contact barrier width); {CMP_NAME} tip-wall "
-                           f"force 1.0 N.   Simulated time, slowed {SLOW:.0f}x.", (20, 66), 20, (160, 168, 180))
+                           f"force 1.0 N.   Simulated time, slowed {SLOW:g}x.", (20, 66), 20, (160, 168, 180))
             else:
                 label(img, f"Lumen vs {CMP_NAME}: matched PPO, every training seed", (30, 16), 26)
-                label(img, f"limits: Lumen 0.3 mm overlap, {CMP_NAME} 1.0 N tip force; {SLOW:.0f}x slow", (30, 50), 18,
+                label(img, f"limits: Lumen 0.3 mm overlap, {CMP_NAME} 1.0 N tip force; {SLOW:g}x slow", (30, 50), 18,
                       (160, 168, 180))
             if cmp and i >= n_play:
                 txt = summary_line(cmp)
