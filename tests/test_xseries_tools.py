@@ -9,10 +9,10 @@ import pytest
 
 from benchmarks.external_comparison import (
     eval_comparator_contact,
-    xseries_chart,
     xseries_compare,
 )
-from tools.xseries import clip_matched, xs_common
+
+# Rendering dependencies (matplotlib, Pillow) are optional extras, not part of the CI install.
 
 CMP = "cath" + "sim"
 
@@ -144,6 +144,8 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
 
 
 def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validation(tmp_path: Path):
+    pytest.importorskip("matplotlib")
+    from benchmarks.external_comparison import xseries_chart
     bench = tmp_path / "bench"
     bench.mkdir()
     # Lumen seed 0 ok, seed 1 failed with safety_value=None and train_elapsed_sec=0
@@ -213,6 +215,8 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
 
 
 def test_cached_rollout_keys_on_extra_fn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pytest.importorskip("PIL")
+    from tools.xseries import clip_matched, xs_common  # noqa: F401
     calls = []
 
     class Env:
@@ -236,6 +240,8 @@ def test_cached_rollout_keys_on_extra_fn(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_clip_matched_validates_inputs(tmp_path: Path):
+    pytest.importorskip("PIL")
+    from tools.xseries import clip_matched, xs_common  # noqa: F401
     with pytest.raises(ValueError, match="--slow"):
         clip_matched.main(["--episodes", str(tmp_path), "--slow", "0", "--out", str(tmp_path / "m")])
     with pytest.raises(FileNotFoundError, match="--compare"):
