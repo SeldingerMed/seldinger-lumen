@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 from benchmarks.external_comparison import (
@@ -17,57 +16,58 @@ from benchmarks.external_comparison import (
 CMP = "cath" + "sim"
 
 
-def test_contact_probe_uses_copy_without_mutating_live_physics():
-    live_contact_force_calls = []
-    copy_contact_force_calls = []
+def test_contact_probe_uses_copy_without_mutating_live_physics(monkeypatch):
+    calls = []          # (fn, data id): every mujoco call must hit the copy, never the live data
 
     class FakeContact:
         def __init__(self, geom1, geom2, dist):
-            self.geom1 = geom1
-            self.geom2 = geom2
-            self.dist = dist
+            self.geom1, self.geom2, self.dist = geom1, geom2, dist
 
     class FakeModel:
-        nbody = 3
-        geom_bodyid = [0, 1, 2]
+        nbody = 4
+        geom_bodyid = [0, 1, 2, 3]
+        ptr = "model"
 
         def id2name(self, idx, kind):
-            return ["phantom/wall", "guidewire/shaft_0", "guidewire/tip/0"][idx]
+            return ["phantom/wall", "guidewire/shaft_0", "guidewire/tip/0", "sheath/body"][idx]
 
     class FakeData:
-        def __init__(self, is_copy: bool):
-            self.is_copy = is_copy
-            self.ncon = 2
-            self.contact = [FakeContact(0, 1, 0.0005), FakeContact(0, 2, 0.0005)]
-
-        def contact_force(self, i):
-            if self.is_copy:
-                copy_contact_force_calls.append(i)
-            else:
-                live_contact_force_calls.append(i)
-            val = 0.75 if i == 0 else 1.25
-            return np.array([[val, 0.0, 0.0], [0.0, 0.0, 0.0]])
+        def __init__(self, tag):
+            self.ptr = tag
+            self.ncon = 3
+            self.contact = [FakeContact(0, 1, 0.0005), FakeContact(0, 2, 0.0005), FakeContact(3, 0, 0.0005)]
 
     class FakePhysics:
-        def __init__(self, is_copy=False):
-            self.model = FakeModel()
-            self.data = FakeData(is_copy=is_copy)
+        def __init__(self, tag="live"):
+            self.model, self.data = FakeModel(), FakeData(tag)
 
         def copy(self, share_model=True):
-            return FakePhysics(is_copy=True)
+            return FakePhysics("copy")
+
+    force = {0: 0.75, 1: 1.25, 2: 9.0}       # contact 2 is phantom-sheath: not wire force
+
+    class FakeMujoco:
+        def __getattr__(self, name):
+            def fn(m, d, *rest):
+                calls.append((name, d))
+                if name == "mj_contactForce":
+                    i, wrench = rest
+                    wrench[:] = 0.0
+                    wrench[0] = force[i]
+            return fn
+
+    monkeypatch.setattr(eval_comparator_contact, "_mujoco", lambda: FakeMujoco())
 
     class FakeEnv:
         def __init__(self):
-            self._env = SimpleNamespace(physics=FakePhysics(False), _task=SimpleNamespace(get_contact_forces=lambda *a: None))
+            self._env = SimpleNamespace(physics=FakePhysics(), _task=SimpleNamespace(get_contact_forces=lambda *a: None))
             self.unwrapped = self
 
-    probe = eval_comparator_contact.contact_probe(FakeEnv())
-    tip, wire = probe()
-    assert live_contact_force_calls == []
-    assert copy_contact_force_calls == [0, 1]
+    tip, wire = eval_comparator_contact.contact_probe(FakeEnv())()
+    assert {d for _, d in calls} == {"copy"}
+    assert [r for r in calls if r[0] == "mj_contactForce"] == [("mj_contactForce", "copy")] * 2
     assert tip == pytest.approx(1.25)
     assert wire == pytest.approx(1.25)
-
 
 def test_eval_comparator_contact_validations_and_per_episode_spl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     with pytest.raises(ValueError, match="episodes"):

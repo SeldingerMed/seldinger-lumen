@@ -382,6 +382,8 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
         if callbacks is None:
             model.learn(total_timesteps=remaining, progress_bar=False)
         else:
+            # With reset_num_timesteps=False, SB3 (2.x _setup_learn) adds the loaded num_timesteps to
+            # total_timesteps, so passing the remaining steps trains exactly to the budget.
             model.learn(total_timesteps=remaining, progress_bar=False, callback=callbacks,
                         reset_num_timesteps=not getattr(args, "_resumed_from", 0))
         train_elapsed = time.perf_counter() - train_started

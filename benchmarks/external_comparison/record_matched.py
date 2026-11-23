@@ -69,13 +69,20 @@ def lumen_geometry(env):
     return np.concatenate(surf), tgt
 
 
+_SHAFT_WARNED = []
+
+
 def lumen_wire(env):
     u = lumen_inner(env)
     pos = np.asarray(u.sim.body_positions(), float)
     try:
         from tools.xseries.xs_common import shaft_polyline
         return np.asarray(shaft_polyline(u, pos), float)
-    except Exception:
+    except Exception as exc:          # draw the rod alone, but say so: the two sides would differ
+        if not _SHAFT_WARNED:
+            _SHAFT_WARNED.append(exc)
+            print(f"WARNING: Lumen shaft polyline unavailable ({exc!r}); recording rod bodies only",
+                  file=sys.stderr, flush=True)
         return pos
 
 
