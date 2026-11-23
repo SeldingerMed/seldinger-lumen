@@ -483,6 +483,9 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
             for snap in reversed(done):   # newest readable snapshot; one cut short by a kill is skipped
                 try:
                     model = ALGOS[args.algo].load(snap, env=env, seed=seed)
+                    # The fresh env sits at its reset state, not the checkpoint's: clearing the pickled
+                    # last observation makes SB3's _setup_learn reset and start the segment consistently.
+                    model._last_obs = None
                 except Exception as exc:  # truncated or corrupt zip
                     print(f"skipping unreadable checkpoint {snap.name}: {exc!r}", file=sys.stderr, flush=True)
                     continue

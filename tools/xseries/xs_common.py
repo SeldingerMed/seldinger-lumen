@@ -169,7 +169,10 @@ def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, e
             src = getattr(extra_fn, "__qualname__", "fn")
         tag = f"-x{getattr(extra_fn, '__name__', 'fn')}-{hashlib.sha256(src.encode()).hexdigest()[:8]}"
     # and on the code that records a rollout, so a cache written by older code is never reused
-    path = out_root() / "rollouts" / f"{name}{tag}-v{_rollout_code_version()}-seed{seed}.pkl"
+    pol = getattr(policy, "__qualname__", None) or type(policy).__name__
+    pol = hashlib.sha256(pol.encode()).hexdigest()[:6]
+    path = (out_root() / "rollouts" /
+            f"{name}{tag}-v{_rollout_code_version()}-p{pol}-m{max_steps}-seed{seed}.pkl")
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return pickle.loads(path.read_bytes()), path

@@ -124,7 +124,8 @@ def _per_episode_spl(episodes: list[dict], d_opt: float = 15.73) -> float | None
     nats = [ep.get(f"{CMP}_native") for ep in episodes if ep.get(f"{CMP}_native")]
     if not nats:
         return None
-    return float(sum(x["success"] * d_opt / max(x["total_distance_cm"], d_opt) for x in nats) / len(nats))
+    # an episode that raised has no native metrics and counts as zero, as in eval_comparator_contact
+    return float(sum(x["success"] * d_opt / max(x["total_distance_cm"], d_opt) for x in nats) / len(episodes))
 
 
 def lumen_seed(path):
@@ -207,6 +208,10 @@ def comparator_seed(train_path, contact):
             expected_seed_start=sched[0] if sched else None,
         )
         c = contact.get("per_seed", {}).get(str(s))
+        # which pass the row's numbers come from; anything but "ok" is reported, never silently mixed
+        row["contact_status"] = (c or {}).get("status", "absent")
+        if c and c.get("status") != "ok":
+            row["contact_error"] = c.get("error")
         if c and c.get("status") == "ok":
             # the contact pass must score the same frozen policy this training run produced
             paths = [Path(r["model_path"]) for r in j["extra"].get("runs", []) if r.get("model_path")]
@@ -341,7 +346,8 @@ def main(argv=None):
         ssr = r.get("safe_success_rate")
         sr_s = f"{100 * sr:.0f}%" if sr is not None else "pending"
         ssr_s = f"{100 * ssr:.0f}%" if ssr is not None else "pending"
-        return f"{sr_s} / {ssr_s}"
+        tag = "" if r.get("contact_status", "ok") == "ok" else f" (contact {r['contact_status']})"
+        return f"{sr_s} / {ssr_s}{tag}"
     for s in seeds:
         lr = next((r for r in L if r["seed"] == s), None)
         cr = next((r for r in C if r["seed"] == s), None)
@@ -359,6 +365,13 @@ def main(argv=None):
                f"SPL {g('spl', '.3f')}."]
     unv = [r["seed"] for r in C if r.get("contact_model_check", "sha256") != "sha256"]
     res[CMP]["contact_model_unverified_seeds"] = unv
+    nocontact = [r["seed"] for r in C if r["status"] == "ok" and r.get("contact_status", "ok") != "ok"]
+    res[CMP]["contact_missing_seeds"] = nocontact
+    if nocontact:
+        md += ["", f"Note: the contact pass has no result for seed(s) {', '.join(map(str, nocontact))} "
+               f"({', '.join(next(r['contact_status'] for r in C if r['seed'] == s) for s in nocontact)}); "
+               "their success comes from the training evaluation and they carry no force or safe-success values, "
+               "so those means cover the remaining seeds only."]
     if unv:
         md += ["", f"Note: contact results for seed(s) {', '.join(map(str, unv))} are tied to the trained model by "
                "filename only; that contact file predates model hashing. Rerun eval_comparator_contact.py to "
