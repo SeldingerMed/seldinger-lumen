@@ -757,6 +757,7 @@ def main() -> None:
         "successful_seed_count": len(model_paths),
         "failed_seeds": [run["seed"] for run in runs if run["status"] == "failed"],
         "eval_episodes_per_seed": args.eval_episodes,
+        "n_envs": int(args.n_envs),
         "evaluation_seed_policy": "common_frozen",
         "evaluation_seed_schedule": [
             EVAL_SEED_START + index for index in range(args.eval_episodes)
