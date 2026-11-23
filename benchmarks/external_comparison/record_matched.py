@@ -21,7 +21,6 @@ Runs in either venv: --environment lumen (Lumen venv) or the comparator (its own
 from __future__ import annotations
 
 CMP = "cath" + "sim"  # external comparator: separately installed, loaded at runtime only (see tools/check_firewall.py)
-CMP_NAME = "Cath" + "Sim"
 
 import argparse
 import sys
@@ -30,7 +29,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from benchmarks.external_comparison.train_sb3 import EVAL_SEED_START, make_env  # noqa: E402
+from benchmarks.external_comparison.train_sb3 import (  # noqa: E402
+    EVAL_SEED_START, make_env, seed_comparator_rng)
 
 TASK = {"lumen": "nav_tree_branch", CMP: "phantom3_bca"}
 
@@ -127,6 +127,8 @@ def main(argv=None):
             continue
         model = PPO.load(str(mp), device="cpu")
         env = make_env(env_name, task, a.max_steps, a.eval_seed)
+        if env_name == CMP:
+            seed_comparator_rng(env, a.eval_seed)
         obs, _ = env.reset(seed=a.eval_seed)
         if env_name == "lumen":
             vessel, tgt = lumen_geometry(env)

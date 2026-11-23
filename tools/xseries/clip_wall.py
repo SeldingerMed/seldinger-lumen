@@ -173,7 +173,7 @@ def _legend(img, xy, vmax):
     d.text((x0, y0 - 6), "wall deflection", font=font(15), fill=(160, 168, 180), anchor="ld")
 
 
-def chart(w, h, t_now, series, tmax, ymax, thr):
+def chart(w, h, t_now, series, tmax, ymax, thr, dt=DT):
     img = Image.new("RGB", (w, h), (11, 14, 19))
     d = ImageDraw.Draw(img)
     L, R, T, B = 70, 20, 34, 40
@@ -196,8 +196,8 @@ def chart(w, h, t_now, series, tmax, ymax, thr):
     d.text((L, T + ph + 22), f"simulated time   t = {t_now:4.2f} s", font=font(16),
            fill=(130, 140, 152), anchor="lm")
     for _, vals, color in series:
-        pts = [(L + pw * (k * DT) / tmax, T + ph * (1 - min(v, ymax) / ymax))
-               for k, v in enumerate(vals) if k * DT <= t_now + 1e-9]
+        pts = [(L + pw * (k * dt) / tmax, T + ph * (1 - min(v, ymax) / ymax))
+               for k, v in enumerate(vals) if k * dt <= t_now + 1e-9]
         if len(pts) > 1:
             d.line(pts, fill=color, width=3)
     return img

@@ -216,7 +216,6 @@ def _chart(img, box, t_hist, series, ymax, yfmt, ymin=0.0, ticks=None):
     for yv in (ticks if ticks is not None else np.linspace(ymin, ymax, 5)):
         yy = pb - (pb - pt) * (yv - ymin) / (ymax - ymin)
         d.text((pl - 8, yy), yfmt(yv), font=font(14), fill=(130, 140, 152), anchor="rm")
-    if ymin < 0:
     yspan = max(float(ymax) - float(ymin), 1e-9)
     if ymin < 0 < ymax:
         yz = pb - (pb - pt) * (0 - ymin) / yspan

@@ -44,7 +44,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmarks.external_comparison.train_sb3 import (  # noqa: E402
-    COMPARATOR_ENV, COMPARATOR_TASKS, EVAL_SEED_START, _parse_seeds, seed_comparator_rng)
+    COMPARATOR_ENV, COMPARATOR_TASKS, EVAL_SEED_START, seed_comparator_rng)
+from benchmarks.external_comparison.train_sb3 import parse_seed_schedule as _parse_seeds  # noqa: E402
 
 THRESHOLDS_N = (0.5, 1.0, 1.5)
 PRIMARY_N = 1.0

@@ -21,7 +21,6 @@ CMP_NAME = "Cath" + "Sim"
 
 import argparse
 import json
-import math
 import shutil
 import sys
 from pathlib import Path
@@ -149,12 +148,23 @@ def main(argv=None):
     ap.add_argument("--slow", type=float, default=2.0, help="simulated-time slowdown factor")
     ap.add_argument("--only", default="")
     a = ap.parse_args(argv)
+    if not (np.isfinite(a.slow) and a.slow > 0):
+        raise ValueError("--slow must be a finite positive factor")
+    if a.compare and not Path(a.compare).exists():
+        raise FileNotFoundError(f"--compare file not found: {a.compare}")
     only = [int(x) for x in a.only.split(",") if x]
+    cmp = json.load(open(a.compare)) if a.compare else None
+    seeds = list((cmp or {}).get("training_seeds") or range(6))
+    L, C = load(a.episodes, "lumen", seeds), load(a.episodes, CMP, seeds)
+    if cmp and (len(L) != len(seeds) or len(C) != len(seeds)):
+        raise FileNotFoundError(f"matched recordings missing: need seeds {seeds} for both simulators, "
+                                f"found {len(L)} Lumen and {len(C)} {CMP_NAME}")
+    eval_seeds = {int(d["eval_seed"]) for d in L + C}
+    if len(eval_seeds) > 1:
+        raise ValueError(f"recordings use different evaluation seeds {sorted(eval_seeds)}; a matched clip "
+                         "needs one shared evaluation seed")
     out = Path(a.out) if a.out else out_root() / f"clip8-lumen-vs-{CMP}"
     out.mkdir(parents=True, exist_ok=True)
-    cmp = json.load(open(a.compare)) if a.compare and Path(a.compare).exists() else None
-    seeds = (cmp or {}).get("training_seeds") or range(6)
-    L, C = load(a.episodes, "lumen", seeds), load(a.episodes, CMP, seeds)
     global SLOW
     SLOW = a.slow
     one_row = max(len(L), len(C)) <= 3          # 3 training seeds: one tall row per simulator

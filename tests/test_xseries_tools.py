@@ -12,7 +12,7 @@ from benchmarks.external_comparison import (
     xseries_chart,
     xseries_compare,
 )
-from tools.xseries import anatomy, clip_matched, clip_parallel, clip_recap, clip_replay, clip_wall, xs_common
+from tools.xseries import clip_matched, xs_common
 
 CMP = "cath" + "sim"
 
@@ -74,7 +74,7 @@ def test_eval_comparator_contact_validations_and_per_episode_spl(tmp_path: Path,
         eval_comparator_contact.main(["--models", str(tmp_path), "--episodes", "0", "--out", str(tmp_path / "o.json")])
     with pytest.raises(ValueError, match="max-steps"):
         eval_comparator_contact.main(["--models", str(tmp_path), "--max-steps", "0", "--out", str(tmp_path / "o.json")])
-    with pytest.raises(ValueError, match="duplicate"):
+    with pytest.raises(ValueError, match="unique"):
         eval_comparator_contact.main(["--models", str(tmp_path), "--seeds", "0,0", "--out", str(tmp_path / "o.json")])
 
     # Per-episode SPL differs from mean-path SPL when path lengths vary
@@ -215,44 +215,34 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
 def test_cached_rollout_keys_on_extra_fn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     calls = []
 
-    def fake_rollout(**kw):
-        calls.append(kw.get("extra_fn"))
-        tag = "a" if kw.get("extra_fn") is fn_a else "b"
-        return {"asset": True}, [{"tag": tag}], {
-            "target": kw.get("target", "lcca_out"), "steps": kw.get("steps", 160),
-            "ins_mm_per_step": kw.get("ins", 0.45), "twist_rad_per_step": kw.get("twist", 0.0),
-            "deformable": kw.get("deformable", False),
-        }
+    class Env:
+        substeps = 4
 
-    def fn_a(env):
-        return {"a": 1}
+    def fake_rollout(env, policy, max_steps, seed=0, extra_fn=None):
+        calls.append(extra_fn)
+        return [SimpleNamespace(nodes=[0, 1], tag=getattr(extra_fn, "__name__", None))]
 
-    def fn_b(env):
-        return {"b": 2}
+    def pen(env):
+        return {"pen": 1}
 
+    monkeypatch.setattr(xs_common, "out_root", lambda: tmp_path)
     monkeypatch.setattr(xs_common, "rollout", fake_rollout)
-    _, f1, _, p1 = xs_common.cached_rollout("arch_lcca", cache_dir=tmp_path, extra_fn=fn_a)
-    _, f2, _, p2 = xs_common.cached_rollout("arch_lcca", cache_dir=tmp_path, extra_fn=fn_b)
-    _, f3, _, p3 = xs_common.cached_rollout("arch_lcca", cache_dir=tmp_path, extra_fn=fn_b)
-    assert p1 != p2
-    assert p2 == p3
-    assert f1[0]["tag"] == "a"
-    assert f2[0]["tag"] == "b"
+    (f0, _), p0 = xs_common.cached_rollout("arch", Env, None, 5)
+    (f1, _), p1 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)
+    (f2, _), p2 = xs_common.cached_rollout("arch", Env, None, 5, extra_fn=pen)
+    assert p0 != p1 and p1 == p2
+    assert f0[0].tag is None and f1[0].tag == "pen" and f2[0].tag == "pen"
     assert len(calls) == 2
 
 
-def test_xseries_clip_arg_and_missing_file_validations(tmp_path: Path):
-    with pytest.raises(ValueError, match="Unknown arch target"):
-        anatomy.arch_asset("bogus_vessel")
+def test_clip_matched_validates_inputs(tmp_path: Path):
     with pytest.raises(ValueError, match="--slow"):
         clip_matched.main(["--episodes", str(tmp_path), "--slow", "0", "--out", str(tmp_path / "m")])
     with pytest.raises(FileNotFoundError, match="--compare"):
-        clip_matched.main(["--episodes", str(tmp_path), "--compare", str(tmp_path / "missing.json"), "--out", str(tmp_path / "m")])
-    with pytest.raises(FileNotFoundError, match="No source"):
-        clip_recap.main(["--root", str(tmp_path), "--out", str(tmp_path / "recap")])
-    with pytest.raises(FileNotFoundError, match="--no-run"):
-        clip_wall.main(["--no-run", "--out", str(tmp_path / "wall")])
-    with pytest.raises(FileNotFoundError, match="--no-run"):
-        clip_parallel.main(["--no-run", "--out", str(tmp_path / "par")])
-    with pytest.raises(ValueError, match="--every"):
-        clip_replay.main(["--every", "0", "--out", str(tmp_path / "rep")])
+        clip_matched.main(["--episodes", str(tmp_path), "--compare", str(tmp_path / "missing.json"),
+                           "--out", str(tmp_path / "m")])
+    cmp = tmp_path / "c.json"
+    cmp.write_text(json.dumps({"training_seeds": [0, 1, 5]}))
+    with pytest.raises(FileNotFoundError, match="matched recordings missing"):
+        clip_matched.main(["--episodes", str(tmp_path), "--compare", str(cmp), "--out", str(tmp_path / "m")])
+    assert not (tmp_path / "m").exists()

@@ -143,7 +143,10 @@ def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, e
     """Run a rollout once and keep the solver states on the external drive, so clips that
     show the same episode (hero, auto-labels, safety, replay) use byte-identical states."""
     import pickle
-    path = out_root() / "rollouts" / f"{name}-seed{seed}.pkl"
+    # The captured fields depend on extra_fn, so it is part of the cache identity: a cache
+    # written without it is never served to a caller that needs it, and vice versa.
+    tag = f"-x{getattr(extra_fn, '__name__', 'fn')}" if extra_fn is not None else ""
+    path = out_root() / "rollouts" / f"{name}{tag}-seed{seed}.pkl"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return pickle.loads(path.read_bytes()), path
