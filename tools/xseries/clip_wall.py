@@ -173,7 +173,7 @@ def _legend(img, xy, vmax):
     d.text((x0, y0 - 6), "wall deflection", font=font(15), fill=(160, 168, 180), anchor="ld")
 
 
-def chart(w, h, t_now, series, tmax, ymax, thr):
+def chart(w, h, t_now, series, tmax, ymax, thr, dt=DT):
     img = Image.new("RGB", (w, h), (11, 14, 19))
     d = ImageDraw.Draw(img)
     L, R, T, B = 70, 20, 34, 40
@@ -196,8 +196,8 @@ def chart(w, h, t_now, series, tmax, ymax, thr):
     d.text((L, T + ph + 22), f"simulated time   t = {t_now:4.2f} s", font=font(16),
            fill=(130, 140, 152), anchor="lm")
     for _, vals, color in series:
-        pts = [(L + pw * (k * DT) / tmax, T + ph * (1 - min(v, ymax) / ymax))
-               for k, v in enumerate(vals) if k * DT <= t_now + 1e-9]
+        pts = [(L + pw * (k * dt) / tmax, T + ph * (1 - min(v, ymax) / ymax))
+               for k, v in enumerate(vals) if k * dt <= t_now + 1e-9]
         if len(pts) > 1:
             d.line(pts, fill=color, width=3)
     return img
@@ -245,7 +245,8 @@ def main(argv=None):
         sched += [(k, slow)] * (4 if slow else 1)
     sched += [(nst - 1, False)] * a.hold
     n_frames = len(sched)
-    tmax = (max(len(rigid), len(soft)) - 1) * DT
+    dt = float(rmeta.get("dt_s_per_step", DT))
+    tmax = (max(len(rigid), len(soft)) - 1) * dt
     vmax = 0.5
     ymax = max(1.0, 1.1 * max(max(rpen), min(max(wmax), 4.0)))
     red, amber = (232, 90, 92), (247, 181, 64)
@@ -259,7 +260,7 @@ def main(argv=None):
         k, slow = sched[i]
         fr = rigid[min(k, len(rigid) - 1)]
         fs = soft[min(k, len(soft) - 1)]
-        t_now = k * DT
+        t_now = k * dt
         pr = Image.fromarray(rv.render(fr.extra["wire"], None, target, heat=(fr.nodes, fr.extra.get("pen", np.zeros(len(fr.nodes))), thr)))
         ps = Image.fromarray(rv.render(fs.extra["wire"], fs.extra.get("w"), target, vmax=vmax))
         wnow = float(fs.extra["w"].max()) if "w" in fs.extra else 0.0
@@ -278,7 +279,7 @@ def main(argv=None):
               bg=(10, 13, 18))
         L.paste(chart(1920, 320, t_now, [("rigid: device-wall overlap", rpen, red),
                                          ("deformable: peak wall deflection", wmax, amber)],
-                      tmax, ymax, thr), (0, 760))
+                      tmax, ymax, thr, dt=dt), (0, 760))
         corner_tag(L, top=True)
         L.save(dirs["landscape"] / f"{i:05d}.png")
         S = Image.new("RGB", (1080, 1080), (7, 9, 13))
@@ -290,7 +291,7 @@ def main(argv=None):
         if slow:
             label(S, "slow motion x4", (540, 52), 20, (236, 185, 88), anchor="ma", bg=(10, 13, 18))
         S.paste(chart(1080, 440, t_now, [("rigid overlap", rpen, red), ("wall deflection", wmax, amber)],
-                      tmax, ymax, thr), (0, 600))
+                      tmax, ymax, thr, dt=dt), (0, 600))
         corner_tag(S)
         S.save(dirs["square"] / f"{i:05d}.png")
         if i % 40 == 0:

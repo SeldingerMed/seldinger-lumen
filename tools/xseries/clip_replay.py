@@ -152,6 +152,8 @@ def main(argv=None):
     ap.add_argument("--hold", type=int, default=45)
     ap.add_argument("--only", default="")
     a = ap.parse_args(argv)
+    if a.every <= 0:
+        raise ValueError("--every must be positive")
     only = [int(x) for x in a.only.split(",") if x]
     out = Path(a.out) if a.out else out_root() / "clip6-replay"
     out.mkdir(parents=True, exist_ok=True)

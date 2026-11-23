@@ -216,8 +216,9 @@ def _chart(img, box, t_hist, series, ymax, yfmt, ymin=0.0, ticks=None):
     for yv in (ticks if ticks is not None else np.linspace(ymin, ymax, 5)):
         yy = pb - (pb - pt) * (yv - ymin) / (ymax - ymin)
         d.text((pl - 8, yy), yfmt(yv), font=font(14), fill=(130, 140, 152), anchor="rm")
-    if ymin < 0:
-        yz = pb - (pb - pt) * (0 - ymin) / (ymax - ymin)
+    yspan = max(float(ymax) - float(ymin), 1e-9)
+    if ymin < 0 < ymax:
+        yz = pb - (pb - pt) * (0 - ymin) / yspan
         d.line((pl, yz, pr, yz), fill=(52, 62, 76))
     xl = pl
     for name, _, col in series:
@@ -226,7 +227,7 @@ def _chart(img, box, t_hist, series, ymax, yfmt, ymin=0.0, ticks=None):
         xl += 50 + int(d.textlength(name, font=font(15)))
     n, kn = t_hist["n"], t_hist["k"]
     for _, vals, col in series:
-        pts = [(pl + (pr - pl) * j / max(n - 1, 1), pb - (pb - pt) * (min(max(v, ymin), ymax) - ymin) / (ymax - ymin))
+        pts = [(pl + (pr - pl) * j / max(n - 1, 1), pb - (pb - pt) * (min(max(v, ymin), ymax) - ymin) / yspan)
                for j, v in enumerate(vals[:kn + 1])]
         if len(pts) > 1:
             d.line(pts, fill=col, width=3)
@@ -241,6 +242,10 @@ def main(argv=None):
     ap.add_argument("--hold", type=int, default=50)
     ap.add_argument("--only", default="")
     a = ap.parse_args(argv)
+    if a.fps_steps <= 0:
+        raise ValueError("--fps-steps must be positive")
+    if a.hold < 0:
+        raise ValueError("--hold must be non-negative")
     only = [int(x) for x in a.only.split(",") if x]
     out = Path(a.out) if a.out else out_root() / "clip7-procedure-modules"
     out.mkdir(parents=True, exist_ok=True)
@@ -255,8 +260,10 @@ def main(argv=None):
             "aneurysm_no_device": {k: m0[k] for k in ("sac_inflow_peak", "sac_turnover_time", "diversion")},
             "aneurysm_flow_diverter": {k: m1[k] for k in ("sac_inflow_peak", "sac_turnover_time", "diversion")}}
     summ["aneurysm_change"] = {
-        "inflow_peak_pct": round(100 * (m1["sac_inflow_peak"] / m0["sac_inflow_peak"] - 1), 1),
-        "turnover_time_pct": round(100 * (m1["sac_turnover_time"] / m0["sac_turnover_time"] - 1), 1)}
+        "inflow_peak_pct": (round(100 * (m1["sac_inflow_peak"] / m0["sac_inflow_peak"] - 1), 1)
+                            if m0["sac_inflow_peak"] > 0 else None),
+        "turnover_time_pct": (round(100 * (m1["sac_turnover_time"] / m0["sac_turnover_time"] - 1), 1)
+                              if m0["sac_turnover_time"] > 0 else None)}
     print(summ, flush=True)
     n_steps = max(len(thr), len(an0))
     dirs = {k: out / f"frames_{k}" for k in ("landscape", "square")}
@@ -278,8 +285,10 @@ def main(argv=None):
         d.line((960, 80, 960, 1050), fill=(30, 36, 46), width=2)
         if k >= len(an0) - 1:
             ch = summ["aneurysm_change"]
-            label(L, f"diverter: peak neck inflow {ch['inflow_peak_pct']:+.0f}%,  sac turnover time "
-                     f"{ch['turnover_time_pct']:+.0f}%", (1440, 400), 20, GREEN, anchor="ma", bg=(10, 13, 18))
+            ip = f"{ch['inflow_peak_pct']:+.0f}%" if ch["inflow_peak_pct"] is not None else "n/a"
+            tt = f"{ch['turnover_time_pct']:+.0f}%" if ch["turnover_time_pct"] is not None else "n/a"
+            label(L, f"diverter: peak neck inflow {ip},  sac turnover time {tt}",
+                  (1440, 400), 20, GREEN, anchor="ma", bg=(10, 13, 18))
         corner_tag(L, top=False)
         L.save(dirs["landscape"] / f"{i:05d}.png")
         S = Image.new("RGB", (1080, 1080), BG)

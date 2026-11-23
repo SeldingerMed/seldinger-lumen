@@ -37,15 +37,46 @@ SEGMENTS = [
 ]
 
 
+def hero_caption(manifest: Path, default: str) -> str:
+    """Caption for the hero clip from its recorded target (the default names the left common carotid)."""
+    from tools.xseries.xs_common import ARCH_TARGETS
+    try:
+        target = json.load(open(manifest))["scene"]["target"]
+    except (OSError, KeyError, ValueError):
+        return "Guidewire navigation from the descending aorta"
+    if target not in ARCH_TARGETS:
+        return "Guidewire navigation from the descending aorta"
+    return f"Guidewire from the descending aorta into the {ARCH_TARGETS[target]}"
+
+
+def _fmt(c, fmt: str, scale: float = 1.0, unit: str = "") -> str:
+    """A ci() mean with its contributing training-seed count, or n/a."""
+    if not c or c.get("mean") is None:
+        return "n/a"
+    return f"{format(scale * c['mean'], fmt)}{unit} (n={c.get('n', 0)})"
+
+
+def head_to_head_lines(cmp: dict):
+    """Recap card lines; every mean shows its own training-seed count. None if nothing is available."""
+    L, C = cmp["lumen"]["summary"], cmp[CMP]["summary"]
+    keys = ("success_rate", "train_hours")
+    if all((S.get(k) or {}).get("mean") is None for S in (L, C) for k in keys):
+        return None
+    return [(f"Lumen vs {CMP_NAME}, matched PPO (600k steps, training-seed means)", 34, (235, 240, 245)),
+            (f"Raw success   Lumen {_fmt(L.get('success_rate'), '.0f', 100, '%')}   "
+             f"{CMP_NAME} {_fmt(C.get('success_rate'), '.0f', 100, '%')}", 30, (190, 198, 208)),
+            (f"Training wall-clock   Lumen {_fmt(L.get('train_hours'), '.1f', unit=' h')}   "
+             f"{CMP_NAME} {_fmt(C.get('train_hours'), '.1f', unit=' h')}", 30, (190, 198, 208))]
+
+
 def SW(v: int) -> int:
     """Clip footage is scaled to 90% and top-aligned so captions sit in their own band below it."""
     return int(round(v * 0.9 / 2)) * 2
 
 
 def frames_from(mp4: Path, start_s: float, secs: float, size, dst: Path, k0: int) -> int:
-    tmp = dst.parent / "_seg"
-    shutil.rmtree(tmp, ignore_errors=True)
-    tmp.mkdir()
+    import tempfile
+    tmp = Path(tempfile.mkdtemp(prefix="_seg-", dir=dst.parent))   # owned by this render only
     W, H = size
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{start_s:.3f}", "-i", str(mp4), "-t", f"{secs:.3f}",
                     "-vf", f"fps={FPS},scale={SW(W)}:{SW(H)}:flags=lanczos,pad={W}:{H}:{(W - SW(W)) // 2}:0:color=0x07090d",
@@ -115,6 +146,8 @@ def main(argv=None):
             if not mp4.exists():
                 print("missing", mp4, flush=True)
                 continue
+            if cdir == "clip1-hero":          # caption the vessel the hero footage actually targets
+                cap = hero_caption(root / cdir / "manifest.json", cap)
             dur = duration(mp4)
             st = max(0.0, min(dur - secs, frac * dur))
             k1 = frames_from(mp4, st, secs, size, d, k)
@@ -123,23 +156,16 @@ def main(argv=None):
                 im = Image.open(p).convert("RGB")
                 caption(im, cap, k1, j)
                 im.save(p)
+            rec["segments"].append({"layout": kind, "clip": cdir, "source_file": mp4.name, "start_s": round(st, 3),
+                                    "seconds": secs, "source_sha256": sha256(mp4), "caption": cap})
             if kind == "landscape":
-                man = json.load(open(root / cdir / "manifest.json"))
-                rec["segments"].append({"clip": cdir, "start_s": round(st, 3), "seconds": secs,
-                                        "source_sha256": man["outputs"][kind]["sha256"], "caption": cap})
                 used.append(cdir)
             k += k1
-        if cmp:
-            L, C = cmp["lumen"]["summary"], cmp[CMP]["summary"]
-            if C["success_rate"]["mean"] is not None:
-                lines = [(f"Lumen vs {CMP_NAME}, matched PPO (600k steps, {len(cmp.get('training_seeds') or range(6))} training seeds)", 34, (235, 240, 245)),
-                         (f"Raw success   Lumen {100 * L['success_rate']['mean']:.0f}%   "
-                          f"{CMP_NAME} {100 * C['success_rate']['mean']:.0f}%", 30, (190, 198, 208)),
-                         (f"Training wall-clock   Lumen {L['train_hours']['mean']:.1f} h   "
-                          f"{CMP_NAME} {C['train_hours']['mean']:.1f} h", 30, (190, 198, 208))]
-                k += card(size, lines, int(3.5 * FPS), d, k)
-                if kind == "landscape":
-                    rec["segments"].append({"card": "head-to-head", "source": str(a.compare), "seconds": 3.5})
+        lines = head_to_head_lines(cmp) if cmp else None
+        if lines:
+            k += card(size, lines, int(3.5 * FPS), d, k)
+            if kind == "landscape":
+                rec["segments"].append({"card": "head-to-head", "source": str(a.compare), "seconds": 3.5})
         k += card(size, [("Lumen", 64, (235, 240, 245)), ("Open-source endovascular simulator", 30, (170, 178, 190)),
                          (REPO, 34, (92, 232, 238)), ("Apache-2.0", 24, (130, 140, 152))], int(4.0 * FPS), d, k)
         if kind == "landscape":

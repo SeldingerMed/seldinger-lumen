@@ -143,7 +143,10 @@ def cached_rollout(name: str, make_env, policy, max_steps: int, seed: int = 0, e
     """Run a rollout once and keep the solver states on the external drive, so clips that
     show the same episode (hero, auto-labels, safety, replay) use byte-identical states."""
     import pickle
-    path = out_root() / "rollouts" / f"{name}-seed{seed}.pkl"
+    # The captured fields depend on extra_fn, so it is part of the cache identity: a cache
+    # written without it is never served to a caller that needs it, and vice versa.
+    tag = f"-x{getattr(extra_fn, '__name__', 'fn')}" if extra_fn is not None else ""
+    path = out_root() / "rollouts" / f"{name}{tag}-seed{seed}.pkl"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return pickle.loads(path.read_bytes()), path
@@ -256,7 +259,7 @@ class FluoroCam:
                 ((X - a[0]) * ab[0] + (Y - a[1]) * ab[1]) / den, 0, 1)
             dx, dy = X - (a[0] + t * ab[0]), Y - (a[1] + t * ab[1])
             r = ra + t * (rb - ra)
-            q = np.sqrt(np.clip(1.0 - (dx * dx + dy * dy) / (r * r), 0, None))
+            q = np.sqrt(np.clip(1.0 - (dx * dx + dy * dy) / np.maximum(r * r, 1e-12), 0, None))
             win = best[y0:y1 + 1, x0:x1 + 1]
             np.maximum(win, q, out=win)                   # chord / diameter of a cylinder
         A = best.reshape(H, ss, W, ss).mean(axis=(1, 3))
@@ -279,12 +282,19 @@ class FluoroCam:
         from lumen.sensors.fluoro import _keypoint
         return _keypoint(self.carm, np.asarray(p, float), (self.carm.nv, self.carm.nu))
 
-    def masks(self, nodes, radius=0.2):
-        from lumen.sensors.fluoro import _project_asset_mask, _project_polyline_mask, _projected_radius_px
+    def device_mask(self, nodes, radius=0.2):
+        from lumen.sensors.fluoro import _project_polyline_mask, _projected_radius_px
         shape = (self.carm.nv, self.carm.nu)
         dpx = [max(1.0, _projected_radius_px(self.carm, p, radius)) for p in nodes]
-        return {"device": _project_polyline_mask(self.carm, nodes, shape, dpx),
-                "vessel": _project_asset_mask(self.carm, self.asset, shape)}
+        return _project_polyline_mask(self.carm, nodes, shape, dpx)
+
+    def vessel_mask(self):
+        from lumen.sensors.fluoro import _project_asset_mask
+        return _project_asset_mask(self.carm, self.asset, (self.carm.nv, self.carm.nu))
+
+    def masks(self, nodes, radius=0.2):
+        return {"device": self.device_mask(nodes, radius=radius),
+                "vessel": self.vessel_mask()}
 
 
 # --------------------------------------------------------------------------- 3-D panel
@@ -300,7 +310,11 @@ def _tube(pts, radii, n_theta=20):
         v = r - ti * (r @ ti)
         if np.linalg.norm(v) < 1e-6:
             v = np.cross(ti, [1.0, 0.0, 0.0])
-        v /= np.linalg.norm(v)
+        v_norm = np.linalg.norm(v)
+        if v_norm < 1e-12:
+            v = np.array([1.0, 0.0, 0.0])
+        else:
+            v = v / v_norm
         n1.append(v)
         prev = v
     n1 = np.asarray(n1)

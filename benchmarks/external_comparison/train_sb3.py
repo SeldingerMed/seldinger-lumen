@@ -6,6 +6,7 @@ import argparse
 import importlib
 import json
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -60,6 +61,22 @@ def parse_seed_schedule(value: str | None, fallback: int = 0) -> list[int]:
     return seeds
 
 
+def seed_comparator_rng(env: Any, seed: int) -> None:
+    """Seed the comparator's hidden RNGs for one episode.
+
+    At the pinned revision its start-pose sampler draws from Python's global ``random`` and
+    its task code also uses NumPy's global RNG, neither of which ``reset(seed=...)`` touches.
+    The composer environment's own ``random_state`` is reseeded as well, so a given evaluation
+    seed replays the same case in every pass (training eval, contact pass, recorder).
+    """
+    random.seed(seed)
+    np.random.seed(seed % (2**32))
+    inner = getattr(getattr(env, "unwrapped", env), "_env", None)
+    state = getattr(inner, "random_state", None) or getattr(inner, "_random_state", None)
+    if isinstance(state, np.random.RandomState):
+        state.seed(seed % (2**32))
+
+
 LUMEN_TASKS = {
     "nav_tube": ("Lumen/NavTube-v0", "simple_target_navigation", {"max_steps": 300}),
     "nav_stenotic": ("Lumen/NavStenotic-v0", "tortuous_or_stenotic_navigation", {"max_steps": 300}),
@@ -103,6 +120,7 @@ def make_env(environment: str, task: str, max_steps: int, seed: int) -> gym.Env:
             **kwargs,
         )
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_steps)
+        seed_comparator_rng(env, seed)
     else:
         raise ValueError(f"unknown environment {environment!r}")
     env.reset(seed=seed)
@@ -146,6 +164,8 @@ def evaluate_model(
         diverged = False
         try:
             env = make_env(args.environment, args.task, args.max_steps, seed)
+            if args.environment == COMPARATOR_ENV:
+                seed_comparator_rng(env, seed)
             obs, _ = env.reset(seed=seed)
             for _ in range(args.max_steps):
                 action, _ = model.predict(obs, deterministic=True)
@@ -342,14 +362,23 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
 
             ckpt_dir = model_path.parent / (model_path.stem + "-ckpt")
             ckpt_dir.mkdir(parents=True, exist_ok=True)
-            done = sorted(ckpt_dir.glob("ckpt_*_steps.zip"), key=lambda p: int(p.stem.split("_")[-2]))
+            _check_checkpoint_identity(ckpt_dir, _checkpoint_identity(args, seed))
+            # Only snapshots strictly before the budget: SB3's CheckpointCallback fires before the
+            # final rollout is consumed by an update, so a snapshot at the full budget is not a
+            # finished model. Resuming from it would skip the last update.
+            done = sorted((p for p in ckpt_dir.glob("ckpt_*_steps.zip")
+                           if int(p.stem.split("_")[-2]) < args.timesteps),
+                          key=lambda p: int(p.stem.split("_")[-2]))
             if done:
                 model = ALGOS[args.algo].load(done[-1], env=env, seed=seed)
                 remaining = max(0, args.timesteps - int(model.num_timesteps))
                 args._resumed_from = int(model.num_timesteps)
             callbacks = CheckpointCallback(save_freq=every, save_path=str(ckpt_dir), name_prefix="ckpt")
-        model.learn(total_timesteps=remaining, progress_bar=False, callback=callbacks,
-                    reset_num_timesteps=not getattr(args, "_resumed_from", 0))
+        if callbacks is None:
+            model.learn(total_timesteps=remaining, progress_bar=False)
+        else:
+            model.learn(total_timesteps=remaining, progress_bar=False, callback=callbacks,
+                        reset_num_timesteps=not getattr(args, "_resumed_from", 0))
         train_elapsed = time.perf_counter() - train_started
     except Exception as exc:
         failed = True
@@ -401,6 +430,28 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
             train_elapsed,
         ) from exc
     return model_path, train_elapsed, time.perf_counter() - started, episodes
+
+
+def _checkpoint_identity(args: argparse.Namespace, seed: int) -> dict:
+    """What a resumable snapshot must match: the run it continues."""
+    return {"environment": args.environment, "task": args.task, "algo": args.algo, "seed": int(seed),
+            "timesteps": int(args.timesteps), "ppo_n_steps": int(args.ppo_n_steps),
+            "batch_size": int(args.batch_size), "max_steps": int(args.max_steps)}
+
+
+def _check_checkpoint_identity(ckpt_dir: Path, ident: dict) -> None:
+    """Refuse to resume snapshots written by a different configuration under the same run id.
+
+    The identity is stored next to the snapshots on first use; a directory from before this
+    record existed is adopted as-is (its snapshots carry the seed and rollout settings SB3 saved)."""
+    f = ckpt_dir / "run_identity.json"
+    if f.exists():
+        prev = json.loads(f.read_text())
+        diff = {k: (prev.get(k), v) for k, v in ident.items() if prev.get(k) != v}
+        if diff:
+            raise ValueError(f"checkpoint dir {ckpt_dir} belongs to a different run configuration: {diff}")
+        return
+    f.write_text(json.dumps(ident, indent=1))
 
 
 def _failed_seed_episodes(
@@ -518,6 +569,7 @@ def main() -> None:
     runs = []
     episodes = []
     for seed in seeds:
+        args._resumed_from = 0  # resume offset is per seed; never inherited from a failed seed
         model_path = model_dir / (
             f"{run_id}.zip" if len(seeds) == 1 else f"{run_id}-seed{seed}.zip"
         )
@@ -570,6 +622,7 @@ def main() -> None:
                 "train_elapsed_sec": train_elapsed,
                 "elapsed_sec": failure_elapsed,
                 "eval_episodes": args.eval_episodes,
+                "resumed_from_step": int(getattr(args, "_resumed_from", 0)),
             })
         episodes.extend(seed_episodes)
     elapsed = float(sum(run["train_elapsed_sec"] for run in runs))

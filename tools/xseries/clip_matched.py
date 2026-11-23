@@ -139,6 +139,24 @@ def load(ep_dir, env, seeds=range(6)):
     return out
 
 
+def _pct(c) -> str:
+    """Mean of a ci() summary as a percent with its contributing training-seed count, or n/a."""
+    if not c or c.get("mean") is None:
+        return "n/a"
+    return f"{100 * c['mean']:.0f}% (n={c.get('n', 0)})"
+
+
+def summary_line(cmp: dict) -> str | None:
+    """End-card text; each mean carries its own training-seed count; None if nothing is available."""
+    Ls, Cs = cmp["lumen"]["summary"], cmp[CMP]["summary"]
+    vals = [Ls.get("success_rate"), Cs.get("success_rate"), Ls.get("safe_success_rate"), Cs.get("safe_success_rate")]
+    if all(not v or v.get("mean") is None for v in vals):
+        return None
+    return (f"Training-seed means, 100 eval seeds each:  success  Lumen {_pct(Ls.get('success_rate'))}  "
+            f"{CMP_NAME} {_pct(Cs.get('success_rate'))}   |   safe success  Lumen {_pct(Ls.get('safe_success_rate'))}  "
+            f"{CMP_NAME} {_pct(Cs.get('safe_success_rate'))}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--episodes", required=True)
@@ -148,12 +166,25 @@ def main(argv=None):
     ap.add_argument("--slow", type=float, default=2.0, help="simulated-time slowdown factor")
     ap.add_argument("--only", default="")
     a = ap.parse_args(argv)
+    if not (np.isfinite(a.slow) and a.slow > 0):
+        raise ValueError("--slow must be a finite positive factor")
+    if a.compare and not Path(a.compare).exists():
+        raise FileNotFoundError(f"--compare file not found: {a.compare}")
     only = [int(x) for x in a.only.split(",") if x]
+    cmp = json.load(open(a.compare)) if a.compare else None
+    seeds = list((cmp or {}).get("training_seeds") or range(6))
+    L, C = load(a.episodes, "lumen", seeds), load(a.episodes, CMP, seeds)
+    if cmp and (len(L) != len(seeds) or len(C) != len(seeds)):
+        raise FileNotFoundError(f"matched recordings missing: need seeds {seeds} for both simulators, "
+                                f"found {len(L)} Lumen and {len(C)} {CMP_NAME}")
+    eval_seeds = {int(d["eval_seed"]) for d in L + C}
+    if len(eval_seeds) > 1:
+        raise ValueError(f"recordings use different evaluation seeds {sorted(eval_seeds)}; a matched clip "
+                         "needs one shared evaluation seed")
+    if max(len(L), len(C)) > 6:
+        raise ValueError(f"the tile layout fits at most 6 training seeds per simulator, got {max(len(L), len(C))}")
     out = Path(a.out) if a.out else out_root() / f"clip8-lumen-vs-{CMP}"
     out.mkdir(parents=True, exist_ok=True)
-    cmp = json.load(open(a.compare)) if a.compare and Path(a.compare).exists() else None
-    seeds = (cmp or {}).get("training_seeds") or range(6)
-    L, C = load(a.episodes, "lumen", seeds), load(a.episodes, CMP, seeds)
     global SLOW
     SLOW = a.slow
     one_row = max(len(L), len(C)) <= 3          # 3 training seeds: one tall row per simulator
@@ -163,7 +194,9 @@ def main(argv=None):
                           [(30, 125), (30, 575)] if one_row else [(30, 92), (30, 590)],
                           (3, 1 if one_row else 2))}
     T = max([x["steps"] * float(x["dt"]) for x in L + C] + [0.1])
-    n_frames = int(T * SLOW * FPS) + int(a.hold * FPS)
+    # playback covers every episode's terminal step (frame t >= T), then the hold starts
+    n_play = int(np.ceil(T * SLOW * FPS)) + 1
+    n_frames = n_play + int(a.hold * FPS)
     rec = {"clip": f"8-lumen-vs-{CMP}", "commit": git_sha(), "lumen_tree_dirty": git_dirty(),
            "command": "python -m tools.xseries.clip_matched " + " ".join(sys.argv[1:] if argv is None else argv),
            "versions": env_versions(), "episodes": {}, "outputs": {}}
@@ -200,13 +233,9 @@ def main(argv=None):
                 label(img, f"Lumen vs {CMP_NAME}: matched PPO, every training seed", (30, 16), 26)
                 label(img, f"limits: Lumen 0.3 mm overlap, {CMP_NAME} 1.0 N tip force; {SLOW:.0f}x slow", (30, 50), 18,
                       (160, 168, 180))
-            if cmp and i >= n_frames - int(a.hold * FPS):
-                Ls, Cs = cmp["lumen"]["summary"], cmp[CMP]["summary"]
-                if Cs["success_rate"]["mean"] is not None:
-                    txt = (f"Mean over {len(cmp.get('training_seeds') or range(6))} training seeds x 100 eval seeds:  success  Lumen "
-                           f"{100 * Ls['success_rate']['mean']:.0f}%  {CMP_NAME} {100 * Cs['success_rate']['mean']:.0f}%"
-                           f"   |   safe success  Lumen {100 * Ls['safe_success_rate']['mean']:.0f}%  {CMP_NAME} "
-                           f"{100 * Cs['safe_success_rate']['mean']:.0f}%")
+            if cmp and i >= n_play:
+                txt = summary_line(cmp)
+                if txt:
                     y = 1080 - 60 if kind == "landscape" else (980 if one_row else 1080 - 40)
                     label(img, txt, (size[0] // 2, y), 22 if kind == "landscape" else 15, (235, 240, 245),
                           anchor="ma", bg=(10, 13, 18))

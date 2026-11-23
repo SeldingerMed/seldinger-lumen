@@ -1,4 +1,4 @@
-"""Clip 3: wall-contact safety. Two runs reach the same target (brachiocephalic trunk)
+"""Clip 3: wall-contact safety. Two runs reach the same target (left common carotid)
 in the same procedural arch. One pushes fast and indents the wall past the safety
 threshold; the other advances slowly and stays under it. Both count as raw successes;
 only one is a safe success. Frames are synchronized in simulated time.
@@ -63,6 +63,12 @@ def main(argv=None):
     ap.add_argument("--hold", type=int, default=50)
     ap.add_argument("--only", default="", help="comma frame indices: preview stills, no encode")
     a = ap.parse_args(argv)
+    for k in ("fast", "slow"):
+        v = getattr(a, k)
+        if not (v > 0 and v == v and v != float("inf")):
+            raise ValueError(f"--{k} must be a positive finite step (mm)")
+    if a.hold < 0:
+        raise ValueError("--hold must be >= 0")
     only = [int(x) for x in a.only.split(",") if x]
 
     out = Path(a.out) if a.out else out_root() / "clip3-wall-safety"
