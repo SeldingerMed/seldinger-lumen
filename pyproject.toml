@@ -24,9 +24,11 @@ solver = [
 ]
 gym = ["gymnasium>=0.29"]         # M5: register the nav envs for gymnasium.make
 imaging = ["SimpleITK>=2.3"]      # optional DICOM series loading; core import path is NumPy/.npz
+mesh-import = ["scipy>=1.10"]     # benchmarks/external_comparison/phantom_import.py (surface mesh -> Asset)
 dev = [
   "pytest>=7",
   "ruff>=0.5",
+  "scipy>=1.10",
   "gymnasium>=0.29",
   "warp-lang==1.16.0",
   "newton @ git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7",

@@ -60,4 +60,26 @@ every 25,000-step checkpoint. Their checkpoints are evaluated under this protoco
 retrained. All other runs are new.
 
 ## Amendments
-None.
+1. 2026-11-22, before any v2 Lumen training or evaluation: geometry conversion as implemented in
+   `phantom_import.py`.
+   - Voxel size 1.0 mm instead of the planned 0.25 mm, to keep the importer under the shared
+     machine's per-process memory cap. Voxels only seed the centerline graph; the radius field
+     R(s, theta) is measured by exact ray casts against the source surface, so wall accuracy does
+     not depend on voxel size (measured below).
+   - Scale 1000 mm per MuJoCo metre; the visual geom's 1.005x display scale is not applied (it only
+     separates the visual mesh from the collision hulls).
+   - Shell mesh: the inner lumen surface is the smaller of the two large smooth patches after a
+     55 degree crease split. Centerlines: cost-weighted (1/d^2) shortest paths from the inlet seed
+     (0, 2.0, -0.5) mm to geodesically farthest uncovered lumen voxels; side openings are closed by
+     periodic interpolation of R in theta. Edges are split at the CathSim target sites, which become
+     the Lumen target nodes.
+   - Conversion error, measured on 60,000 source-surface samples under the Newton tree-contact
+     projection (the rule that produces wall forces): median 0.02 mm,
+     RMS 0.76 mm, p95 1.40 mm,
+     max 9.3 mm. Imported wall to source surface: median
+     0.16 mm, p95 0.49 mm. Larger
+     deviations concentrate within one vessel radius of branch points (p95
+     3.2 mm there, 0.67 mm elsewhere).
+     Target sites lie 0.56 mm (bca) and
+     0.63 mm (lcca) from their centerlines; the inlet seed
+     0.19 mm. Full report: `import_report.json` in the v2 manifest.
