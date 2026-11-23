@@ -80,6 +80,12 @@ def control_dt(env) -> float | None:
         return None
 
 
+def _mujoco():
+    """The official mujoco bindings; dm_control ships them, and the probe needs mj_contactForce."""
+    import mujoco
+    return mujoco
+
+
 def contact_probe(env):
     """Return f() -> (max tip-wall force, max wire-wall force) in N for the current state.
 
@@ -91,10 +97,7 @@ def contact_probe(env):
     m = ph.model
     names = [m.id2name(i, "body") for i in range(m.nbody)]
     gb = m.geom_bodyid
-    try:
-        import mujoco as _mj
-    except Exception:
-        _mj = None
+    _mj = _mujoco()
     wrench = np.empty(6, dtype=np.float64)
 
     def f():
@@ -105,34 +108,26 @@ def contact_probe(env):
             b1, b2 = names[gb[c.geom1]] or "", names[gb[c.geom2]] or ""
             if ("phantom" in b1) == ("phantom" in b2) or c.dist >= 0.002:
                 continue
-            w = b1 if "guidewire" in b1 else b2
+            w = b1 if "phantom" not in b1 else b2
+            if "guidewire" not in w:          # only phantom-guidewire contacts count as wire force
+                continue
             cands.append((i, "/tip/" in w))
         if not cands:
             return 0.0, 0.0
         cp = ph.copy(share_model=True)
         tip = wire = 0.0
-        if _mj is not None and hasattr(cp.model, "ptr") and hasattr(cp.data, "_data"):
-            mp_, dp_ = cp.model.ptr, cp.data._data
-            _mj.mj_fwdActuation(mp_, dp_)
-            _mj.mj_fwdAcceleration(mp_, dp_)
-            _mj.mj_fwdConstraint(mp_, dp_)
-            for i, is_tip in cands:
-                _mj.mj_contactForce(mp_, dp_, i, wrench)
-                fn = abs(float(wrench[0]))
-                if fn <= 0.001:
-                    continue
-                wire = max(wire, fn)
-                if is_tip:
-                    tip = max(tip, fn)
-        else:
-            cd = cp.data
-            for i, is_tip in cands:
-                fn = abs(float(cd.contact_force(i)[0][0]))
-                if fn <= 0.001:
-                    continue
-                wire = max(wire, fn)
-                if is_tip:
-                    tip = max(tip, fn)
+        mp_, dp_ = cp.model.ptr, cp.data.ptr
+        _mj.mj_fwdActuation(mp_, dp_)
+        _mj.mj_fwdAcceleration(mp_, dp_)
+        _mj.mj_fwdConstraint(mp_, dp_)
+        for i, is_tip in cands:
+            _mj.mj_contactForce(mp_, dp_, i, wrench)   # contact frame: wrench[0] is the normal force
+            fn = abs(float(wrench[0]))
+            if fn <= 0.001:
+                continue
+            wire = max(wire, fn)
+            if is_tip:
+                tip = max(tip, fn)
         return tip, wire
     assert hasattr(task, "get_contact_forces")
     return f
@@ -280,7 +275,6 @@ def main(argv=None):
             }
             print(s, json.dumps(res["per_seed"][str(s)]), flush=True)
         out_path.write_text(json.dumps(res, indent=1))
-    out_path.write_text(json.dumps(res, indent=1))
 
 
 if __name__ == "__main__":

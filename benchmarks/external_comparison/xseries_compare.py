@@ -287,7 +287,8 @@ def main(argv=None):
         if c["mean"] is None:
             return "pending"
         s = (lambda x: f"{100 * x:.0f}%") if pct else (lambda x: f"{x:.{nd}f}")
-        return s(c["mean"]) + (f" [{s(c['lo'])}, {s(c['hi'])}]") if c["lo"] is not None else s(c["mean"])
+        ci = f" [{s(c['lo'])}, {s(c['hi'])}]" if c.get("lo") is not None else ""
+        return s(c["mean"]) + ci
     LS, CS = res["lumen"]["summary"], res[CMP]["summary"]
     l_hr = f(LS["train_hours"]) + (" (projected)" if l_proj and LS["train_hours"]["mean"] is not None else "")
     c_hr = f(CS["train_hours"]) + (" (projected)" if c_proj and CS["train_hours"]["mean"] is not None else "")
