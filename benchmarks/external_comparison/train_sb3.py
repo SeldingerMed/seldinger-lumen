@@ -154,6 +154,83 @@ def make_env(environment: str, task: str, max_steps: int, seed: int) -> gym.Env:
     return Monitor(env)
 
 
+def make_vec_env(environment: str, task: str, max_steps: int, seed: int, n_envs: int):
+    """The best supported parallel configuration of each simulator (XSERIES_V2_PROTOCOL.md):
+    Lumen: E worlds in one Newton model (BatchedTreeNavEnv); comparator: SB3 SubprocVecEnv with n
+    worker processes, worker i seeded seed + i."""
+    from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+
+    if environment == "lumen":
+        env_id, _, kwargs = LUMEN_TASKS[task]
+        if env_id != PHANTOM3_ENV:
+            raise ValueError("batched Lumen training is wired for the phantom3 tasks")
+        return VecMonitor(LumenBatchedVecEnv(n_envs=n_envs, max_steps=max_steps,
+                                             **{k: v for k, v in kwargs.items() if k != "max_steps"}))
+    if environment == COMPARATOR_ENV:
+        fns = [(lambda i=i: make_env(environment, task, max_steps, seed + i)) for i in range(n_envs)]
+        return VecMonitor(SubprocVecEnv(fns, start_method="spawn"))
+    raise ValueError(f"unknown environment {environment!r}")
+
+
+class LumenBatchedVecEnv:
+    """SB3 VecEnv over BatchedTreeNavEnv with per-world auto-reset (built lazily so this module
+    imports without stable-baselines3)."""
+
+    def __new__(cls, n_envs: int, **kw):
+        from gymnasium import spaces
+        from stable_baselines3.common.vec_env import VecEnv
+
+        from lumen.assets.schema import Asset
+        from lumen.envs.tree_nav_batched import BatchedTreeNavEnv
+
+        path = os.environ.get("LUMEN_PHANTOM3_ASSET")
+        if not path or not Path(path).is_file():
+            raise FileNotFoundError("set LUMEN_PHANTOM3_ASSET to the asset.json written by phantom_import.py")
+
+        class _Vec(VecEnv):
+            def __init__(self):
+                self.env = BatchedTreeNavEnv(Asset.load(path), n_envs=n_envs, **kw)
+                super().__init__(n_envs, spaces.Box(-np.inf, np.inf, (5,), np.float32),
+                                 spaces.Box(-1.0, 1.0, (2,), np.float32))
+                self._actions = None
+
+            def reset(self):
+                obs, _ = self.env.reset()
+                return obs
+
+            def step_async(self, actions):
+                self._actions = actions
+
+            def step_wait(self):
+                obs, rew, term, trunc, infos = self.env.step(self._actions)
+                dones = term | trunc
+                for e in np.flatnonzero(dones):
+                    infos[e]["terminal_observation"] = obs[e].copy()
+                    infos[e]["TimeLimit.truncated"] = bool(trunc[e] and not term[e])
+                    obs[e] = self.env.reset_env(int(e))
+                return obs, rew, dones, infos
+
+            def close(self):
+                self.env = None
+
+            def get_attr(self, attr_name, indices=None):
+                return [getattr(self.env, attr_name)] * len(self._get_indices(indices))
+
+            def set_attr(self, attr_name, value, indices=None):
+                setattr(self.env, attr_name, value)
+
+            def env_method(self, method_name, *args, indices=None, **kwargs):
+                return [getattr(self.env, method_name)(*args, **kwargs)] * len(self._get_indices(indices))
+
+            def env_is_wrapped(self, wrapper_class, indices=None):
+                return [False] * len(self._get_indices(indices))
+
+            def seed(self, seed=None):
+                return [None] * self.num_envs     # the scene has no random state
+
+        return _Vec()
+
+
 def task_class(environment: str, task: str) -> str:
     return (LUMEN_TASKS if environment == "lumen" else COMPARATOR_TASKS)[task][1]
 
@@ -370,7 +447,9 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
     stage = "environment"
     failed = False
     try:
-        env = make_env(args.environment, args.task, args.max_steps, seed)
+        n_envs = int(getattr(args, "n_envs", 1) or 1)
+        env = (make_vec_env(args.environment, args.task, args.max_steps, seed, n_envs) if n_envs > 1
+               else make_env(args.environment, args.task, args.max_steps, seed))
         stage = "model_init"
         model_kwargs = {
             "seed": seed,
@@ -381,7 +460,7 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
         if args.algo == "sac":
             model_kwargs["learning_starts"] = min(100, max(1, args.timesteps // 10))
         else:
-            model_kwargs["n_steps"] = args.ppo_n_steps
+            model_kwargs["n_steps"] = args.ppo_n_steps // n_envs   # total rollout n_steps x n_envs unchanged
         model = ALGOS[args.algo](policy_name(args.environment), env, **model_kwargs)
         stage = "train"
         train_started = time.perf_counter()
@@ -405,7 +484,9 @@ def _train_one(args: argparse.Namespace, seed: int, model_path: Path):
                 model = ALGOS[args.algo].load(done[-1], env=env, seed=seed)
                 remaining = max(0, args.timesteps - int(model.num_timesteps))
                 args._resumed_from = int(model.num_timesteps)
-            callbacks = CheckpointCallback(save_freq=every, save_path=str(ckpt_dir), name_prefix="ckpt")
+            # save_freq counts vector steps; each is n_envs env steps
+            callbacks = CheckpointCallback(save_freq=max(1, every // n_envs), save_path=str(ckpt_dir),
+                                           name_prefix="ckpt")
         if callbacks is None:
             model.learn(total_timesteps=remaining, progress_bar=False)
         else:
@@ -468,7 +549,8 @@ def _checkpoint_identity(args: argparse.Namespace, seed: int) -> dict:
     """What a resumable snapshot must match: the run it continues."""
     return {"environment": args.environment, "task": args.task, "algo": args.algo, "seed": int(seed),
             "timesteps": int(args.timesteps), "ppo_n_steps": int(args.ppo_n_steps),
-            "batch_size": int(args.batch_size), "max_steps": int(args.max_steps)}
+            "batch_size": int(args.batch_size), "max_steps": int(args.max_steps),
+            "n_envs": int(getattr(args, "n_envs", 1) or 1)}
 
 
 def _check_checkpoint_identity(ckpt_dir: Path, ident: dict) -> None:
@@ -479,6 +561,7 @@ def _check_checkpoint_identity(ckpt_dir: Path, ident: dict) -> None:
     f = ckpt_dir / "run_identity.json"
     if f.exists():
         prev = json.loads(f.read_text())
+        prev.setdefault("n_envs", 1)              # records from before batched training were single-env
         diff = {k: (prev.get(k), v) for k, v in ident.items() if prev.get(k) != v}
         if diff:
             raise ValueError(f"checkpoint dir {ckpt_dir} belongs to a different run configuration: {diff}")
@@ -564,7 +647,10 @@ def main() -> None:
     parser.add_argument("--timesteps", type=int, default=50000)
     parser.add_argument("--eval-episodes", type=int, default=PREREGISTERED_EVAL_EPISODES)
     parser.add_argument("--max-steps", type=int, default=300)
-    parser.add_argument("--ppo-n-steps", type=int, default=2048)
+    parser.add_argument("--ppo-n-steps", type=int, default=2048,
+                        help="total PPO rollout per update; divided across --n-envs")
+    parser.add_argument("--n-envs", type=int, default=1,
+                        help="parallel envs: Lumen worlds in one Newton model, comparator worker processes")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0,
                         help="Fallback seed when --seeds is omitted.")
@@ -588,6 +674,10 @@ def main() -> None:
         parser.error("--eval-episodes must be positive")
     if args.timesteps <= 0:
         parser.error("--timesteps must be positive")
+    if args.n_envs < 1 or args.ppo_n_steps % args.n_envs or (args.ppo_n_steps // args.n_envs * args.n_envs) % args.batch_size:
+        parser.error("--n-envs must divide --ppo-n-steps, and the rollout must be a multiple of --batch-size")
+    if args.checkpoint_every and args.checkpoint_every % args.n_envs:
+        parser.error("--checkpoint-every must be a multiple of --n-envs")
     if ALGOS[args.algo] is None:
         parser.error("stable-baselines3 is required for training")
 

@@ -168,7 +168,10 @@ class TreeNavEnv:
         """One nearest-edge projection pass over all device nodes → the tip's route
         progress (s, θ) + LOCAL blended radius/edge, plus the deepest penetration and
         max radius across nodes (local-R-aware, so a narrower branch isn't underreported)."""
-        pos = self.sim.body_positions()
+        return self._features_from(self.sim.body_positions())
+
+    def _features_from(self, pos):
+        """`_features` for one device's node positions (shared with the batched env)."""
         projs = [self.tree.project(p) for p in pos]
         rs = self.route_frame.project(pos[-1])           # progress + θ along the route polyline
         tip = projs[-1]
