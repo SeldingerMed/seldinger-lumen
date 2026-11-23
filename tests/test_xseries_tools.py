@@ -127,6 +127,7 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
     monkeypatch.setattr(BoomEnv, "close", lambda self: bad_close())
     rows2, _ = eval_comparator_contact.evaluate(object(), "phantom3_bca", 2, 10)   # teardown error tolerated
     assert len(rows2) == 2 and "reset boom" in rows2[1]["error"]
+    monkeypatch.setattr(BoomEnv, "close", lambda self: closed.append(True))
     assert [r["status"] for r in rows] == ["failed", "failed"] and "reset boom" in rows[0]["error"]
     summ = eval_comparator_contact.summarize(rows)
     assert summ["failed_episodes"] == 2 and summ["success_rate"] == 0.0
@@ -152,6 +153,14 @@ def test_eval_comparator_contact_continues_after_seed_failure_and_closes_env(tmp
     assert payload["per_seed"]["1"]["status"] == "missing_model"
     assert "not N" in payload[f"{CMP}_native_metrics"]
     assert "< 20" in payload[f"{CMP}_native_metrics"]
+
+    # A seed whose every episode raised is a failed seed, not a 0% result
+    monkeypatch.setattr(FakePPO, "load", staticmethod(lambda path, device="cpu": object()))
+    eval_comparator_contact.main([
+        "--models", str(tmp_path), "--seeds", "0", "--episodes", "2", "--max-steps", "20", "--out", str(out_file)
+    ])
+    p0 = json.loads(out_file.read_text())["per_seed"]["0"]
+    assert p0["status"] == "failed" and "all 2 episodes failed" in p0["error"]
 
 
 def test_eval_comparator_contact_time_to_target_is_first_reach(monkeypatch: pytest.MonkeyPatch):
@@ -292,6 +301,17 @@ def test_xseries_compare_handles_failed_runs_none_safety_projected_and_validatio
     assert rv[CMP]["per_seed"][0]["contact_error"] == "mj boom"
     vmd = (tmp_path / "v.md").read_text()
     assert "(contact failed)" in vmd and "no result for seed(s) 0" in vmd
+    # A pass in which every episode raised keeps the training-eval success and is reported
+    allfail = dict(summ, success_rate=0.0, failed_episodes=1, episodes=1)
+    cf.write_text(json.dumps({"task": "phantom3_bca", "episodes": 1, "eval_seed_start": 10000,
+                              "per_seed": {"0": {"status": "ok", "model": str(model_dir / "phantom3_bca-s0.zip"),
+                                                 "model_sha256": hashlib.sha256(b"frozen").hexdigest(),
+                                                 "summary": allfail}}}))
+    xseries_compare.main(["--bench", str(bench), "--contact", str(cf), "--out", str(tmp_path / "v")])
+    rv = json.loads((tmp_path / "v.json").read_text())
+    assert rv[CMP]["per_seed"][0]["success_rate"] == pytest.approx(0.8)
+    assert rv[CMP]["contact_missing_seeds"] == [0]
+    assert "all_episodes_failed" in (tmp_path / "v.md").read_text()
 
     # Default --seeds is 0,1,5; works without --contact and keeps known raw success
     out_prefix = tmp_path / "cmp"

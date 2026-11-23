@@ -295,6 +295,9 @@ def main(argv=None):
             model = PPO.load(str(p), device="cpu")
             rows, dt = evaluate(model, a.task, a.episodes, a.max_steps)
             res["control_dt_s"] = dt
+            failed = [r for r in rows if r.get("status") == "failed"]
+            if len(failed) == len(rows):      # nothing ran: a failed seed, never a 0% result
+                raise RuntimeError(f"all {len(rows)} episodes failed; first: {failed[0]['error']}")
             res["per_seed"][str(s)] = {"status": "ok", "model": str(p), "model_sha256": _sha256(p),
                                        "summary": summarize(rows), "episodes": rows}
             print(s, json.dumps(res["per_seed"][str(s)]["summary"]), flush=True)

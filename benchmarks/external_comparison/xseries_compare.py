@@ -231,6 +231,12 @@ def comparator_seed(train_path, contact):
             # but marked in the JSON and the table, never passed off as byte-verified.
             row["contact_model_check"] = ("sha256" if (c.get("model_sha256") and here) else
                                           "filename only (contact file records no model sha256)")
+    if c and c.get("status") == "ok" and c["summary"].get("failed_episodes") == c["summary"].get("episodes"):
+        # a pass in which no episode ran carries no measurement: keep the training-eval success
+        row["contact_status"] = "all_episodes_failed"
+        c = None
+    if c and c.get("status") == "ok":
+        row["contact_failed_episodes"] = int(c["summary"].get("failed_episodes") or 0)
     if c and c.get("status") == "ok":
         m = c["summary"]
         dt = contact.get("control_dt_s")
@@ -366,6 +372,11 @@ def main(argv=None):
     unv = [r["seed"] for r in C if r.get("contact_model_check", "sha256") != "sha256"]
     res[CMP]["contact_model_unverified_seeds"] = unv
     nocontact = [r["seed"] for r in C if r["status"] == "ok" and r.get("contact_status", "ok") != "ok"]
+    partial = {r["seed"]: r["contact_failed_episodes"] for r in C if r.get("contact_failed_episodes")}
+    res[CMP]["contact_failed_episodes"] = partial
+    if partial:
+        md += ["", "Note: contact-pass episodes that raised count as failures (no force values): " +
+               ", ".join(f"seed {s}: {n}" for s, n in partial.items()) + "."]
     res[CMP]["contact_missing_seeds"] = nocontact
     if nocontact:
         md += ["", f"Note: the contact pass has no result for seed(s) {', '.join(map(str, nocontact))} "
