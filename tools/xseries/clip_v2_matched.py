@@ -6,8 +6,10 @@ same evaluation case (one frozen evaluation seed: the same 1 mm start-offset law
 Each tile is one training seed's final PPO policy playing that case deterministically; the
 episodes come from record_matched.py --task phantom3_<target>, nothing is re-simulated here.
 
-Unlike clip 8, every tile uses one shared camera: the projection basis and bounds are taken
-from the comparator's arch mesh, so both columns show the arch at the same place and scale.
+Unlike clip 8, every tile uses one shared camera and one drawing of the arch: the projection basis,
+bounds and the vessel shown behind every tile come from the comparator's phantom mesh (the anatomy
+both simulators run; Lumen's copy is the runtime import of that mesh), so the two rows differ only
+in the wire each simulator moved.
 Each simulator's safety readout stays on its own scale (Lumen: wall overlap, mm; the
 comparator: tip-wall contact force, N); the two are never placed on one axis.
 
@@ -31,7 +33,7 @@ from tools.xseries.clip_matched import FPS, Tile, load, view_basis
 from tools.xseries.xs_common import (corner_tag, encode, env_versions, git_dirty, git_sha, label, out_root, probe,
                                      sha256, write_manifest)
 
-TARGET_NAME = {"bca": "brachiocephalic artery (BCA)", "lcca": "left common carotid (LCCA)"}
+TARGET_NAME = {"bca": "brachiocephalic artery, BCA", "lcca": "left common carotid, LCCA"}
 
 
 def shared_camera(L, C):
@@ -77,6 +79,8 @@ def main(argv=None):
     out = Path(a.out) if a.out else out_root() / f"v2-side-by-side-{a.target}"
     out.mkdir(parents=True, exist_ok=True)
     basis, bounds = shared_camera(L, C)
+    arch = C[0]["vessel"]                      # one drawing of the shared arch behind every tile
+    L = [{**d, "vessel": arch} for d in L]
     T = max(x["steps"] * float(x["dt"]) for x in L + C)
     n_play = int(np.ceil(T * a.slow * FPS)) + 1
     n_frames = n_play + int(a.hold * FPS)
