@@ -55,10 +55,11 @@ def view_basis(V, env, tgt):
 
 
 class Tile:
-    def __init__(self, d, w, h):
+    def __init__(self, d, w, h, basis=None, bounds=None):
+        """`basis` (e1, e2) and `bounds` (lo, hi in that basis) let several tiles share one camera."""
         self.env = str(d["environment"])
         self.V = np.asarray(d["vessel"], float)
-        self.e1, self.e2 = view_basis(self.V, self.env, d["target"])
+        self.e1, self.e2 = basis if basis is not None else view_basis(self.V, self.env, d["target"])
         self.wire = list(d["wire"])
         self.safety = np.asarray(d["safety"], float)
         self.dt = float(d["dt"])
@@ -68,7 +69,7 @@ class Tile:
         self.tgt = np.asarray(d["target"], float)
         self.w, self.h = w, h
         P = self.p2(self.V)
-        lo, hi = P.min(0), P.max(0)
+        lo, hi = (P.min(0), P.max(0)) if bounds is None else (np.asarray(bounds[0], float), np.asarray(bounds[1], float))
         pad = 14
         self.s = min((w - 2 * pad) / (hi - lo)[0], (h - 2 * pad - 40) / (hi - lo)[1])
         self.off = np.array([(w - (hi - lo)[0] * self.s) / 2, 40 + (h - 40 - (hi - lo)[1] * self.s) / 2])

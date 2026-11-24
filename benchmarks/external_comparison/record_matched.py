@@ -121,6 +121,8 @@ def main(argv=None):
     ap.add_argument("--eval-seed", type=int, default=EVAL_SEED_START)
     ap.add_argument("--max-steps", type=int, default=300)
     ap.add_argument("--model-glob", default="{env}-{task}-ppo-main-s{seed}.zip")
+    ap.add_argument("--task", default=None,
+                    help="task for this simulator (default: the v1 task); v2 uses phantom3_bca / phantom3_lcca")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     try:                                  # same validation as the other X-series tools
@@ -131,7 +133,7 @@ def main(argv=None):
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     env_name = a.environment
-    task = TASK[env_name]
+    task = a.task or TASK[env_name]
     failures = {}
     for s in seeds:
         mp = Path(a.models) / a.model_glob.format(env=env_name, task=task, seed=s)
@@ -188,7 +190,8 @@ def _record_one(a, PPO, env_name, task, s, mp, out):
         w[:] = wires
         np.savez_compressed(out / f"{env_name}-s{s}.npz", vessel=vessel.astype(np.float32), target=tgt, wire=w,
                             safety=np.asarray(safety), success=success, steps=len(wires) - 1, dt=dt,
-                            eval_seed=a.eval_seed, training_seed=s, environment=env_name, model=str(mp))
+                            eval_seed=a.eval_seed, training_seed=s, environment=env_name, model=str(mp),
+                            task=task)
         print(env_name, s, "success", success, "steps", len(wires) - 1, "peak", max(safety), flush=True)
     finally:
         try:            # a teardown error neither masks the real one nor fails a saved recording
