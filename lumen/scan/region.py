@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from lumen.scan.io import is_ct
+
 HEAD, BODY = "head", "body"
 
 # axial slice measures, in cm2 / mm; chosen from open head, neck and aortic CTAs (see the tests)
@@ -68,7 +70,7 @@ def _slice_measures(volume) -> dict | None:
     if view is None:
         return None
     d, inpl, dz = view
-    ct = volume.modality == "CT" or (not volume.modality and float(d.min()) <= -500.0)
+    ct = is_ct(volume)
     if ct:
         level = -300.0
     else:                              # MR: no absolute scale; body is the bright part

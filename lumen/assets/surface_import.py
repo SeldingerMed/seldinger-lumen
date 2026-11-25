@@ -585,6 +585,8 @@ def _split_at(asset_edges: list, nodes: dict, site_name: str, site: np.ndarray):
     assert best is not None, "no edges to split"
     dist, ei, k = best
     a, b, poly = asset_edges[ei]
+    if len(poly) == 2:                           # too short to split at a vertex: add its midpoint
+        poly = np.vstack([poly[0], 0.5 * (poly[0] + poly[1]), poly[1]])
     k = int(np.clip(k, 1, len(poly) - 2))
     nodes[site_name] = poly[k].copy()
     asset_edges[ei] = (a, site_name, poly[: k + 1])
@@ -798,7 +800,7 @@ def conversion_error(asset: Asset, mesh_path: str | Path | None = None, *, scale
         e_lum.append(np.full(len(d), ei))
     d_lum, e_lum = np.concatenate(d_lum), np.concatenate(e_lum)
     out = {"source_to_lumen_mm": _stats(d_src), "lumen_to_source_mm": _stats(d_lum),
-           "source_to_lumen_signed_mean_mm": float(d_src.mean()),
+           "source_to_lumen_signed_mean_mm": float(d_src.mean()) if len(d_src) else None,
            "source_samples_at_open_end_caps_frac": float(cp["culled"].mean()),
            "source_to_lumen_tree_project_rule_mm": _stats(d_rule),
            "source_to_lumen_outside_junction_zones_mm": _stats(d_src[~in_j]),

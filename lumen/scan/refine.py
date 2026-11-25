@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from lumen.scan.io import is_ct
+
 BAND_MM = 2.0            # how far the refined wall may move from the model's outline
 MIN_CONTRAST = 60.0      # CT: lumen must be this many HU brighter than its surroundings
 BRIDGE_MM = 15.0         # longest missed stretch that is filled in along the scan's contrast
@@ -48,7 +50,7 @@ def refine_labels(scan, labels, band_mm: float = BAND_MM) -> tuple[np.ndarray, d
     out = np.zeros(lab.shape, lab.dtype)
     report: dict = {}
     levels: dict = {}                    # label value -> (lumen/tissue half-way level, upper cap)
-    ct = scan.modality == "CT" or (not scan.modality and float(img.min()) <= -500.0)
+    ct = is_ct(scan)
     ball_band, ball_core = _ball(band_mm, sp), _ball(min(1.5, band_mm), sp)
     for value in [int(v) for v in np.unique(lab) if v > 0]:
         name = labels.names.get(value, str(value))

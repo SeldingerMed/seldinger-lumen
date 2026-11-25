@@ -44,6 +44,14 @@ class ScanVolume:
         return self.spacing_mm * np.asarray(self.data.shape)
 
 
+def is_ct(scan: ScanVolume) -> bool:
+    """CT by its header, or for a file with no modality (NIfTI, NRRD) by its values: air in
+    Hounsfield units sits near -1000, and an MR image has no values that low."""
+    if scan.modality:
+        return scan.modality == "CT"
+    return float(np.nanmin(scan.data)) <= -500.0
+
+
 def read_scan(path: str | Path, series: str | None = None) -> ScanVolume:
     """Read a scan from a DICOM folder or file, a NIfTI file or an NRRD file.
 

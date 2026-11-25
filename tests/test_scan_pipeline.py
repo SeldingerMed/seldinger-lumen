@@ -851,3 +851,23 @@ def test_a_failed_import_leaves_no_copy_of_the_scan(tmp_path, lumen_home, monkey
     with pytest.raises(segmenters.SegmenterError, match="could not find the arteries"):
         pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", say=lambda *_: None)
     assert not (tmp_path / "out" / "work").exists()
+
+
+def test_an_mr_saved_as_nifti_gets_the_mr_body_task(tmp_path, lumen_home, monkeypatch):
+    from lumen.scan.io import is_ct
+
+    mr = ScanVolume(np.full((8, 8, 8), 300.0, np.float32), np.eye(4), modality="")
+    ct = ScanVolume(np.full((8, 8, 8), -1000.0, np.float32), np.eye(4), modality="")
+    assert not is_ct(mr) and is_ct(ct)
+    ran = []
+    monkeypatch.setattr(segmenters, "_device", lambda seg: "cpu")
+    monkeypatch.setattr(segmenters, "_class_map", lambda seg, task: {1: "aorta"})
+
+    def fake_run(cmd, log, env=None, what="", timeout=0):
+        ran.append([str(c) for c in cmd])
+        raise segmenters.SegmenterError("stop here")
+
+    monkeypatch.setattr(segmenters, "_run", fake_run)
+    with pytest.raises(segmenters.SegmenterError):
+        segmenters.run_body(mr, tmp_path / "w", say=lambda *_: None)
+    assert ran[0][ran[0].index("--task") + 1] == "total_mr"

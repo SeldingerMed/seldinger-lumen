@@ -128,3 +128,11 @@ def test_y_bifurcation_branches_and_sites():
     nodes = dict(sk.nodes)
     d = pi._split_at(edges, nodes, "target", np.array([-12.0, 46.0, 0.0]))
     assert d < 1.5 and "target" in nodes and len(edges) == 4
+
+
+def test_a_site_on_a_two_point_edge_splits_into_two_real_halves():
+    edges = [("a", "b", np.array([[0.0, 0, 0], [0.4, 0, 0]]))]
+    nodes = {"a": np.zeros(3), "b": np.array([0.4, 0, 0])}
+    pi._split_at(edges, nodes, "site", np.array([0.1, 0, 0]))
+    assert [len(p) for _, _, p in edges] == [2, 2]
+    assert np.allclose(nodes["site"], [0.2, 0, 0])

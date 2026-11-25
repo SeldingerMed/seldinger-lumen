@@ -540,7 +540,9 @@ def run_body(scan, work: Path, say=print):
     env = _torch_env({"TOTALSEG_HOME_DIR": str(weights_dir(seg))})
     exe = _python(seg).parent / ("TotalSegmentator.exe" if os.name == "nt" else "TotalSegmentator")
     device = _device(seg)
-    mr = scan.modality == "MR"
+    from lumen.scan.io import is_ct
+
+    mr = not is_ct(scan)                         # NIfTI and NRRD carry no modality: judged by values
     task = "total_mr" if mr else "total"
     cmap = _class_map(seg, task)
     wanted = [n for n in BODY_ARTERIES if n in cmap.values()]
