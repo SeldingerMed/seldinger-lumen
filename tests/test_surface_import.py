@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -136,3 +137,18 @@ def test_a_site_on_a_two_point_edge_splits_into_two_real_halves():
     pi._split_at(edges, nodes, "site", np.array([0.1, 0, 0]))
     assert [len(p) for _, _, p in edges] == [2, 2]
     assert np.allclose(nodes["site"], [0.2, 0, 0])
+
+
+def test_cli_writes_its_report_without_matplotlib(tmp_path: Path, monkeypatch):
+    T = _tube([0, 0, 0], [0, 40, 0], 3.0, n_theta=64)
+    f = tmp_path / "tube.stl"
+    pi.write_stl(f, T)
+
+    def no_matplotlib(*a, **k):
+        raise ImportError("No module named 'matplotlib'")
+
+    monkeypatch.setattr(pi, "_plots", no_matplotlib)
+    pi.main(["--mesh", str(f), "--out", str(tmp_path / "out"), "--scale-to-mm", "1", "--mode", "solid",
+             "--voxel-mm", "0.4", "--root", "0,1,0"])
+    rep = json.loads((tmp_path / "out" / "import_report.json").read_text())
+    assert rep["figures"] == [] and "conversion_error" in rep

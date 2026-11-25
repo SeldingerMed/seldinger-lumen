@@ -312,8 +312,3 @@ def _enhanced_frames(path: Path):
         frames.append(px[i].astype(np.float32) * slope + inter)
         positions.append([float(x) for x in pos.ImagePositionPatient])
     return positions, frames, ref
-
-
-def _enhanced_volume(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    positions, frames, ref = _enhanced_frames(path)
-    return _stack(positions, ref[0], ref[1], ref[2], ref[3], frames, path)

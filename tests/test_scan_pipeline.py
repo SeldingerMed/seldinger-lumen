@@ -909,3 +909,14 @@ def test_a_narrow_neck_below_the_skull_is_not_taken_into_the_head(monkeypatch):
     assert r.regions == ("head", "body")
     # the head starts at the skull (less the 20 mm skull-base margin), not down the neck
     assert r.detail["head_from_mm"] == pytest.approx((n_trunk + n_neck) * 2.5 - 20.0)
+
+
+def test_a_body_model_without_the_wanted_arteries_stops_before_running(tmp_path, lumen_home, monkeypatch):
+    ran = []
+    monkeypatch.setattr(segmenters, "_device", lambda seg: "cpu")
+    monkeypatch.setattr(segmenters, "_class_map", lambda seg, task: {1: "liver", 2: "spleen"})
+    monkeypatch.setattr(segmenters, "_run", lambda *a, **k: ran.append(a))
+    ct = ScanVolume(np.full((8, 8, 8), -1000.0, np.float32), np.eye(4), modality="CT")
+    with pytest.raises(segmenters.SegmenterError, match="none of the arteries"):
+        segmenters.run_body(ct, tmp_path / "w", say=lambda *_: None)
+    assert ran == []

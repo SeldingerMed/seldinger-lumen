@@ -928,7 +928,11 @@ def main(argv=None):
     tris = read_stl(a.mesh) * a.scale_to_mm
     side = lumen_side_cached(tris, a.mode, a.cache)
     rep["conversion_error"] = conversion_error(asset, a.mesh, task_edges=task_edges or None, tris=tris, side=side)
-    rep["figures"] = _plots(asset, tris, side, sites, out)
+    try:
+        rep["figures"] = _plots(asset, tris, side, sites, out)
+    except ImportError:                          # figures are optional; the report is not
+        rep["figures"] = []
+        print("figures skipped: matplotlib is not installed")
     (out / "import_report.json").write_text(json.dumps(rep, indent=2))
     print(json.dumps({k: rep[k] for k in ("voxelization", "skeleton", "edges", "routes", "site_projection",
                                           "conversion_error", "seconds")}, indent=1))

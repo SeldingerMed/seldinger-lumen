@@ -552,6 +552,10 @@ def run_body(scan, work: Path, say=print):
     task = "total_mr" if mr else "total"
     cmap = _class_map(seg, task)
     wanted = [n for n in BODY_ARTERIES if n in cmap.values()]
+    if not wanted:
+        # an empty --roi_subset would run the full model and then keep nothing: stop clearly
+        raise SegmenterError(f"{seg.title} task '{task}' lists none of the arteries Lumen uses; "
+                             f"the installed version may not match the pinned fork")
     say(f"Finding arteries with {seg.title} on {device} ...")
     out = work / "body.nii.gz"
     _run([exe, "-i", src, "-o", out, "--ml", "--task", task, "--device", device,
