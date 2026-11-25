@@ -701,3 +701,117 @@ def test_merge_lists_only_vessels_that_kept_voxels():
                          LabelVolume(b, np.eye(4), {1: "aorta copy", 2: "left iliac artery"})])
     assert sorted(m.names.values()) == ["aorta", "left iliac artery"]
     assert set(np.unique(m.data)) - {0} == set(m.names)
+
+
+def test_a_slice_missing_its_geometry_is_a_clean_error(tmp_path):
+    import pydicom
+
+    _write_series(tmp_path / "ct", _ramp((6, 6, 5)), (0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1), 1.0, shuffle=False)
+    f = sorted((tmp_path / "ct").iterdir())[3]
+    ds = pydicom.dcmread(f)
+    del ds.ImagePositionPatient
+    ds.save_as(f)
+    with pytest.raises(ScanError, match="ImagePositionPatient"):
+        read_scan(tmp_path / "ct")
+
+
+def test_enhanced_multiframe_with_all_geometry_per_frame(tmp_path):
+    from pydicom.dataset import Dataset, FileDataset, FileMetaDataset
+    from pydicom.sequence import Sequence
+    from pydicom.uid import ExplicitVRLittleEndian
+
+    vol = _ramp((6, 5, 4))
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.2.1"           # enhanced CT
+    meta.MediaStorageSOPInstanceUID = "1.2.3.4"
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    f = tmp_path / "mf.dcm"
+    ds = FileDataset(str(f), {}, file_meta=meta, preamble=b"\0" * 128)
+    ds.SOPClassUID, ds.SOPInstanceUID = meta.MediaStorageSOPClassUID, meta.MediaStorageSOPInstanceUID
+    ds.Modality, ds.SeriesInstanceUID, ds.StudyInstanceUID = "CT", "1.5", "1.2"
+    ds.Rows, ds.Columns, ds.NumberOfFrames = vol.shape[1], vol.shape[0], vol.shape[2]
+    ds.SamplesPerPixel, ds.PhotometricInterpretation = 1, "MONOCHROME2"
+    ds.BitsAllocated, ds.BitsStored, ds.HighBit, ds.PixelRepresentation = 16, 16, 15, 1
+    ds.SharedFunctionalGroupsSequence = Sequence([])                       # empty, as some scanners write
+    frames = []
+    for k in range(vol.shape[2]):
+        fr = Dataset()
+        pos, ori, meas, tr = Dataset(), Dataset(), Dataset(), Dataset()
+        pos.ImagePositionPatient = [0.0, 0.0, 2.0 * k]
+        ori.ImageOrientationPatient = [1.0, 0, 0, 0, 1.0, 0]
+        meas.PixelSpacing = [1.0, 1.0]
+        tr.RescaleSlope, tr.RescaleIntercept = 1, -1024
+        fr.PlanePositionSequence, fr.PlaneOrientationSequence = Sequence([pos]), Sequence([ori])
+        fr.PixelMeasuresSequence, fr.PixelValueTransformationSequence = Sequence([meas]), Sequence([tr])
+        frames.append(fr)
+    ds.PerFrameFunctionalGroupsSequence = Sequence(frames)
+    ds.PixelData = np.stack([(vol[:, :, k].T + 1024) for k in range(vol.shape[2])]).astype("<i2").tobytes()
+    ds.save_as(str(f), enforce_file_format=True)
+    scan = read_scan(f)
+    assert scan.data.shape == vol.shape and np.array_equal(scan.data, vol.astype(np.float32))
+    assert np.allclose(scan.spacing_mm, [1.0, 1.0, 2.0])
+
+
+def test_a_failed_install_is_asked_about_again(lumen_home):
+    seg = segmenters.TOTALSEGMENTATOR
+
+    def broken(s, say):
+        raise segmenters.SegmenterError("disk full")
+
+    with pytest.raises(segmenters.SegmenterError, match="disk full"):
+        segmenters.ensure(seg, why="w", ask=lambda _: "y", say=lambda *_: None, install=broken)
+    assert seg.key not in segmenters._consents()
+    segmenters.agree(seg, why="w", ask=lambda _: "y")
+    job = segmenters.BackgroundInstall(seg, broken)
+    with pytest.raises(segmenters.SegmenterError, match="disk full"):
+        job.wait()
+    asked = []
+    with pytest.raises(segmenters.Declined):                            # asked again, and can say no
+        segmenters.agree(seg, why="w", ask=lambda text: asked.append(text) or "n")
+    assert len(asked) == 1
+
+
+def test_the_question_goes_to_stderr_so_json_output_stays_clean(monkeypatch, capsys):
+    import io
+    import sys
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("y\n"))
+    assert segmenters._ask_on_stderr("Install it now? ").strip() == "y"
+    out = capsys.readouterr()
+    assert out.out == "" and "Install it now?" in out.err
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    with pytest.raises(EOFError):
+        segmenters._ask_on_stderr("Install it now? ")
+
+
+def test_linux_drives_that_cannot_hold_an_environment_are_recognised(tmp_path, monkeypatch):
+    import pathlib
+    import sys
+
+    mounts = tmp_path / "mounts"
+    mounts.write_text("/dev/sda1 / ext4 rw 0 0\n/dev/sdb1 /media/usb\\040drive exfat rw 0 0\n")
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(segmenters, "_PROC_MOUNTS", mounts)
+    monkeypatch.setattr("os.path.realpath", lambda p: str(p))
+    monkeypatch.setattr(pathlib.Path, "exists", lambda self: True)       # the mount points exist there
+    assert segmenters._filesystem(pathlib.Path("/media/usb drive/lumen")) == "exfat"
+    assert segmenters._filesystem(pathlib.Path("/home/me/.lumen")) == "ext4"
+    assert "exfat" in segmenters._NO_ENV_FILESYSTEMS and "vfat" in segmenters._NO_ENV_FILESYSTEMS
+
+
+def test_a_failed_import_leaves_no_copy_of_the_scan(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+    monkeypatch.setattr(region, "detect_region", lambda s: region.RegionReport(("body",), True, "picture"))
+    monkeypatch.setattr(segmenters, "installed", lambda seg: True)
+
+    def run_body(s, work, say=print):
+        work.mkdir(parents=True)
+        (work / "scan.nii.gz").write_bytes(b"copy of the scan")
+        raise segmenters.SegmenterError("found nothing")
+
+    monkeypatch.setattr(segmenters, "run_body", run_body)
+    with pytest.raises(segmenters.SegmenterError, match="could not find the arteries"):
+        pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", say=lambda *_: None)
+    assert not (tmp_path / "out" / "work").exists()

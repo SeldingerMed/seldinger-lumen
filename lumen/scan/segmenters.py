@@ -156,15 +156,31 @@ def prompt_text(seg: Segmenter, why: str) -> str:
             f"Install it now? [y/N] ")
 
 
-_NO_ENV_FILESYSTEMS = ("exfat", "msdos", "ntfs")   # a Python environment does not install on these
+_NO_ENV_FILESYSTEMS = ("exfat", "msdos", "vfat", "ntfs", "ntfs3")   # a Python environment does not install on these
+
+
+_PROC_MOUNTS = Path("/proc/mounts")
 
 
 def _filesystem(path: Path) -> str:
-    """The filesystem type holding ``path`` ('' when it cannot be told; only macOS is asked)."""
-    if sys.platform != "darwin":
-        return ""
+    """The filesystem type holding ``path`` (macOS and Linux; '' when it cannot be told)."""
     while not path.exists() and path != path.parent:
         path = path.parent
+    if sys.platform.startswith("linux"):
+        try:
+            real, best, kind = os.path.realpath(path), "", ""
+            for line in _PROC_MOUNTS.read_text().splitlines():
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                point = parts[1].replace("\\040", " ")
+                if (real == point or real.startswith(point.rstrip("/") + "/")) and len(point) > len(best):
+                    best, kind = point, parts[2].lower()
+            return kind
+        except OSError:
+            return ""
+    if sys.platform != "darwin":
+        return ""
 
     def _out(cmd):
         return subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
@@ -205,7 +221,7 @@ def agree(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None) -> No
                 raise SegmenterError(
                     f"this scan needs {seg.title}, which is not installed. Run the command in a "
                     f"terminal to be asked, or pass --yes to install it without being asked.")
-            ask = input
+            ask = _ask_on_stderr
         try:
             answer = str(ask(prompt_text(seg, why))).strip().lower()
         except EOFError:                                    # input closed: the same as no
@@ -219,6 +235,23 @@ def agree(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None) -> No
     _consent_file().write_text(json.dumps(rec, indent=1))
 
 
+def _ask_on_stderr(text: str) -> str:
+    """Ask on the terminal through stderr, so stdout (``--json``) carries only the result."""
+    sys.stderr.write(text)
+    sys.stderr.flush()
+    line = sys.stdin.readline()
+    if not line:
+        raise EOFError
+    return line
+
+
+def forget(seg: Segmenter) -> None:
+    """Drop a recorded yes, so the next import asks again (used when the install failed)."""
+    rec = _consents()
+    if rec.pop(seg.key, None) is not None:
+        _consent_file().write_text(json.dumps(rec, indent=1))
+
+
 def ensure(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None, say=print,
            install=None) -> None:
     """Make sure ``seg`` is installed, asking first unless the user already agreed."""
@@ -226,7 +259,11 @@ def ensure(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None, say=
         return
     agree(seg, why=why, assume_yes=assume_yes, ask=ask)
     say(f"Installing {seg.title} (this happens once) ...")
-    (install or _install)(seg, say)
+    try:
+        (install or _install)(seg, say)
+    except BaseException:
+        forget(seg)                                         # a failed install is asked about again
+        raise
     say(f"{seg.title} is installed.")
 
 
@@ -245,6 +282,7 @@ class BackgroundInstall:
             install(self.seg, lambda *_: None)
         except Exception as exc:                            # reported by wait(), on the caller's thread
             self.error = exc
+            forget(self.seg)                                # a failed install is asked about again
 
     def wait(self) -> None:
         self._thread.join()

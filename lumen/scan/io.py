@@ -237,6 +237,9 @@ def _classic_volume(items) -> tuple[np.ndarray, np.ndarray]:
     ps = [float(x) for x in ref.PixelSpacing]
     positions, frames = [], []
     for f, hdr in items:
+        for name in ("ImageOrientationPatient", "ImagePositionPatient", "PixelSpacing", "Rows", "Columns"):
+            if not hasattr(hdr, name):
+                raise ScanError(f"a slice carries no {name}; the series cannot be stacked: {f}")
         if (int(hdr.Rows), int(hdr.Columns)) != (int(ref.Rows), int(ref.Columns)):
             raise ScanError(f"slices of different size in one series: {where}")
         iop = np.asarray([float(x) for x in hdr.ImageOrientationPatient])
@@ -256,11 +259,12 @@ def _enhanced_volume(path: Path) -> tuple[np.ndarray, np.ndarray]:
     ds, px = _pixels(path)
     shared = getattr(ds, "SharedFunctionalGroupsSequence", None)
     per = getattr(ds, "PerFrameFunctionalGroupsSequence", None)
-    if not shared or not per or len(per) != px.shape[0]:
+    if not per or len(per) != px.shape[0]:
         raise ScanError(f"the multi-frame file has no per-frame geometry: {path}")
+    common = shared[0] if shared else None          # every group may also live per frame
 
     def group(frame, name):
-        seq = getattr(frame, name, None) or getattr(shared[0], name, None)
+        seq = getattr(frame, name, None) or (getattr(common, name, None) if common is not None else None)
         return seq[0] if seq else None
 
     positions, frames, ref = [], [], None

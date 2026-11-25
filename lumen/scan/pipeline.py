@@ -161,56 +161,59 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
         why = f"This scan shows {shown}." if region.confident else \
             "Lumen could not tell which part of the body this scan shows, so it will try both models."
         work = out / "work"
-        volumes, used, errors = [], [], []
-        needed = sg.for_regions(region.regions)
-        missing = [seg for seg in needed if not sg.installed(seg)]
-        if not missing:
-            say(why)
-        # ask for everything this scan needs before any work starts, then install in the
-        # background: a second model installs while the first is already finding arteries
-        installs, declined = {}, []
-        for seg in missing:
-            try:
-                sg.agree(seg, why=why, assume_yes=assume_yes, ask=ask)
-            except sg.Declined:
-                declined.append(seg.key)
-                if len(declined) == len(needed):
-                    raise
-                continue
-            installs[seg.key] = sg.BackgroundInstall(seg, sg._install)
-        if installs:
-            titles = " and ".join(seg.title for seg in missing if seg.key in installs)
-            say(f"Installing {titles} in the background (this happens once) ...")
-        for seg in needed:
-            if seg.key in declined:
-                errors.append(f"{seg.title} was not installed, so {seg.finds} are not included")
-                continue
-            try:
-                if seg.key in installs:
-                    installs[seg.key].wait()
-                if seg.region == HEAD:
-                    cut = region.detail.get("head_from_mm") if BODY in region.regions else None
-                    volumes.append(sg.run_head(scan, work / seg.key, say=say, head_from_mm=cut))
-                else:
-                    volumes.append(sg.run_body(scan, work / seg.key, say=say))
-                used.append({"segmenter": seg.title, "repo": seg.repo, "commit": seg.commit,
-                             "licence": seg.licence})
-            except sg.SegmenterError as exc:
-                # with two models on one scan, one of them finding nothing is not a failure
-                errors.append(f"{seg.title}: {str(exc).splitlines()[0]}")
-        if not volumes:
-            raise sg.SegmenterError("could not find the arteries in this scan: " + "; ".join(errors))
-        volume = _merge(volumes) if len(volumes) > 1 else volumes[0]
-        report["segmentation"] = {"source": "segmenter", "used": used, "notes": errors}
-        if volume.data.shape == scan.data.shape and np.allclose(volume.affine, scan.affine, atol=1e-2):
-            from lumen.scan.refine import refine_labels
+        try:
+            volumes, used, errors = [], [], []
+            needed = sg.for_regions(region.regions)
+            missing = [seg for seg in needed if not sg.installed(seg)]
+            if not missing:
+                say(why)
+            # ask for everything this scan needs before any work starts, then install in the
+            # background: a second model installs while the first is already finding arteries
+            installs, declined = {}, []
+            for seg in missing:
+                try:
+                    sg.agree(seg, why=why, assume_yes=assume_yes, ask=ask)
+                except sg.Declined:
+                    declined.append(seg.key)
+                    if len(declined) == len(needed):
+                        raise
+                    continue
+                installs[seg.key] = sg.BackgroundInstall(seg, sg._install)
+            if installs:
+                titles = " and ".join(seg.title for seg in missing if seg.key in installs)
+                say(f"Installing {titles} in the background (this happens once) ...")
+            for seg in needed:
+                if seg.key in declined:
+                    errors.append(f"{seg.title} was not installed, so {seg.finds} are not included")
+                    continue
+                try:
+                    if seg.key in installs:
+                        installs[seg.key].wait()
+                    if seg.region == HEAD:
+                        cut = region.detail.get("head_from_mm") if BODY in region.regions else None
+                        volumes.append(sg.run_head(scan, work / seg.key, say=say, head_from_mm=cut))
+                    else:
+                        volumes.append(sg.run_body(scan, work / seg.key, say=say))
+                    used.append({"segmenter": seg.title, "repo": seg.repo, "commit": seg.commit,
+                                 "licence": seg.licence})
+                except sg.SegmenterError as exc:
+                    # with two models on one scan, one of them finding nothing is not a failure
+                    errors.append(f"{seg.title}: {str(exc).splitlines()[0]}")
+            if not volumes:
+                raise sg.SegmenterError("could not find the arteries in this scan: " + "; ".join(errors))
+            volume = _merge(volumes) if len(volumes) > 1 else volumes[0]
+            report["segmentation"] = {"source": "segmenter", "used": used, "notes": errors}
+            if volume.data.shape == scan.data.shape and np.allclose(volume.affine, scan.affine, atol=1e-2):
+                from lumen.scan.refine import refine_labels
 
-            say("Sharpening the vessel walls against the scan ...")
-            refined, sharpened = refine_labels(scan, volume)
-            volume = sc.LabelVolume(refined, volume.affine, volume.names)
-            report["segmentation"]["sharpened"] = sharpened
-        if not keep_work:
-            shutil.rmtree(work, ignore_errors=True)
+                say("Sharpening the vessel walls against the scan ...")
+                refined, sharpened = refine_labels(scan, volume)
+                volume = sc.LabelVolume(refined, volume.affine, volume.names)
+                report["segmentation"]["sharpened"] = sharpened
+        finally:
+            # the work folder holds copies of the scan: never leave it behind, failed or not
+            if not keep_work:
+                shutil.rmtree(work, ignore_errors=True)
     say("Building the vessel tree ...")
     asset, conv, tris = sc.asset_from_vessel_mask(volume, entry_mm=entry_mm)
     edge_names = name_edges(asset, volume)
