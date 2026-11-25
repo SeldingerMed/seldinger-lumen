@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from lumen.assets import scan_import as sc
 from lumen.assets.schema import Asset
 
 
@@ -128,7 +129,6 @@ def _merge(volumes: list):
 def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=None,
                 series=None, assume_yes: bool = False, ask=None, say=print, keep_work=False) -> dict:
     """Run the whole import and return the report (also written to ``report.json``)."""
-    from lumen.assets import scan_import as sc
     from lumen.assets import surface_import as si
     from lumen.scan import segmenters as sg
     from lumen.scan.io import read_scan
@@ -195,12 +195,20 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
                                       f"included; run the import again to retry "
                                       f"({str(exc).splitlines()[0]})")
                         continue
+                cached = work / seg.key / "labels.nii.gz"
                 try:
-                    if seg.region == HEAD:
+                    if cached.exists() and not (work / seg.key / "scan.nii.gz").exists():
+                        # a previous import finished this model and then failed later: reuse it
+                        labels = sc.load_label_volume(cached)
+                        say(f"Reusing the {seg.title} result from the previous attempt ...")
+                    elif seg.region == HEAD:
                         cut = region.detail.get("head_from_mm") if BODY in region.regions else None
-                        volumes.append(sg.run_head(scan, work / seg.key, say=say, head_from_mm=cut))
+                        labels = sg.run_head(scan, work / seg.key, say=say, head_from_mm=cut)
+                        sc.save_label_volume(labels, cached)
                     else:
-                        volumes.append(sg.run_body(scan, work / seg.key, say=say))
+                        labels = sg.run_body(scan, work / seg.key, say=say)
+                        sc.save_label_volume(labels, cached)
+                    volumes.append(labels)
                     used.append({"segmenter": seg.title, "repo": seg.repo, "commit": seg.commit,
                                  "licence": seg.licence})
                 except sg.SegmenterError as exc:
@@ -217,12 +225,26 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
                 refined, sharpened = refine_labels(scan, volume)
                 volume = sc.LabelVolume(refined, volume.affine, volume.names)
                 report["segmentation"]["sharpened"] = sharpened
+            else:
+                report["segmentation"]["sharpened"] = {
+                    "vessels": {}, "bridged": [],
+                    "why": "labels are on a different grid from the scan; walls not sharpened"}
         finally:
-            # the work folder holds copies of the scan: never leave it behind, failed or not
+            # copies of the scan must not survive a failure; the model outputs may, so a retry
+            # after a tree-build error does not re-run the models
             if not keep_work:
-                shutil.rmtree(work, ignore_errors=True)
+                for f in work.rglob("scan.nii.gz"):
+                    f.unlink(missing_ok=True)
+                if not any(work.rglob("*")):
+                    shutil.rmtree(work, ignore_errors=True)
     say("Building the vessel tree ...")
-    asset, conv, tris = sc.asset_from_vessel_mask(volume, entry_mm=entry_mm)
+    try:
+        asset, conv, tris = sc.asset_from_vessel_mask(volume, entry_mm=entry_mm)
+    except Exception:
+        if not keep_work:
+            for f in work.rglob("scan.nii.gz"):
+                f.unlink(missing_ok=True)
+        raise
     edge_names = name_edges(asset, volume)
     names = {"edges": edge_names, "vessels": vessel_table(asset, edge_names)}
     asset.save(str(out / "asset.json"))

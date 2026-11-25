@@ -44,6 +44,24 @@ class ScanVolume:
         return self.spacing_mm * np.asarray(self.data.shape)
 
 
+def _header_modality(header, where) -> str:
+    """'CT' or 'MR' when the file says so, else ''.
+
+    NIfTI stores it in ``descrip`` (3D Slicer writes "Modality=CT"), NRRD in ``modality``.
+    """
+    if isinstance(header, dict):
+        text = str(header.get("modality", ""))
+    else:
+        raw = header.get("descrip")
+        text = (raw.tobytes() if hasattr(raw, "tobytes") else bytes(raw)).decode("latin1", "ignore")
+    text = text.upper().replace("\x00", " ")
+    if "MODALITY=CT" in text or text.strip() == "CT":
+        return "CT"
+    if "MODALITY=MR" in text or text.strip() == "MR":
+        return "MR"
+    return ""
+
+
 def is_ct(scan: ScanVolume) -> bool:
     """CT by its header, or for a file with no modality (NIfTI, NRRD) by its values: air in
     Hounsfield units sits near -1000, and an MR image has no values that low."""
@@ -88,7 +106,7 @@ def _read_nifti(p: Path) -> ScanVolume:
         raise ScanError(f"expected one 3-D volume, got shape {data.shape}: {p}")
     aff = _RAS_TO_LPS @ np.asarray(img.affine, float)
     _check_affine(aff, p)
-    return ScanVolume(data, aff, source="nifti")
+    return ScanVolume(data, aff, modality=_header_modality(img.header, p), source="nifti")
 
 
 def _read_nrrd(p: Path) -> ScanVolume:
@@ -108,7 +126,8 @@ def _read_nrrd(p: Path) -> ScanVolume:
     elif space not in ("left-posterior-superior", "lps"):
         raise ScanError(f"unsupported NRRD space {space!r}: {p}")
     _check_affine(aff, p)
-    return ScanVolume(np.asarray(data, dtype=np.float32), aff, source="nrrd")
+    return ScanVolume(np.asarray(data, dtype=np.float32), aff,
+                      modality=_header_modality(hdr, p), source="nrrd")
 
 
 # ---------------------------------------------------------------------------------------------

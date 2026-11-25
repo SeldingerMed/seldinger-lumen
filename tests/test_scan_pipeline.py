@@ -421,7 +421,8 @@ def test_import_asks_segments_names_and_targets_by_name(tmp_path, lumen_home, mo
     assert set(rep["vessels"]) == {"aorta", "left iliac artery", "right iliac artery"}
     for f in ("asset.json", "surface.stl", "names.json", "report.json"):
         assert (tmp_path / "out" / f).exists()
-    assert not (tmp_path / "out" / "work").exists()               # the scan copy is cleaned up
+    # the scan copy goes; model outputs may stay so a retry does not re-run the models
+    assert not any((tmp_path / "out" / "work").rglob("scan.nii.gz"))
     asset, names = pipeline.load_imported(tmp_path / "out")
     node = pipeline.resolve_target(names, asset, "Left Iliac")
     assert node == names["vessels"]["left iliac artery"]["target_node"]
@@ -845,12 +846,16 @@ def test_a_failed_import_leaves_no_copy_of_the_scan(tmp_path, lumen_home, monkey
     def run_body(s, work, say=print):
         work.mkdir(parents=True)
         (work / "scan.nii.gz").write_bytes(b"copy of the scan")
-        raise segmenters.SegmenterError("found nothing")
+        return labels
 
     monkeypatch.setattr(segmenters, "run_body", run_body)
-    with pytest.raises(segmenters.SegmenterError, match="could not find the arteries"):
+    monkeypatch.setattr(pipeline.sc, "asset_from_vessel_mask",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("the vessel mask is empty")))
+    with pytest.raises(ValueError, match="vessel mask is empty"):
         pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", say=lambda *_: None)
-    assert not (tmp_path / "out" / "work").exists()
+    # the scan copy goes; the model output stays, so a retry does not re-run the models
+    assert not any((tmp_path / "out" / "work").rglob("scan.nii.gz"))
+    assert (tmp_path / "out" / "work" / "totalsegmentator" / "labels.nii.gz").exists()
 
 
 def test_an_mr_saved_as_nifti_gets_the_mr_body_task(tmp_path, lumen_home, monkeypatch):
@@ -920,3 +925,85 @@ def test_a_body_model_without_the_wanted_arteries_stops_before_running(tmp_path,
     with pytest.raises(segmenters.SegmenterError, match="none of the arteries"):
         segmenters.run_body(ct, tmp_path / "w", say=lambda *_: None)
     assert ran == []
+
+
+def test_nifti_and_nrrd_keep_a_modality_their_header_states(tmp_path):
+    from lumen.scan.io import is_ct
+
+    vol = np.full((6, 6, 6), 300.0, np.float32)            # values that look like MR
+    img = nib.Nifti1Image(vol, np.eye(4))
+    img.header["descrip"] = b"Modality=CT"
+    nib.save(img, str(tmp_path / "ct.nii.gz"))
+    assert is_ct(read_scan(tmp_path / "ct.nii.gz"))
+    img.header["descrip"] = b""
+    nib.save(img, str(tmp_path / "plain.nii.gz"))
+    assert not is_ct(read_scan(tmp_path / "plain.nii.gz"))
+    nrrd = pytest.importorskip("nrrd")
+    hdr = {"space": "left-posterior-superior", "space origin": [0.0, 0.0, 0.0],
+           "space directions": np.eye(3).tolist(), "modality": "CT"}
+    nrrd.write(str(tmp_path / "m.nrrd"), vol.astype(np.float32), hdr, index_order="F")
+    assert is_ct(read_scan(tmp_path / "m.nrrd"))
+
+
+def test_a_previous_models_output_is_reused_after_a_failed_import(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+    monkeypatch.setattr(region, "detect_region", lambda s: region.RegionReport(("body",), True, "picture"))
+    monkeypatch.setattr(segmenters, "installed", lambda seg: True)
+    calls = []
+
+    def run_body(s, work, say=print):
+        calls.append(1)
+        work.mkdir(parents=True, exist_ok=True)
+        (work / "body.nii.gz").write_bytes(b"model output")
+        return labels
+
+    monkeypatch.setattr(segmenters, "run_body", run_body)
+    monkeypatch.setattr(pipeline.sc, "asset_from_vessel_mask",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("the vessel mask is empty")))
+    with pytest.raises(ValueError):
+        pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", say=lambda *_: None)
+    assert len(calls) == 1
+    # the model output survived; the second import must not run the model again
+    monkeypatch.setattr(pipeline.sc, "asset_from_vessel_mask",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("still empty")))
+    with pytest.raises(ValueError, match="still empty"):
+        pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", say=lambda *_: None)
+    assert len(calls) == 1
+
+
+def test_sharpening_that_did_not_run_is_recorded(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    shifted = LabelVolume(labels.data, labels.affine.copy(), labels.names)
+    shifted.affine[0, 3] += 5.0                                 # a different grid: sharpening cannot run
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+    monkeypatch.setattr(region, "detect_region", lambda s: region.RegionReport(("body",), True, "picture"))
+    monkeypatch.setattr(segmenters, "installed", lambda seg: True)
+    monkeypatch.setattr(segmenters, "run_body", lambda s, work, say=print: shifted)
+    rep = pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", say=lambda *_: None)
+    assert "why" in rep["segmentation"]["sharpened"] and not rep["segmentation"]["sharpened"]["vessels"]
+
+
+def test_the_install_lock_works_without_fcntl(lumen_home, monkeypatch):
+
+    import builtins
+
+    monkeypatch.setattr(segmenters, "_install_locked", lambda s, say=print: None)
+    real = builtins.__import__
+
+    def no_fcntl(name, *a, **k):
+        if name == "fcntl":
+            raise ImportError("no fcntl here")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_fcntl)
+    seg = segmenters.TOTALSEGMENTATOR
+    segmenters._install(seg, lambda *_: None)                      # takes and releases the fallback lock
+    assert not (segmenters._dir(seg) / "install.lock").exists()
+    # a stale lock left by a dead process is taken over, not waited on forever
+    lock = segmenters._dir(seg) / "install.lock"
+    lock.write_text("99999999")
+    segmenters._install(seg, lambda *_: None)
+    assert not lock.exists()

@@ -424,16 +424,47 @@ def _fetch(url: str, dest: Path, size: int, sha256: str) -> None:
 
 @contextlib.contextmanager
 def _install_lock(seg: Segmenter):
-    """One install of a model at a time, across processes: a second Lumen waits here."""
-    _dir(seg).mkdir(parents=True, exist_ok=True)
-    with open(_dir(seg) / "install.lock", "w") as f:
+    """One install of a model at a time, across processes.
+
+    A lock file is held for the whole install: ``flock`` where it exists, an exclusive create
+    elsewhere, retried until the other process finishes. A stale lock (its process is gone) is
+    taken over, so a crashed install does not block forever.
+    """
+    path = _dir(seg) / "install.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import fcntl
+    except ImportError:
+        fcntl = None
+    if fcntl is not None:
+        f = path.open("a")
+        fcntl.flock(f, fcntl.LOCK_EX)
         try:
-            import fcntl
-        except ImportError:                                 # no flock on this platform
-            fcntl = None
-        if fcntl is not None:
-            fcntl.flock(f, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+            f.close()
+        return
+    import time as _time
+
+    while True:
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                owner = int(path.read_text().strip() or "0")
+                os.kill(owner, 0)
+            except (OSError, ValueError):
+                path.unlink(missing_ok=True)                 # the holder is gone
+                continue
+            _time.sleep(2)
+    try:
         yield
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def _install(seg: Segmenter, say=print) -> None:
@@ -537,12 +568,9 @@ def _class_map(seg: Segmenter, task: str) -> dict:
 
 def run_body(scan, work: Path, say=print):
     """Run TotalSegmentator on ``scan``; return a ``LabelVolume`` of named arteries."""
-    from lumen.assets.scan_import import LabelVolume
-
     seg = TOTALSEGMENTATOR
     work.mkdir(parents=True, exist_ok=True)
     src, log = work / "scan.nii.gz", work / "totalsegmentator.log"
-    write_nifti(scan, src)
     env = _torch_env({"TOTALSEG_HOME_DIR": str(weights_dir(seg))})
     exe = _python(seg).parent / ("TotalSegmentator.exe" if os.name == "nt" else "TotalSegmentator")
     device = _device(seg)
@@ -558,20 +586,34 @@ def run_body(scan, work: Path, say=print):
                              f"the installed version may not match the pinned fork")
     say(f"Finding arteries with {seg.title} on {device} ...")
     out = work / "body.nii.gz"
+    write_nifti(scan, src)
     _run([exe, "-i", src, "-o", out, "--ml", "--task", task, "--device", device,
           "--roi_subset", *wanted], log, env=env, what=seg.title)
+    return _body_labels(seg, out, task, neck=(src, log, exe, device, env, work), run=_run)
+
+
+def _body_labels(seg: Segmenter, out: Path, task: str, neck=None, run=None):
+    """Named arteries from the body output, plus the internal carotids from the neck output.
+
+    ``neck`` is (src, log, exe, device, env, work) for the CT follow-up run; ``run`` performs it.
+    """
+    from lumen.assets.scan_import import LabelVolume
+
     lab, aff = _read_labels(out)
+    cmap = _class_map(seg, task)
+    wanted = [n for n in BODY_ARTERIES if n in cmap.values()]
     data = np.zeros(lab.shape, np.int16)
     names: dict = {}
     for idx, name in cmap.items():
         if name in wanted and np.any(lab == idx):
             names[len(names) + 1] = pretty(name)
             data[lab == idx] = len(names)
-    carotid = any("carotid" in v for v in names.values())
-    if carotid and not mr:                      # the neck task adds the internal carotids
+    if any("carotid" in v for v in names.values()) and task == "total" and neck is not None:
+        src, log, exe, device, env, work = neck
         out2 = work / "neck.nii.gz"
-        _run([exe, "-i", src, "-o", out2, "--ml", "--task", "headneck_bones_vessels",
-              "--device", device], log, env=env, what=seg.title)
+        if not out2.exists():
+            run([exe, "-i", src, "-o", out2, "--ml", "--task", "headneck_bones_vessels",
+                 "--device", device], log, env=env, what=seg.title)
         lab2, _ = _read_labels(out2)
         for idx, name in _class_map(seg, "headneck_bones_vessels").items():
             if name in NECK_ARTERIES and np.any(lab2 == idx):
@@ -589,7 +631,6 @@ def run_head(scan, work: Path, say=print, head_from_mm: float | None = None):
     ``head_from_mm`` (patient z, mm) is where the head starts in a scan that also shows the neck
     or trunk; the model is given only the part above it, as it was trained on head scans.
     """
-    from lumen.assets.scan_import import LabelVolume
     from lumen.scan.io import ScanVolume
 
     seg = RSNA_INTRACRANIAL
@@ -607,18 +648,26 @@ def run_head(scan, work: Path, say=print, head_from_mm: float | None = None):
             sl[ax] = slice(int(keep.min()), int(keep.max()) + 1)
     sub_aff = A.copy()
     sub_aff[:3, 3] = (A @ np.array([sl[0].start or 0, sl[1].start or 0, sl[2].start or 0, 1.0]))[:3]
-    write_nifti(ScanVolume(data[tuple(sl)], sub_aff), src)
     device = _device(seg)
     say(f"Finding arteries with {seg.title} on {device} ...")
+    write_nifti(ScanVolume(data[tuple(sl)], sub_aff), src)
     runner = Path(__file__).with_name("_rsna_runner.py")
     _run([_python(seg), runner, "--scan", src, "--weights", weights_dir(seg), "--out", out,
           "--device", device], log, env=_torch_env(), what=seg.title)
-    lab, aff = _read_labels(out)
-    if not np.allclose(aff, sub_aff, atol=1e-3) or lab.shape != data[tuple(sl)].shape:
+    return _head_labels(out, seg, data.shape, A, sl)
+
+
+def _head_labels(out: Path, seg: Segmenter, shape, aff: np.ndarray, sl):
+    from lumen.assets.scan_import import LabelVolume
+
+    lab, lab_aff = _read_labels(out)
+    sub_aff = aff.copy()
+    sub_aff[:3, 3] = (aff @ np.array([sl[0].start or 0, sl[1].start or 0, sl[2].start or 0, 1.0]))[:3]
+    if not np.allclose(lab_aff, sub_aff, atol=1e-3) or lab.shape != tuple(shape[ax] if sl[ax] == slice(None) else sl[ax].stop - (sl[ax].start or 0) for ax in range(3)):
         raise SegmenterError(f"{seg.title} returned a different grid from the scan")
-    full = np.zeros(data.shape, np.int16)
+    full = np.zeros(shape, np.int16)
     full[tuple(sl)] = lab
     names = {i + 1: n for i, n in enumerate(HEAD_ARTERIES) if np.any(full == i + 1)}
     if not names:
         raise SegmenterError(f"{seg.title} found no arteries in this scan")
-    return LabelVolume(full, A, names)
+    return LabelVolume(full, aff, names)

@@ -18,6 +18,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import json
+
 import numpy as np
 
 from lumen.assets.schema import Asset, Frame
@@ -40,6 +42,23 @@ class LabelVolume:
 
 
 _RAS_TO_LPS = np.diag([-1.0, -1.0, 1.0, 1.0])
+
+
+def save_label_volume(volume: LabelVolume, path: str | Path) -> None:
+    """Write a label volume as NIfTI, with the vessel names in the description header."""
+    import json
+
+    import nibabel as nib
+
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    img = nib.Nifti1Image(np.asarray(volume.data, dtype=np.int16),
+                          _RAS_TO_LPS @ np.asarray(volume.affine, float))
+    img.header["descrip"] = json.dumps({str(k): v for k, v in volume.names.items()})[:79].encode()
+    img.header.set_xyzt_units("mm")
+    nib.save(img, str(p))
+    sidecar = p.with_suffix("").with_suffix(".names.json") if p.name.endswith(".nii.gz")         else p.with_suffix(".names.json")
+    sidecar.write_text(json.dumps({str(k): v for k, v in volume.names.items()}))
 
 
 def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolume:
@@ -77,8 +96,12 @@ def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolum
             data = data[..., 0]
         if data.ndim != 3:
             raise ValueError(f"expected a 3-D label volume, got shape {data.shape}: {p}")
+        sidecar = p.with_suffix("").with_suffix(".names.json") if p.name.endswith(".nii.gz")             else p.with_suffix(".names.json")
+        saved = {}
+        if sidecar.exists():
+            saved = {int(k): v for k, v in json.loads(sidecar.read_text()).items()}
         return LabelVolume(np.rint(data).astype(np.int32), _RAS_TO_LPS @ np.asarray(img.affine, float),
-                           dict(names or {}))
+                           {**saved, **(names or {})})
     raise ValueError(f"unsupported mask format (use .nrrd, .nii or .nii.gz): {p}")
 
 
