@@ -139,3 +139,21 @@ def test_smooth_keeps_short_polylines_finite():
         out = si.smooth(poly, 4.0)
         assert out.shape == poly.shape
         assert np.abs(out - poly).max() < 0.7
+
+
+def test_a_small_gap_is_joined_and_a_large_one_is_not():
+    """A vessel broken by a 1 mm gap is one vessel; a piece 6 mm away is not attached."""
+    shape, A = (40, 40, 110), _affine((0.5, 0.5, 0.5), (0.0, 0.0, 0.0))
+    W = _world_grid(shape, A)[..., :3]
+    z = W[..., 2]
+    tube = _dist_to_polyline(W, np.array([[10.0, 10, 0], [10.0, 10, 60]])) <= 2.0
+    # flat-ended pieces: 3..25 mm, then two empty slices, 26.5..40 mm, then a 6 mm gap, 46..52 mm
+    mask = tube & (((z >= 3.0) & (z <= 25.0)) | ((z >= 26.5) & (z <= 40.0)) | ((z >= 46.0) & (z <= 52.0)))
+    tris, info = sc.surface_from_mask(mask, A)
+    assert len(info["joined"]) == 1 and 0.5 <= info["joined"][0]["gap_mm"] <= 2.0
+    assert 24.0 <= info["joined"][0]["at_mm"][2] <= 27.5
+    zs = tris[..., 2]
+    assert zs.min() < 4.0 and 39.0 < zs.max() < 42.0             # both halves, not the far piece
+    assert info["dropped_volume_mm3"] > 20.0
+    tris0, info0 = sc.surface_from_mask(mask, A, join_mm=0.0)
+    assert info0["joined"] == [] and tris0[..., 2].max() < 27.0

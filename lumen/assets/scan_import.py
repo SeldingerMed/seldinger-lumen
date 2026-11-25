@@ -79,14 +79,70 @@ def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolum
     raise ValueError(f"unsupported mask format (use .nrrd, .nii or .nii.gz): {p}")
 
 
+JOIN_MM = 2.0            # pieces closer than this to the main vessel are joined to it
+JOIN_MIN_MM3 = 20.0      # ... unless they are specks smaller than this
+
+
+def _join_near_pieces(vol, lab, keep, h, join_mm, min_mm3):
+    """Join pieces that sit within ``join_mm`` of the kept piece with a thin straight bridge.
+
+    A segmented vessel is often broken by a gap of a voxel or two where it is thin. Such a
+    piece is the same vessel, so it is welded on at the closest point. ``vol`` and ``lab`` are
+    changed in place; returns one record per join.
+    """
+    from scipy import ndimage as ndi
+    from scipy.spatial import cKDTree
+
+    def shell(mask_box):
+        return mask_box & ~ndi.binary_erosion(mask_box)
+
+    joined = []
+    radius = max(0.6, 1.5 * h)
+    boxes = ndi.find_objects(lab)
+    sizes = np.bincount(lab.ravel())
+    pending = [i for i in range(1, len(sizes)) if i != keep and sizes[i] * h**3 >= min_mm3]
+    main_pts = np.argwhere(shell(lab == keep))
+    while pending:
+        tree = cKDTree(main_pts * h)
+        best = None
+        for i in pending:
+            box = boxes[i - 1]
+            pts = np.argwhere(shell(lab[box] == i)) + [s.start for s in box]
+            d, j = tree.query(pts * h)
+            k = int(np.argmin(d))
+            if d[k] <= join_mm and (best is None or d[k] < best[0]):
+                best = (float(d[k]), i, pts[k], main_pts[int(j[k])], pts)
+        if best is None:
+            break
+        gap, i, a, b, pts = best
+        lo = np.maximum(np.minimum(a, b) - int(np.ceil(radius / h)) - 2, 0)
+        hi = np.minimum(np.maximum(a, b) + int(np.ceil(radius / h)) + 3, vol.shape)
+        g = np.stack(np.meshgrid(*[np.arange(x, y) for x, y in zip(lo, hi)], indexing="ij"), -1) * h
+        pa, pb = a * h, b * h
+        ab = pb - pa
+        u = np.clip(((g - pa) @ ab) / max(float(ab @ ab), 1e-9), 0.0, 1.0)
+        dist = np.linalg.norm(g - (pa + u[..., None] * ab), axis=-1)
+        box = tuple(slice(x, y) for x, y in zip(lo, hi))
+        vol[box] = np.maximum(vol[box], np.clip(0.5 + (radius - dist) / h, 0.0, 1.0))
+        bridge = np.argwhere((dist <= radius) & (lab[box] == 0)) + lo
+        lab[box][(dist <= radius) & (lab[box] == 0)] = keep
+        lab[boxes[i - 1]][lab[boxes[i - 1]] == i] = keep
+        main_pts = np.vstack([main_pts, pts, bridge])
+        pending.remove(i)
+        joined.append({"gap_mm": round(gap, 2), "volume_mm3": round(float(sizes[i] * h**3), 1),
+                       "at_ijk": [float(v) for v in 0.5 * (a + b)]})
+    return joined
+
+
 def surface_from_mask(mask: np.ndarray, affine: np.ndarray, *, iso_mm: float | None = None,
-                      smooth_mm: float | None = None) -> tuple[np.ndarray, dict]:
+                      smooth_mm: float | None = None, join_mm: float = JOIN_MM) -> tuple[np.ndarray, dict]:
     """Closed triangle surface (F, 3, 3) in LPS mm with outward normals from a binary mask.
 
     The mask is cropped, resampled to an isotropic grid (so thick slices do not leave stair
-    steps), lightly smoothed and contoured at one half. Only the largest face-connected piece is
-    kept, because a wire cannot cross a gap. The grid is zero padded, so a vessel that leaves the
-    scan is capped flat at the scan boundary.
+    steps), lightly smoothed and contoured at one half. Pieces within ``join_mm`` of the largest
+    piece are joined to it; anything farther away is dropped, because a wire cannot cross a
+    gap. The grid is zero padded, so a vessel that leaves the scan is capped flat at the scan
+    boundary.
     """
     from scipy import ndimage as ndi
     from skimage import measure
@@ -117,7 +173,12 @@ def surface_from_mask(mask: np.ndarray, affine: np.ndarray, *, iso_mm: float | N
         raise ValueError("the vessel is too thin to survive smoothing; lower smooth_mm")
     sizes = np.bincount(lab.ravel())[1:]
     keep = int(np.argmax(sizes)) + 1
-    if n > 1:                                           # blank the other pieces and their halos
+    joined = []
+    if n > 1:
+        if join_mm > 0:
+            joined = _join_near_pieces(vol, lab, keep, h, float(join_mm), JOIN_MIN_MM3)
+        sizes = np.bincount(lab.ravel(), minlength=n + 1)[1:]
+        # blank the remaining pieces and their halos
         other = ndi.binary_dilation((lab > 0) & (lab != keep), iterations=2)
         vol = np.where(other & (lab != keep), 0.0, vol)
     verts, faces, _, _ = measure.marching_cubes(vol, level=0.5, spacing=(h, h, h))
@@ -132,11 +193,15 @@ def surface_from_mask(mask: np.ndarray, affine: np.ndarray, *, iso_mm: float | N
     if vol6 < 0:                                        # make the normals point out of the vessel
         tris = tris[:, ::-1]
     dropped = np.sort(np.delete(sizes, keep - 1))[::-1]
+    dropped = dropped[dropped > 0]
+    for j in joined:                                    # report where each join is, in patient mm
+        at = np.asarray(j.pop("at_ijk")) * h - 2 * h + 0.5 * h - 0.5 * sp
+        j["at_mm"] = [round(float(v), 1) for v in Q @ at + (A @ np.r_[lo, 1.0])[:3]]
     info = {"iso_mm": h, "smooth_sigma_mm": [float(v * h) for v in sig], "faces": int(len(tris)),
             "surface_volume_mm3": abs(vol6) / 6.0,
             "mask_volume_mm3": float(mask.sum() * np.prod(sp)),
             "scan_spacing_mm": [float(v) for v in sp],
-            "pieces": int(n), "dropped_volume_mm3": float(dropped.sum() * h**3),
+            "pieces": int(n), "joined": joined, "dropped_volume_mm3": float(dropped.sum() * h**3),
             "largest_dropped_piece_mm3": float(dropped[0] * h**3) if len(dropped) else 0.0}
     return tris, info
 

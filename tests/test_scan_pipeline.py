@@ -286,7 +286,7 @@ def test_weight_download_rejects_wrong_bytes(tmp_path):
     assert not bad.exists() and not bad.with_name("bad.bin.part").exists()
     with pytest.raises(segmenters.SegmenterError):
         segmenters._fetch(src.as_uri(), bad, 200, good)            # larger than expected
-    assert not bad.exists()
+    assert not bad.exists() and not bad.with_name("bad.bin.part").exists()
 
 
 def test_routing_and_names():
@@ -335,7 +335,7 @@ def _fork_scan():
 def test_sharpening_pulls_fat_labels_back_to_the_lumen():
     scan, labels, true = _fork_scan()
     out, rep = refine.refine_labels(scan, labels)
-    assert all(v["refined"] for v in rep.values())
+    assert all(v["refined"] for v in rep["vessels"].values()) and rep["bridged"] == []
     fat_extra = ((labels.data > 0) & ~true).sum()
     new_extra = ((out > 0) & ~true).sum()
     assert new_extra < 0.25 * fat_extra                           # most of the fat rim is gone
@@ -348,7 +348,45 @@ def test_sharpening_leaves_a_scan_without_contrast_alone():
     scan.data = np.full(scan.data.shape, 40.0, np.float32)
     out, rep = refine.refine_labels(scan, labels)
     assert np.array_equal(out, labels.data)
-    assert not any(v["refined"] for v in rep.values())
+    assert not any(v["refined"] for v in rep["vessels"].values())
+
+
+def test_a_stretch_the_model_missed_is_filled_where_the_scan_shows_contrast():
+    scan, labels, true = _fork_scan()
+    z = np.arange(labels.data.shape[2])[None, None, :]
+    cut = (labels.data == 1) & (z >= 22) & (z <= 30)              # the model missed 9 mm of aorta
+    holed = LabelVolume(np.where(cut, 0, labels.data), labels.affine, labels.names)
+    out, rep = refine.refine_labels(scan, holed)
+    assert len(rep["bridged"]) == 1
+    b = rep["bridged"][0]
+    # sharpening already recovers up to 2 mm at each cut end, so 5 to 9 mm is left to fill
+    assert b["vessel"] == "aorta" and 4.5 <= b["length_mm"] <= 9.5 and 20.0 <= b["at_mm"][2] <= 32.0
+    from scipy import ndimage as ndi
+    assert ndi.label(out > 0, structure=np.ones((3, 3, 3)))[1] == 1  # one connected tree again
+    assert ((out > 0) & ~true).sum() < 0.02 * true.sum()             # nothing filled outside the lumen
+    assert (out[40, 30, 22:31] == 1).all()                           # the axis of the gap is aorta
+
+    # a vessel missed where its far part is still attached by another route (a loop, as in the
+    # circle of Willis) is mended too: a named vessel should be one piece
+    from tests.test_scan_import import _dist_to_polyline, _world_grid
+
+    Wd = _world_grid(labels.data.shape, labels.affine)[..., :3]
+    bar = _dist_to_polyline(Wd, np.array([[20.0, 30, 86], [60.0, 30, 86]])) <= 3.0
+    loop_scan = ScanVolume(np.where(bar, 350.0, scan.data).astype(np.float32), scan.affine, modality="CT")
+    looped = np.where(bar & (labels.data == 0), 3, labels.data)
+    side = (looped == 2) & (z >= 62) & (z <= 69)                  # 8 slices of the left iliac missed
+    holed2 = LabelVolume(np.where(side, 0, looped), labels.affine, labels.names)
+    assert ndi.label(holed2.data > 0, structure=np.ones((3, 3, 3)))[1] == 1   # still one tree
+    assert ndi.label(holed2.data == 2, structure=np.ones((3, 3, 3)))[1] == 2  # but a broken vessel
+    out3, rep3 = refine.refine_labels(loop_scan, holed2)
+    assert [b["vessel"] for b in rep3["bridged"]] == ["left iliac artery"]
+    assert ndi.label(out3 == 2, structure=np.ones((3, 3, 3)))[1] == 1
+    assert ((out3 > 0) & ~(true | bar)).sum() < 0.02 * true.sum()
+
+    # the same hole with no contrast across it stays a hole
+    dark = ScanVolume(np.where(cut, 40.0, scan.data).astype(np.float32), scan.affine, modality="CT")
+    out2, rep2 = refine.refine_labels(dark, holed)
+    assert rep2["bridged"] == [] and ndi.label(out2 > 0, structure=np.ones((3, 3, 3)))[1] == 2
 
 
 def test_import_asks_segments_names_and_targets_by_name(tmp_path, lumen_home, monkeypatch):
@@ -394,3 +432,131 @@ def test_import_declined_writes_no_anatomy(tmp_path, lumen_home, monkeypatch):
     with pytest.raises(segmenters.Declined, match="--mask"):
         pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", ask=lambda _: "n", say=lambda *_: None)
     assert not (tmp_path / "out" / "asset.json").exists()
+
+
+def test_head_and_neck_scan_asks_for_both_models_before_any_work(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+    events = []
+
+    def install(seg, say):
+        events.append(("install", seg.key))
+        _fake_install([])(seg, say)
+
+    def run_body(s, work, say=print):
+        assert segmenters.installed(segmenters.TOTALSEGMENTATOR)
+        events.append(("run", "body"))
+        return labels
+
+    def run_head(s, work, say=print, head_from_mm=None):
+        assert segmenters.installed(segmenters.RSNA_INTRACRANIAL)
+        events.append(("run", "head"))
+        raise segmenters.SegmenterError("no intracranial arteries in this scan")
+
+    def ask(text):
+        events.append(("ask", "RSNA" if "RSNA" in text else "TotalSegmentator"))
+        return "y"
+
+    monkeypatch.setattr(segmenters, "_install", install)
+    monkeypatch.setattr(segmenters, "run_body", run_body)
+    monkeypatch.setattr(segmenters, "run_head", run_head)
+    both = region.RegionReport(("head", "body"), True, "picture")
+    monkeypatch.setattr(region, "detect_region", lambda s: both)
+    said = []
+    rep = pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", ask=ask, say=said.append)
+    asks = [i for i, e in enumerate(events) if e[0] == "ask"]
+    runs = [i for i, e in enumerate(events) if e[0] == "run"]
+    assert [events[i][1] for i in asks] == ["TotalSegmentator", "RSNA"] and max(asks) < min(runs)
+    assert sorted(e[1] for e in events if e[0] == "install") == ["rsna-intracranial", "totalsegmentator"]
+    assert any("in the background" in s for s in said)
+    assert sum("This scan shows" in s for s in said) == 0          # said once, in the question
+    assert [u["segmenter"] for u in rep["segmentation"]["used"]] == ["TotalSegmentator"]
+    assert "no intracranial arteries" in rep["segmentation"]["notes"][0]
+
+    # second import: both are installed, so nothing is asked and nothing is installed again
+    events.clear()
+    pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out2", ask=ask, say=said.append)
+    assert [e[0] for e in events] == ["run", "run"]
+
+
+def test_saying_no_to_one_of_two_models_still_imports_with_the_other(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+    calls = []
+    monkeypatch.setattr(segmenters, "_install", _fake_install(calls))
+    monkeypatch.setattr(segmenters, "run_body", lambda s, work, say=print: labels)
+    both = region.RegionReport(("head", "body"), True, "picture")
+    monkeypatch.setattr(region, "detect_region", lambda s: both)
+    rep = pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", say=lambda *_: None,
+                               ask=lambda text: "n" if "RSNA" in text else "y")
+    assert calls == ["totalsegmentator"] and not segmenters.installed(segmenters.RSNA_INTRACRANIAL)
+    assert "was not installed" in rep["segmentation"]["notes"][0]
+    assert (tmp_path / "out" / "asset.json").exists()
+    told = "\n".join(pipeline.summary_lines(rep, tmp_path / "out"))
+    assert "note: the RSNA 2025 intracranial artery model was not installed" in told
+
+
+def test_a_failed_background_install_is_reported_not_swallowed(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+
+    def broken(seg, say):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(segmenters, "_install", broken)
+    monkeypatch.setattr(region, "detect_region", lambda s: region.RegionReport(("body",), True, "picture"))
+    with pytest.raises(segmenters.SegmenterError, match="disk full"):
+        pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", assume_yes=True, say=lambda *_: None)
+    assert not (tmp_path / "out" / "asset.json").exists()
+
+
+def test_install_is_skipped_when_another_process_already_finished_it(lumen_home, monkeypatch):
+    seg = segmenters.RSNA_INTRACRANIAL
+    _fake_install([])(seg, None)                                   # as left by the other process
+    monkeypatch.setattr(segmenters, "_install_locked",
+                        lambda *a, **k: pytest.fail("installed twice"))
+    segmenters._install(seg, lambda *_: None)
+    (segmenters._dir(seg) / "installed.json").unlink()             # not installed: it does run
+    ran = []
+    monkeypatch.setattr(segmenters, "_install_locked", lambda s, say=print: ran.append(s.key))
+    segmenters._install(seg, lambda *_: None)
+    assert ran == [seg.key]
+
+
+def test_a_hung_step_is_stopped_and_reported(tmp_path):
+    import sys
+
+    with pytest.raises(segmenters.SegmenterError, match="took longer than"):
+        segmenters._run([sys.executable, "-c", "import time; time.sleep(30)"], tmp_path / "log.txt",
+                        what="running the model", timeout=0.5)
+    with pytest.raises(segmenters.SegmenterError, match=r"failed \(exit 3\)"):
+        segmenters._run([sys.executable, "-c", "import sys; print('boom'); sys.exit(3)"],
+                        tmp_path / "log.txt", what="running the model")
+    assert "boom" in (tmp_path / "log.txt").read_text()
+
+
+def test_an_install_folder_that_cannot_hold_an_environment_is_refused_before_asking(
+        lumen_home, monkeypatch):
+    seg = segmenters.TOTALSEGMENTATOR
+    monkeypatch.setattr(segmenters, "_filesystem", lambda path: "exfat")
+    asked = []
+    with pytest.raises(segmenters.SegmenterError, match="formatted as exfat") as err:
+        segmenters.agree(seg, why="w", ask=lambda text: asked.append(text) or "y")
+    assert asked == [] and "LUMEN_WEIGHTS" in str(err.value) and "Declined" not in type(err.value).__name__
+    monkeypatch.setattr(segmenters, "_filesystem", lambda path: "apfs")
+    segmenters.agree(seg, why="w", ask=lambda text: "y")
+    monkeypatch.setattr(segmenters, "_filesystem", lambda path: "")     # cannot tell: carry on
+    segmenters.agree(seg, why="w", ask=lambda text: "y")
+
+
+def test_filesystem_probe_reads_a_folder_that_does_not_exist_yet(tmp_path):
+    import sys
+
+    fs = segmenters._filesystem(tmp_path / "not" / "made" / "yet")
+    if sys.platform == "darwin":
+        assert fs.isalnum() and fs == segmenters._filesystem(tmp_path)   # a type name such as apfs
+    else:
+        assert fs == ""

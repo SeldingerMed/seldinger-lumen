@@ -25,11 +25,12 @@ runs on your machine. The scan is never uploaded.
    | head | RSNA 2025 intracranial model | internal carotid (infra- and supraclinoid), middle and anterior cerebral, anterior and posterior communicating, basilar tip, other posterior circulation |
 
    A scan that shows both regions gets both models and one joined tree.
-4. **Sharpen.** Each named vessel is redrawn at the half-way brightness between its lumen and
-   the tissue around it, so the wall follows the contrast in your scan and not the model's
-   coarser grid.
+4. **Sharpen and mend.** Each named vessel is redrawn at the half-way brightness between its
+   lumen and the tissue around it, so the wall follows the contrast in your scan and not the
+   model's coarser grid. Where a model missed a short stretch of a vessel and the scan shows
+   contrast running across the gap, the stretch is filled in.
 5. **Build the tree.** The vessel surface becomes a branching tree with a fitted wall, which is
-   what the solver uses.
+   what the solver uses. `report.json` lists every stretch that was filled in or joined.
 
 ## The first time: Lumen asks before installing a model
 
@@ -47,9 +48,14 @@ Install it now? [y/N]
 
 - **Yes** installs it once, quietly, into `~/.lumen` in its own Python environment, so its
   PyTorch never touches yours. Later imports do not ask again.
-- **No** installs nothing and stops. You can still import with your own mask (below).
+- **No** installs nothing. You can still import with your own mask (below).
+- A scan that shows both the head and the neck needs both models. Lumen asks about both
+  before it starts, then installs in the background: the second model installs while the
+  first is already finding arteries. Saying no to one still imports the part the other covers.
 - `--yes` answers yes in advance, for scripts.
 - `LUMEN_HOME` moves the install folder. `LUMEN_WEIGHTS` moves just the model weights.
+  The install folder must be on a normal Mac or Linux disk. An exFAT, FAT or NTFS drive
+  cannot hold a Python environment (Lumen says so before asking); the weights can go there.
 
 Both models are installed from Seldinger's forks at a fixed commit, and the head model's weight
 files are checked against known hashes before use.
@@ -97,4 +103,7 @@ patient millimetres (LPS).
 - Scans with gantry tilt or unevenly spaced slices. Lumen stops and says so.
 - Vessels the models do not name (renal and visceral branches, vertebral arteries, external
   carotids) are not found from a scan. Supply a mask to include them.
+- The anatomy is one connected tree. Arteries that do not join it inside the scan are left
+  out; in a head-only scan that is usually the vertebrobasilar system when no posterior
+  communicating artery is seen. `report.json` gives the volume left out.
 - Imported anatomy is for simulation and training. It is not a clinical measurement.

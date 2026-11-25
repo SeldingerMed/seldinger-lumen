@@ -17,6 +17,7 @@ the user's machine; the scan is never sent anywhere.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -151,15 +152,48 @@ def prompt_text(seg: Segmenter, why: str) -> str:
             f"Install it now? [y/N] ")
 
 
-def ensure(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None, say=print,
-           install=None) -> None:
-    """Make sure ``seg`` is installed, asking first unless the user already agreed.
+_NO_ENV_FILESYSTEMS = ("exfat", "msdos", "ntfs")   # a Python environment does not install on these
+
+
+def _filesystem(path: Path) -> str:
+    """The filesystem type holding ``path`` ('' when it cannot be told; only macOS is asked)."""
+    if sys.platform != "darwin":
+        return ""
+    while not path.exists() and path != path.parent:
+        path = path.parent
+
+    def _out(cmd):
+        return subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                              timeout=10, check=True).stdout
+
+    try:
+        # `df -P` ends each line with the mount point; `mount` lists "dev on <point> (type, ...)"
+        dev = _out(["df", "-P", str(path)]).splitlines()[-1].split()[0]
+        for line in _out(["mount"]).splitlines():
+            if line.startswith(dev + " on ") and line.rstrip().endswith(")"):
+                return line[line.rindex("(") + 1:].split(",")[0].strip().lower()
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        pass
+    return ""
+
+
+def check_home(seg: Segmenter) -> None:
+    """Refuse, before asking or downloading, a folder that cannot hold the model's environment."""
+    fs = _filesystem(_dir(seg))
+    if fs in _NO_ENV_FILESYSTEMS:
+        raise SegmenterError(
+            f"Lumen's folder for model environments ({home()}) is on a drive formatted as {fs}, which cannot "
+            f"hold a Python environment. Set LUMEN_HOME to a folder on your main disk; the large "
+            f"weight files can still go on that drive with LUMEN_WEIGHTS.")
+
+
+def agree(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None) -> None:
+    """Get the user's yes to installing ``seg`` (remembered, so they are asked once).
 
     ``ask`` is ``input`` by default (only on a terminal). Raises ``Declined`` on no, and
     ``SegmenterError`` when it cannot ask (no terminal and no ``assume_yes``).
     """
-    if installed(seg):
-        return
+    check_home(seg)
     agreed = assume_yes or bool(_consents().get(seg.key, {}).get("agreed"))
     if not agreed:
         if ask is None:
@@ -168,7 +202,10 @@ def ensure(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None, say=
                     f"this scan needs {seg.title}, which is not installed. Run the command in a "
                     f"terminal to be asked, or pass --yes to install it without being asked.")
             ask = input
-        answer = str(ask(prompt_text(seg, why))).strip().lower()
+        try:
+            answer = str(ask(prompt_text(seg, why))).strip().lower()
+        except EOFError:                                    # input closed: the same as no
+            answer = ""
         if answer not in ("y", "yes"):
             raise Declined(f"{seg.title} was not installed. To import without it, pass your own "
                            f"vessel mask with --mask.")
@@ -176,20 +213,61 @@ def ensure(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None, say=
     rec[seg.key] = {"agreed": True, "when": time.strftime("%Y-%m-%dT%H:%M:%S")}
     _consent_file().parent.mkdir(parents=True, exist_ok=True)
     _consent_file().write_text(json.dumps(rec, indent=1))
+
+
+def ensure(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None, say=print,
+           install=None) -> None:
+    """Make sure ``seg`` is installed, asking first unless the user already agreed."""
+    if installed(seg):
+        return
+    agree(seg, why=why, assume_yes=assume_yes, ask=ask)
     say(f"Installing {seg.title} (this happens once) ...")
     (install or _install)(seg, say)
     say(f"{seg.title} is installed.")
 
 
+class BackgroundInstall:
+    """An install running quietly on its own thread; ``wait()`` returns when it is usable."""
+
+    def __init__(self, seg: Segmenter, install=None):
+        import threading
+
+        self.seg, self.error = seg, None
+        self._thread = threading.Thread(target=self._work, args=(install or _install,), daemon=True)
+        self._thread.start()
+
+    def _work(self, install) -> None:
+        try:
+            install(self.seg, lambda *_: None)
+        except Exception as exc:                            # reported by wait(), on the caller's thread
+            self.error = exc
+
+    def wait(self) -> None:
+        self._thread.join()
+        if self.error is not None:
+            if isinstance(self.error, SegmenterError):
+                raise self.error
+            raise SegmenterError(f"installing {self.seg.title} failed: {self.error}") from self.error
+
+
 # ---------------------------------------------------------------------------------------------
 # installing
 # ---------------------------------------------------------------------------------------------
-def _run(cmd, log: Path, env=None, what="command") -> None:
+RUN_TIMEOUT_S = 3600.0   # no install step or model run on one scan should take an hour
+
+
+def _run(cmd, log: Path, env=None, what="command", timeout: float = RUN_TIMEOUT_S) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     with open(log, "ab") as f:
         f.write(("\n$ " + " ".join(map(str, cmd)) + "\n").encode())
         f.flush()
-        rc = subprocess.run([str(c) for c in cmd], stdout=f, stderr=subprocess.STDOUT, env=env).returncode
+        try:
+            # no terminal for the child: it runs beside the prompt and must never read from it
+            rc = subprocess.run([str(c) for c in cmd], stdout=f, stderr=subprocess.STDOUT, env=env,
+                                stdin=subprocess.DEVNULL, timeout=timeout).returncode
+        except subprocess.TimeoutExpired as exc:
+            raise SegmenterError(f"{what} took longer than {timeout / 60:.0f} minutes and was "
+                                 f"stopped; full log: {log}") from exc
     if rc != 0:
         tail = log.read_text(errors="replace")[-1500:]
         raise SegmenterError(f"{what} failed (exit {rc}); full log: {log}\n{tail}")
@@ -269,6 +347,9 @@ def _fetch(url: str, dest: Path, size: int, sha256: str) -> None:
     except OSError as exc:
         part.unlink(missing_ok=True)
         raise SegmenterError(f"could not download {dest.name}: {exc}") from exc
+    except SegmenterError:
+        part.unlink(missing_ok=True)
+        raise
     if got != size or _sha256(part) != sha256:
         part.unlink(missing_ok=True)
         raise SegmenterError(f"{dest.name}: the downloaded file is not the one Lumen was tested "
@@ -276,7 +357,28 @@ def _fetch(url: str, dest: Path, size: int, sha256: str) -> None:
     part.replace(dest)
 
 
+@contextlib.contextmanager
+def _install_lock(seg: Segmenter):
+    """One install of a model at a time, across processes: a second Lumen waits here."""
+    _dir(seg).mkdir(parents=True, exist_ok=True)
+    with open(_dir(seg) / "install.lock", "w") as f:
+        try:
+            import fcntl
+        except ImportError:                                 # no flock on this platform
+            fcntl = None
+        if fcntl is not None:
+            fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
 def _install(seg: Segmenter, say=print) -> None:
+    with _install_lock(seg):
+        if installed(seg):                                  # another Lumen finished it meanwhile
+            return
+        _install_locked(seg, say)
+
+
+def _install_locked(seg: Segmenter, say=print) -> None:
     log = _dir(seg) / "install.log"
     _make_env(seg, log)
     if seg.key == TOTALSEGMENTATOR.key:
