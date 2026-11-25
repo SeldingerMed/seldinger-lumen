@@ -469,8 +469,8 @@ def import_scan_main(argv=None, prog=None) -> None:
         report = import_scan(args.scan, args.out, mask=args.mask, entry_mm=entry,
                              series=args.series, assume_yes=args.yes, say=say)
     except ImportError as exc:
-        raise SystemExit(f"lumen import needs the scan extra: pip install 'seldinger-lumen[scan]' "
-                         f"({exc})") from exc
+        raise SystemExit("lumen import needs the scan extra: from your clone of the repository, "
+                         f"run pip install -e '.[scan]' ({exc})") from exc
     except (ValueError, RuntimeError) as exc:
         raise SystemExit(f"lumen import: {exc}") from exc
     if args.json:

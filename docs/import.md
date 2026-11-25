@@ -4,7 +4,7 @@
 keeps working exactly as before; this adds real anatomy next to it.
 
 ```bash
-pip install "seldinger-lumen[scan]"
+pip install -e ".[scan]"    # from your clone of this repository
 lumen import /path/to/dicom-folder --out my-case
 ```
 
