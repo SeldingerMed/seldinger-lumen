@@ -39,6 +39,8 @@ def _command_table():
                          dataset_card_main),
         "calibrate": ("Run the wall-probe calibration identifiability demo.", calibrate_main),
         "import-mask": ("Import a segmented .npz volume as a Lumen asset.", import_mask_main),
+        "import": ("Import a real CTA/MRA (DICOM, NIfTI, NRRD) or a vessel mask as anatomy.",
+                   import_scan_main),
     }
 
 
@@ -426,6 +428,55 @@ def import_mask_main(argv=None, prog=None) -> None:
                             min_component_voxels=args.min_component_voxels)
     asset.save(args.out_asset)
     print(f"wrote {args.out_asset}  nodes={len(asset.nodes)}  edges={len(asset.edges)}")
+
+
+def import_scan_main(argv=None, prog=None) -> None:
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Turn a real cross-sectional scan into anatomy Lumen can navigate. Give a "
+                    "DICOM folder, a NIfTI file or an NRRD file. Lumen works out which part of "
+                    "the body the scan shows, finds and names the arteries, and writes an "
+                    "anatomy folder. The scan never leaves this machine.")
+    parser.add_argument("scan", nargs="?", help="DICOM folder, .nii/.nii.gz or .nrrd scan")
+    parser.add_argument("--out", default="lumen-import", help="output folder (default: lumen-import)")
+    parser.add_argument("--mask", help="your own vessel mask (.nii/.nii.gz/.nrrd); no model is needed")
+    parser.add_argument("--entry", help="device entry point as x,y,z in patient LPS millimetres "
+                                        "(default: the lowest end of the vessel)")
+    parser.add_argument("--series", help="which DICOM series to use when the folder holds several "
+                                         "(number from --list-series, or a SeriesInstanceUID)")
+    parser.add_argument("--list-series", action="store_true", help="list the series in a DICOM folder and exit")
+    parser.add_argument("--yes", action="store_true",
+                        help="install a missing artery model without asking")
+    parser.add_argument("--json", action="store_true", help="print the full report as JSON")
+    args = parser.parse_args(argv)
+    if not args.scan and not args.mask:
+        parser.error("give a scan or --mask")
+    try:
+        if args.list_series:
+            from lumen.scan.io import list_dicom_series
+            for k, row in enumerate(list_dicom_series(args.scan), 1):
+                print(f"{k}. {row['modality']}  {row['slices']} slices  {row['description']}")
+            return
+        from lumen.scan.pipeline import import_scan, summary_lines
+        entry = None
+        if args.entry:
+            try:
+                entry = [float(v) for v in args.entry.split(",")]
+                assert len(entry) == 3
+            except (ValueError, AssertionError):
+                parser.error("--entry must be three numbers: x,y,z")
+        say = (lambda *_: None) if args.json else print
+        report = import_scan(args.scan, args.out, mask=args.mask, entry_mm=entry,
+                             series=args.series, assume_yes=args.yes, say=say)
+    except ImportError as exc:
+        raise SystemExit(f"lumen import needs the scan extra: pip install 'seldinger-lumen[scan]' "
+                         f"({exc})") from exc
+    except (ValueError, RuntimeError) as exc:
+        raise SystemExit(f"lumen import: {exc}") from exc
+    if args.json:
+        print(json.dumps(report, indent=2, default=float))
+    else:
+        print("\n".join(summary_lines(report, args.out)))
 
 
 def capture_main(argv=None, prog=None) -> None:

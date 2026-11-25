@@ -30,6 +30,7 @@ scan = [
   "scipy>=1.10",
   "scikit-image>=0.22",
   "pydicom>=2.4",
+  "python-gdcm>=3.0",     # decoder for compressed DICOM (JPEG lossless, JPEG 2000), common from PACS
   "nibabel>=5.0",
   "pynrrd>=1.0",
 ]
@@ -39,6 +40,7 @@ dev = [
   "scipy>=1.10",
   "scikit-image>=0.22",
   "pydicom>=2.4",
+  "python-gdcm>=3.0",
   "nibabel>=5.0",
   "pynrrd>=1.0",
   "gymnasium>=0.29",
