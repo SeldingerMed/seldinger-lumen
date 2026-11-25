@@ -235,8 +235,9 @@ def summary_lines(report: dict, out_dir) -> list[str]:
     lines = [f"Anatomy written to {out_dir}",
              f"  {len(report['edges'])} vessel segments, entry at "
              f"({', '.join(f'{v:.0f}' for v in report['entry_mm'])}) mm",
-             f"  fitted wall vs the segmented surface: median {w['p50']:.2f} mm, "
-             f"95% within {w['p95']:.2f} mm"]
+             (f"  fitted wall vs the segmented surface: median {w['p50']:.2f} mm, "
+              f"95% within {w['p95']:.2f} mm" if "p50" in w else
+              "  fitted wall vs the segmented surface: no samples to compare")]
     if report.get("vessels"):
         lines.append("  named vessels you can target:")
         for name, row in sorted(report["vessels"].items(), key=lambda kv: kv[1]["route_mm"]):

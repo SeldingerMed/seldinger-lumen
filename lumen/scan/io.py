@@ -158,18 +158,33 @@ def _read_dicom(p: Path, series: str | None) -> ScanVolume:
     order = sorted(groups, key=lambda u: (-_n_slices(groups[u]), u))
     if series is None:
         uid = order[0]
-    elif series in groups:
-        uid = series
+    elif str(series) in groups:                   # a SeriesInstanceUID wins over a list number
+        uid = str(series)
     elif str(series).isdigit() and 1 <= int(series) <= len(order):
         uid = order[int(series) - 1]
     else:
-        raise ScanError(f"no series {series!r} in {p}; found {len(order)} series")
+        raise ScanError(f"no series {series!r} in {p}; found {len(order)} series (give a "
+                        f"SeriesInstanceUID or a number from --list-series)")
     items = groups[uid]
     first = items[0][1]
     hints = {k: str(getattr(first, k, "") or "") for k in _HINT_TAGS}
     modality = str(first.Modality)
-    if len(items) == 1 and int(getattr(first, "NumberOfFrames", 1) or 1) > 1:
-        data, aff = _enhanced_volume(items[0][0])
+    multi = [int(getattr(h, "NumberOfFrames", 1) or 1) > 1 for _, h in items]
+    if any(multi):
+        if not all(multi):
+            raise ScanError(f"one series mixes multi-frame and single-frame files: {p}")
+        # an enhanced series may be split over several multi-frame files: gather every frame
+        positions, frames, ref = [], [], None
+        for f, _ in items:
+            pos_f, frames_f, ref_f = _enhanced_frames(f)
+            if ref is not None and (np.abs(np.r_[ref_f[0], ref_f[1]] - np.r_[ref[0], ref[1]]).max() > 1e-3
+                                    or np.abs(np.asarray(ref_f[3]) - ref[3]).max() > 1e-4
+                                    or frames_f[0].shape != frames[0].shape):
+                raise ScanError(f"files of one series differ in orientation, spacing or size: {p}")
+            ref = ref or ref_f
+            positions += pos_f
+            frames += frames_f
+        data, aff = _stack(positions, ref[0], ref[1], ref[2], ref[3], frames, p)
     else:
         data, aff = _classic_volume(items)
     _check_affine(aff, p)
@@ -255,7 +270,8 @@ def _classic_volume(items) -> tuple[np.ndarray, np.ndarray]:
     return _stack(positions, row, col, normal, ps, frames, where)
 
 
-def _enhanced_volume(path: Path) -> tuple[np.ndarray, np.ndarray]:
+def _enhanced_frames(path: Path):
+    """Positions, frames and (row, col, normal, spacing) of one enhanced multi-frame file."""
     ds, px = _pixels(path)
     shared = getattr(ds, "SharedFunctionalGroupsSequence", None)
     per = getattr(ds, "PerFrameFunctionalGroupsSequence", None)
@@ -271,8 +287,10 @@ def _enhanced_volume(path: Path) -> tuple[np.ndarray, np.ndarray]:
     for i, frame in enumerate(per):
         pos, ori, meas = (group(frame, n) for n in
                           ("PlanePositionSequence", "PlaneOrientationSequence", "PixelMeasuresSequence"))
-        if pos is None or ori is None or meas is None:
-            raise ScanError(f"the multi-frame file has no per-frame geometry: {path}")
+        tags = ((pos, "ImagePositionPatient"), (ori, "ImageOrientationPatient"), (meas, "PixelSpacing"))
+        for item, tag in tags:
+            if item is None or not hasattr(item, tag):
+                raise ScanError(f"frame {i + 1} of the multi-frame file carries no {tag}: {path}")
         row, col, normal = _orientation(ori.ImageOrientationPatient, path)
         ps = [float(x) for x in meas.PixelSpacing]
         if ref is None:
@@ -285,4 +303,9 @@ def _enhanced_volume(path: Path) -> tuple[np.ndarray, np.ndarray]:
         inter = float(getattr(tr, "RescaleIntercept", 0) or 0) if tr is not None else 0.0
         frames.append(px[i].astype(np.float32) * slope + inter)
         positions.append([float(x) for x in pos.ImagePositionPatient])
+    return positions, frames, ref
+
+
+def _enhanced_volume(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    positions, frames, ref = _enhanced_frames(path)
     return _stack(positions, ref[0], ref[1], ref[2], ref[3], frames, path)

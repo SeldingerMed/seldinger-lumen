@@ -568,8 +568,8 @@ def test_filesystem_probe_reads_a_folder_that_does_not_exist_yet(tmp_path):
     import sys
 
     fs = segmenters._filesystem(tmp_path / "not" / "made" / "yet")
-    if sys.platform == "darwin":
-        assert fs.isalnum() and fs == segmenters._filesystem(tmp_path)   # a type name such as apfs
+    if sys.platform == "darwin" or sys.platform.startswith("linux"):
+        assert fs.isalnum() and fs == segmenters._filesystem(tmp_path)   # a type name: apfs, ext4
     else:
         assert fs == ""
 
@@ -715,41 +715,77 @@ def test_a_slice_missing_its_geometry_is_a_clean_error(tmp_path):
         read_scan(tmp_path / "ct")
 
 
-def test_enhanced_multiframe_with_all_geometry_per_frame(tmp_path):
+def _write_multiframe(f, vol, z0, *, uid="1.5", drop=None):
+    """Enhanced CT, all geometry per frame and an empty shared group (as some scanners write)."""
     from pydicom.dataset import Dataset, FileDataset, FileMetaDataset
     from pydicom.sequence import Sequence
     from pydicom.uid import ExplicitVRLittleEndian
 
-    vol = _ramp((6, 5, 4))
     meta = FileMetaDataset()
     meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.2.1"           # enhanced CT
-    meta.MediaStorageSOPInstanceUID = "1.2.3.4"
+    meta.MediaStorageSOPInstanceUID = f"{uid}.{z0}"
     meta.TransferSyntaxUID = ExplicitVRLittleEndian
-    f = tmp_path / "mf.dcm"
     ds = FileDataset(str(f), {}, file_meta=meta, preamble=b"\0" * 128)
     ds.SOPClassUID, ds.SOPInstanceUID = meta.MediaStorageSOPClassUID, meta.MediaStorageSOPInstanceUID
-    ds.Modality, ds.SeriesInstanceUID, ds.StudyInstanceUID = "CT", "1.5", "1.2"
+    ds.Modality, ds.SeriesInstanceUID, ds.StudyInstanceUID = "CT", uid, "1.2"
     ds.Rows, ds.Columns, ds.NumberOfFrames = vol.shape[1], vol.shape[0], vol.shape[2]
     ds.SamplesPerPixel, ds.PhotometricInterpretation = 1, "MONOCHROME2"
     ds.BitsAllocated, ds.BitsStored, ds.HighBit, ds.PixelRepresentation = 16, 16, 15, 1
-    ds.SharedFunctionalGroupsSequence = Sequence([])                       # empty, as some scanners write
+    ds.SharedFunctionalGroupsSequence = Sequence([])
     frames = []
     for k in range(vol.shape[2]):
         fr = Dataset()
         pos, ori, meas, tr = Dataset(), Dataset(), Dataset(), Dataset()
-        pos.ImagePositionPatient = [0.0, 0.0, 2.0 * k]
+        pos.ImagePositionPatient = [0.0, 0.0, 2.0 * (z0 + k)]
         ori.ImageOrientationPatient = [1.0, 0, 0, 0, 1.0, 0]
         meas.PixelSpacing = [1.0, 1.0]
         tr.RescaleSlope, tr.RescaleIntercept = 1, -1024
+        if drop == k:
+            del pos.ImagePositionPatient
         fr.PlanePositionSequence, fr.PlaneOrientationSequence = Sequence([pos]), Sequence([ori])
         fr.PixelMeasuresSequence, fr.PixelValueTransformationSequence = Sequence([meas]), Sequence([tr])
         frames.append(fr)
     ds.PerFrameFunctionalGroupsSequence = Sequence(frames)
     ds.PixelData = np.stack([(vol[:, :, k].T + 1024) for k in range(vol.shape[2])]).astype("<i2").tobytes()
     ds.save_as(str(f), enforce_file_format=True)
-    scan = read_scan(f)
+
+
+def test_enhanced_multiframe_with_all_geometry_per_frame(tmp_path):
+    vol = _ramp((6, 5, 4))
+    _write_multiframe(tmp_path / "mf.dcm", vol, 0)
+    scan = read_scan(tmp_path / "mf.dcm")
     assert scan.data.shape == vol.shape and np.array_equal(scan.data, vol.astype(np.float32))
     assert np.allclose(scan.spacing_mm, [1.0, 1.0, 2.0])
+
+
+def test_an_enhanced_series_split_over_several_files_is_one_volume(tmp_path):
+    vol = _ramp((6, 5, 7))
+    (tmp_path / "s").mkdir()
+    _write_multiframe(tmp_path / "s" / "b.dcm", vol[:, :, 4:], 4)          # file order != slice order
+    _write_multiframe(tmp_path / "s" / "a.dcm", vol[:, :, :4], 0)
+    scan = read_scan(tmp_path / "s")
+    assert scan.data.shape == vol.shape and np.array_equal(scan.data, vol.astype(np.float32))
+
+
+def test_a_frame_missing_its_geometry_is_a_clean_error(tmp_path):
+    _write_multiframe(tmp_path / "mf.dcm", _ramp((6, 5, 4)), 0, drop=2)
+    with pytest.raises(ScanError, match="frame 3 .* ImagePositionPatient"):
+        read_scan(tmp_path / "mf.dcm")
+
+
+def test_summary_survives_an_import_with_no_wall_samples(tmp_path):
+    rep = {"wall_error_mm": {"source_to_lumen_mm": {"n": 0}}, "edges": [], "entry_mm": [0, 0, 0],
+           "vessels": {}}
+    assert "no samples" in "\n".join(pipeline.summary_lines(rep, tmp_path))
+
+
+def test_a_series_uid_wins_over_a_list_number(tmp_path):
+    _write_series(tmp_path / "a", _ramp((6, 6, 4)), (0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1), 1.0, uid="2")
+    _write_series(tmp_path / "b", _ramp((6, 6, 9)), (0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1), 1.0, uid="1.9")
+    assert read_scan(tmp_path, series="2").data.shape[2] == 4              # the UID, not the 2nd largest
+    assert read_scan(tmp_path, series=1).data.shape[2] == 9
+    with pytest.raises(ScanError, match="--list-series"):
+        read_scan(tmp_path, series="7")
 
 
 def test_a_failed_install_is_asked_about_again(lumen_home):
