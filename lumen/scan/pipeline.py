@@ -186,9 +186,16 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
                 if seg.key in declined:
                     errors.append(f"{seg.title} was not installed, so {seg.finds} are not included")
                     continue
-                try:
-                    if seg.key in installs:
+                if seg.key in installs:
+                    try:
                         installs[seg.key].wait()
+                    except sg.SegmenterError as exc:
+                        # not the same as finding nothing: the user can fix this and run again
+                        errors.append(f"{seg.title} could not be installed, so {seg.finds} are not "
+                                      f"included; run the import again to retry "
+                                      f"({str(exc).splitlines()[0]})")
+                        continue
+                try:
                     if seg.region == HEAD:
                         cut = region.detail.get("head_from_mm") if BODY in region.regions else None
                         volumes.append(sg.run_head(scan, work / seg.key, say=say, head_from_mm=cut))

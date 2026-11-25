@@ -871,3 +871,41 @@ def test_an_mr_saved_as_nifti_gets_the_mr_body_task(tmp_path, lumen_home, monkey
     with pytest.raises(segmenters.SegmenterError):
         segmenters.run_body(mr, tmp_path / "w", say=lambda *_: None)
     assert ran[0][ran[0].index("--task") + 1] == "total_mr"
+
+
+def test_an_install_that_fails_is_told_apart_from_finding_nothing(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+
+    def install(seg, say):
+        if seg is segmenters.RSNA_INTRACRANIAL:
+            raise segmenters.SegmenterError("download refused")
+        _fake_install([])(seg, say)
+
+    monkeypatch.setattr(segmenters, "_install", install)
+    monkeypatch.setattr(segmenters, "run_body", lambda s, work, say=print: labels)
+    monkeypatch.setattr(region, "detect_region",
+                        lambda s: region.RegionReport(("head", "body"), True, "picture"))
+    rep = pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", ask=lambda _: "y",
+                               say=lambda *_: None)
+    note = rep["segmentation"]["notes"][0]
+    assert "could not be installed" in note and "run the import again" in note and "download refused" in note
+    assert "rsna-intracranial" not in segmenters._consents()                 # asked again next time
+    assert "totalsegmentator" in segmenters._consents()
+
+
+def test_a_narrow_neck_below_the_skull_is_not_taken_into_the_head(monkeypatch):
+    # slices feet to head: 40 trunk, 20 neck (head-sized area but 120 mm wide), 30 skull
+    n_trunk, n_neck, n_head = 40, 20, 30
+    a = np.r_[np.full(n_trunk, 600.0), np.full(n_neck, 140.0), np.full(n_head, 180.0)]
+    w = np.r_[np.full(n_trunk, 330.0), np.full(n_neck, 120.0), np.full(n_head, 170.0)]
+    b = np.r_[np.full(n_trunk, 40.0), np.full(n_neck, 10.0), np.full(n_head, 40.0)]
+    m = {"area_cm2": a, "bone_cm2": b, "width_mm": w, "cut_off": np.zeros(len(a), bool),
+         "step_mm": 2.5, "ct": True, "z0_mm": 0.0}
+    monkeypatch.setattr(region, "_slice_measures", lambda v: m)
+    scan = ScanVolume(np.zeros((2, 2, 2), np.float32), np.eye(4), modality="CT")
+    r = region.detect_region(scan)
+    assert r.regions == ("head", "body")
+    # the head starts at the skull (less the 20 mm skull-base margin), not down the neck
+    assert r.detail["head_from_mm"] == pytest.approx((n_trunk + n_neck) * 2.5 - 20.0)

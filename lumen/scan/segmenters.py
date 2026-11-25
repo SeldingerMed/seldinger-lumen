@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -138,6 +139,9 @@ def _consent_file() -> Path:
     return home() / "consent.json"
 
 
+_CONSENT_LOCK = threading.Lock()   # a background install may forget while the main thread agrees
+
+
 def _consents() -> dict:
     """What the user has agreed to; a missing or damaged file means nothing was agreed."""
     try:
@@ -229,10 +233,11 @@ def agree(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None) -> No
         if answer not in ("y", "yes"):
             raise Declined(f"{seg.title} was not installed. To import without it, pass your own "
                            f"vessel mask with --mask.")
-    rec = _consents()
-    rec[seg.key] = {"agreed": True, "when": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    _consent_file().parent.mkdir(parents=True, exist_ok=True)
-    _consent_file().write_text(json.dumps(rec, indent=1))
+    with _CONSENT_LOCK:
+        rec = _consents()
+        rec[seg.key] = {"agreed": True, "when": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        _consent_file().parent.mkdir(parents=True, exist_ok=True)
+        _consent_file().write_text(json.dumps(rec, indent=1))
 
 
 def _ask_on_stderr(text: str) -> str:
@@ -247,9 +252,10 @@ def _ask_on_stderr(text: str) -> str:
 
 def forget(seg: Segmenter) -> None:
     """Drop a recorded yes, so the next import asks again (used when the install failed)."""
-    rec = _consents()
-    if rec.pop(seg.key, None) is not None:
-        _consent_file().write_text(json.dumps(rec, indent=1))
+    with _CONSENT_LOCK:
+        rec = _consents()
+        if rec.pop(seg.key, None) is not None:
+            _consent_file().write_text(json.dumps(rec, indent=1))
 
 
 def ensure(seg: Segmenter, *, why: str, assume_yes: bool = False, ask=None, say=print,

@@ -148,8 +148,8 @@ def detect_region(volume) -> RegionReport:
         # the head is everything from the start of the skull run to the top of the scan, plus the
         # face and skull base just below it (head sized, but with less bone per slice)
         lo, floor = start, start - int(round(_FACE_MM / step))
-        while lo > max(floor, 0) and a[lo - 1] >= _HEAD_AREA[0] and w[lo - 1] <= _HEAD_WIDTH[1] \
-                and not cut[lo - 1]:
+        while lo > max(floor, 0) and a[lo - 1] >= _HEAD_AREA[0] \
+                and _HEAD_WIDTH[0] <= w[lo - 1] <= _HEAD_WIDTH[1] and not cut[lo - 1]:
             lo -= 1
         is_head[lo:] = True
         head_from = lo
