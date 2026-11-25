@@ -157,3 +157,14 @@ def test_a_small_gap_is_joined_and_a_large_one_is_not():
     assert info["dropped_volume_mm3"] > 20.0
     tris0, info0 = sc.surface_from_mask(mask, A, join_mm=0.0)
     assert info0["joined"] == [] and tris0[..., 2].max() < 27.0
+
+
+def test_nrrd_without_three_spatial_axes_is_refused_clearly(tmp_path):
+    nrrd = pytest.importorskip("nrrd")
+    data = np.zeros((4, 4, 4), np.uint8)
+    hdr = {"space": "left-posterior-superior", "space origin": [0.0, 0.0, 0.0],
+           "space directions": [[1.0, 0, 0], [0, 1.0, 0], [np.nan, np.nan, np.nan]]}
+    f = tmp_path / "m.nrrd"
+    nrrd.write(str(f), data, hdr, index_order="F")
+    with pytest.raises(ValueError, match="three spatial axes"):
+        sc.load_label_volume(f)

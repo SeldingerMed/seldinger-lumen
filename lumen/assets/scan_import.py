@@ -52,7 +52,10 @@ def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolum
         if data.ndim != 3:
             raise ValueError(f"expected a 3-D label volume, got shape {data.shape}: {p}")
         dirs = np.asarray(hdr["space directions"], float)
-        dirs = dirs[~np.isnan(dirs).any(axis=1)]
+        if dirs.shape != (3, 3) or not np.isfinite(dirs).all():
+            # a 3-D volume needs three spatial axes; a 'none' (NaN) row means one is missing
+            raise ValueError(f"the NRRD 'space directions' header does not give three spatial axes "
+                             f"({dirs.tolist()}): {p}")
         aff = np.eye(4)
         aff[:3, :3] = dirs.T
         aff[:3, 3] = np.asarray(hdr["space origin"], float)
@@ -124,8 +127,9 @@ def _join_near_pieces(vol, lab, keep, h, join_mm, min_mm3):
         dist = np.linalg.norm(g - (pa + u[..., None] * ab), axis=-1)
         box = tuple(slice(x, y) for x, y in zip(lo, hi))
         vol[box] = np.maximum(vol[box], np.clip(0.5 + (radius - dist) / h, 0.0, 1.0))
-        bridge = np.argwhere((dist <= radius) & (lab[box] == 0)) + lo
-        lab[box][(dist <= radius) & (lab[box] == 0)] = keep
+        fill = (dist <= radius) & (lab[box] == 0)
+        bridge = np.argwhere(fill) + lo
+        lab[box][fill] = keep
         lab[boxes[i - 1]][lab[boxes[i - 1]] == i] = keep
         main_pts = np.vstack([main_pts, pts, bridge])
         pending.remove(i)

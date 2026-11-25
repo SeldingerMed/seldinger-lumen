@@ -297,7 +297,7 @@ def test_weight_download_rejects_wrong_bytes(tmp_path):
         segmenters._fetch(src.as_uri(), bad, 300, "0" * 64)
     assert not bad.exists() and not bad.with_name("bad.bin.part").exists()
     with pytest.raises(segmenters.SegmenterError):
-        segmenters._fetch(src.as_uri(), bad, 200, good)            # larger than expected
+        segmenters._fetch(src.as_uri(), bad, 200, good)            # size mismatch is rejected
     assert not bad.exists() and not bad.with_name("bad.bin.part").exists()
 
 
