@@ -37,7 +37,7 @@ _BODY_WORDS = ("NECK", "CAROTID", "CHEST", "THORA", "AORT", "ABD", "PELVI", "ILI
 class RegionReport:
     regions: tuple                    # subset of ("head", "body"), in that order
     confident: bool                   # False: nothing conclusive was found; try every segmenter
-    basis: str                        # "picture", "header" or "none"
+    basis: str                        # "picture", "header", "header and picture" or "none"
     head_mm: float = 0.0              # height of the head run found in the picture
     body_mm: float = 0.0              # height of neck/trunk found in the picture
     detail: dict = field(default_factory=dict)
@@ -159,8 +159,13 @@ def detect_region(volume) -> RegionReport:
         # patient z (mm) of the lowest head slice, less a margin so the skull base is kept
         detail["head_from_mm"] = float(m["z0_mm"] + head_from * step - 20.0)
     if not m["ct"] and header:
-        # MR has no bone signal to confirm a skull, so trust explicit header text over the outline
-        return RegionReport(header, True, "header", head_mm, body_mm, detail)
+        # MR has no bone signal to confirm a skull, so the header text counts as well as the
+        # outline. Either one is enough to try a model: text such as "Carotid" on a scan that
+        # also shows the head must not lose the head, and a model that finds nothing is harmless
+        seen = {r for r, hit in ((HEAD, has_head), (BODY, has_body)) if hit} | set(header)
+        regions = tuple(r for r in (HEAD, BODY) if r in seen)
+        return RegionReport(regions, True, "header and picture" if len(seen) > len(header) else "header",
+                            head_mm, body_mm, detail)
     if has_head or has_body:
         regions = tuple(r for r, hit in ((HEAD, has_head), (BODY, has_body)) if hit)
         return RegionReport(regions, True, "picture", head_mm, body_mm, detail)

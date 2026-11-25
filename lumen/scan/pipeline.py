@@ -127,6 +127,10 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
     from lumen.scan.io import read_scan
     from lumen.scan.region import BODY, HEAD, detect_region
 
+    if mask is not None and scan_path is not None:
+        raise ValueError("give a scan or a vessel mask, not both: with a mask the scan is not used")
+    if mask is None and scan_path is None:
+        raise ValueError("give a scan, or a vessel mask with --mask")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     report: dict = {"input": {"scan": bool(scan_path), "mask": bool(mask)}}

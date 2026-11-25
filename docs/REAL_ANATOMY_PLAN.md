@@ -47,10 +47,13 @@ open sets above.
       head-and-neck case and 13.7 mm on the head case; on the generated bifurcation and
       tortuous tree the same wire stays under 1 mm. Checked against the scan's surface itself
       on the head case: the tip was up to 15 mm outside it, at 2, 1 and 0.5 mm of push per
-      step. In the one run traced step by step it began after the tip took a side branch off
-      the route. The environment moves the wire's base along the route to the target, so a tip
-      in the wrong branch is a likely cause; not confirmed. Fix before training on imported
-      anatomy
+      step. Two runs were traced step by step. Pushed only towards the right middle cerebral
+      artery, the wire was on the route inside one branch when its middle bowed out through
+      that branch's wall at a bend, a little further each step as the base kept advancing.
+      Under the scripted wire it began after the tip took a side branch off the route. In
+      both the base keeps moving along the route whatever the wall pushes back with, so the
+      wall gives way; that reading of the cause is not confirmed. Fix before training on
+      imported anatomy
 - [ ] The environment lets the 18 mm device be withdrawn to the entry point, where it bunches
       up and buckles through the wall; withdrawal should stop at the entry
 

@@ -128,7 +128,7 @@ def installed(seg: Segmenter) -> bool:
         rec = json.loads((_dir(seg) / "installed.json").read_text())
     except (OSError, ValueError):
         return False
-    return rec.get("commit") == seg.commit and _python(seg).exists()
+    return isinstance(rec, dict) and rec.get("commit") == seg.commit and _python(seg).exists()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -139,10 +139,14 @@ def _consent_file() -> Path:
 
 
 def _consents() -> dict:
+    """What the user has agreed to; a missing or damaged file means nothing was agreed."""
     try:
-        return json.loads(_consent_file().read_text())
+        rec = json.loads(_consent_file().read_text())
     except (OSError, ValueError):
         return {}
+    if not isinstance(rec, dict):
+        return {}
+    return {k: v for k, v in rec.items() if isinstance(v, dict)}
 
 
 def prompt_text(seg: Segmenter, why: str) -> str:
@@ -344,11 +348,14 @@ def _fetch(url: str, dest: Path, size: int, sha256: str) -> None:
                 if got > size:
                     raise SegmenterError(f"{dest.name}: the download is larger than expected")
                 f.write(block)
-    except OSError as exc:
-        part.unlink(missing_ok=True)
-        raise SegmenterError(f"could not download {dest.name}: {exc}") from exc
     except SegmenterError:
         part.unlink(missing_ok=True)
+        raise
+    except BaseException as exc:
+        # whatever stopped it (network error, a short read, Ctrl-C), no partial file stays
+        part.unlink(missing_ok=True)
+        if isinstance(exc, Exception):
+            raise SegmenterError(f"could not download {dest.name}: {exc}") from exc
         raise
     if got != size or _sha256(part) != sha256:
         part.unlink(missing_ok=True)
@@ -391,7 +398,9 @@ def _install_locked(seg: Segmenter, say=print) -> None:
                                        "prediction_counter": 0, "statistics_disclaimer_shown": True},
                                       indent=1))
     elif seg.key == RSNA_INTRACRANIAL.key:
-        _pip(seg, [f"nnxnet @ {_archive(seg)}#subdirectory=nnXNet"], log)
+        # NumPy 2 is required, not just preferred: the weights are loaded as data only, through
+        # an allow-list of NumPy 2 type names (see _rsna_runner._network)
+        _pip(seg, [f"nnxnet @ {_archive(seg)}#subdirectory=nnXNet", "numpy>=2.0"], log)
         for handle, rel, size, sha in RSNA_WEIGHTS:
             _fetch(_KAGGLE.format(handle=handle, path=rel), weights_dir(seg) / rel, size, sha)
     else:
@@ -437,17 +446,32 @@ def _torch_env(extra: dict | None = None) -> dict:
     return env
 
 
+PROBE_TIMEOUT_S = 300.0   # a one-line question to the model's Python; minutes means it is stuck
+
+
+def _ask_env(seg: Segmenter, code: str, what: str) -> subprocess.CompletedProcess:
+    """Run a one-liner in the model's environment, never waiting on it for ever."""
+    try:
+        return subprocess.run([str(_python(seg)), "-c", code], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=PROBE_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        raise SegmenterError(f"{what} of {seg.title} took longer than "
+                             f"{PROBE_TIMEOUT_S / 60:.0f} minutes and was stopped") from exc
+    except OSError as exc:
+        raise SegmenterError(f"{what} of {seg.title} could not start: {exc}") from exc
+
+
 def _device(seg: Segmenter) -> str:
     code = ("import torch;print('gpu' if torch.cuda.is_available() else "
             "'mps' if torch.backends.mps.is_available() else 'cpu')")
-    out = subprocess.run([str(_python(seg)), "-c", code], capture_output=True, text=True)
+    out = _ask_env(seg, code, "checking the processor")
     return out.stdout.strip().splitlines()[-1] if out.returncode == 0 and out.stdout.strip() else "cpu"
 
 
 def _class_map(seg: Segmenter, task: str) -> dict:
     code = ("import json;from totalsegmentator.map_to_binary import class_map;"
             f"print(json.dumps(class_map[{task!r}]))")
-    out = subprocess.run([str(_python(seg)), "-c", code], capture_output=True, text=True)
+    out = _ask_env(seg, code, "reading the class list")
     if out.returncode != 0:
         raise SegmenterError(f"cannot read the class list of {seg.title}: {out.stderr[-400:]}")
     return {int(k): v for k, v in json.loads(out.stdout.strip().splitlines()[-1]).items()}

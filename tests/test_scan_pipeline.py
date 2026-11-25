@@ -195,6 +195,18 @@ def test_mr_uses_the_header_when_it_speaks():
     assert region.detect_region(scan).regions == ("head",)
 
 
+def test_mr_header_text_does_not_lose_what_the_picture_shows():
+    # a head-and-neck MRA described only as "Carotid": the head in the picture still counts
+    scan = _phantom([("trunk", 200), ("neck", 80), ("head", 170)], modality="MR")
+    scan.data = np.where(scan.data > -500, 300.0, 0.0).astype(np.float32)
+    scan.hints = {"SeriesDescription": "MRA Carotid"}
+    r = region.detect_region(scan)
+    assert r.regions == ("head", "body") and r.basis == "header and picture"
+    # and with no header text at all the picture alone still decides
+    scan.hints = {}
+    assert region.detect_region(scan).regions == ("head", "body")
+
+
 # ---------------------------------------------------------------------------------------------
 # ask before installing
 # ---------------------------------------------------------------------------------------------
@@ -560,3 +572,72 @@ def test_filesystem_probe_reads_a_folder_that_does_not_exist_yet(tmp_path):
         assert fs.isalnum() and fs == segmenters._filesystem(tmp_path)   # a type name such as apfs
     else:
         assert fs == ""
+
+
+@pytest.mark.parametrize("damaged", ["[]", '"yes"', '{"totalsegmentator": true}', "{not json"])
+def test_a_damaged_record_file_means_ask_again_not_a_crash(lumen_home, damaged):
+    seg = segmenters.TOTALSEGMENTATOR
+    segmenters._consent_file().parent.mkdir(parents=True, exist_ok=True)
+    segmenters._consent_file().write_text(damaged)
+    segmenters._dir(seg).mkdir(parents=True, exist_ok=True)
+    (segmenters._dir(seg) / "installed.json").write_text(damaged)
+    assert not segmenters.installed(seg)
+    asked = []
+    with pytest.raises(segmenters.Declined):
+        segmenters.agree(seg, why="w", ask=lambda text: asked.append(text) or "n")
+    assert len(asked) == 1                                         # true is not a recorded yes
+
+
+def test_a_download_cut_short_leaves_no_partial_file(tmp_path, monkeypatch):
+    import http.client
+    import urllib.request
+
+    class Resp:
+        def __init__(self):
+            self.n = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, k):
+            self.n += 1
+            if self.n == 1:
+                return b"x" * 100
+            raise http.client.IncompleteRead(b"")                  # not an OSError
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: Resp())
+    dest = tmp_path / "w" / "file.bin"
+    with pytest.raises(segmenters.SegmenterError, match="could not download file.bin"):
+        segmenters._fetch("https://example.invalid/file.bin", dest, 300, "0" * 64)
+    assert list((tmp_path / "w").iterdir()) == []
+
+
+def test_a_stuck_question_to_the_model_environment_is_stopped(lumen_home, monkeypatch):
+    import sys
+
+    seg = segmenters.TOTALSEGMENTATOR
+    monkeypatch.setattr(segmenters, "_python", lambda s: sys.executable)
+    monkeypatch.setattr(segmenters, "PROBE_TIMEOUT_S", 0.5)
+    with pytest.raises(segmenters.SegmenterError, match="took longer than"):
+        segmenters._ask_env(seg, "import time; time.sleep(30)", "checking the processor")
+    assert segmenters._ask_env(seg, "print('ok')", "checking").stdout.strip() == "ok"
+
+
+def test_a_scan_and_a_mask_together_are_refused(tmp_path):
+    with pytest.raises(ValueError, match="not both"):
+        pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", mask=tmp_path / "m.nii.gz")
+    with pytest.raises(ValueError, match="give a scan"):
+        pipeline.import_scan(None, tmp_path / "out")
+    assert not (tmp_path / "out").exists()                         # refused before writing anything
+
+
+def test_the_head_model_environment_is_held_to_numpy_2(lumen_home, monkeypatch):
+    asked = []
+    monkeypatch.setattr(segmenters, "_make_env", lambda seg, log: None)
+    monkeypatch.setattr(segmenters, "_pip", lambda seg, args, log: asked.extend(args))
+    monkeypatch.setattr(segmenters, "_fetch", lambda *a, **k: None)
+    segmenters._install(segmenters.RSNA_INTRACRANIAL, lambda *_: None)
+    assert "numpy>=2.0" in asked and any(a.startswith("nnxnet @ ") for a in asked)

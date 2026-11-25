@@ -101,6 +101,9 @@ patient millimetres (LPS).
 
 - Angiography and other projection images. Only cross-sectional scans.
 - Scans with gantry tilt or unevenly spaced slices. Lumen stops and says so.
+- Where the head model marks an aneurysm, the sac is kept as part of the vessel and listed as
+  a target named `aneurysm`. The model can mark one that is not there, and the tree treats
+  the sac as a short side branch, not as a rounded pouch.
 - Vessels the models do not name (renal and visceral branches, vertebral arteries, external
   carotids) are not found from a scan. Supply a mask to include them.
 - The anatomy is one connected tree. Arteries that do not join it inside the scan are left
