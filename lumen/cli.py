@@ -451,6 +451,10 @@ def import_scan_main(argv=None, prog=None) -> None:
     args = parser.parse_args(argv)
     if not args.scan and not args.mask:
         parser.error("give a scan or --mask")
+    if args.scan and args.mask:
+        parser.error("give a scan or --mask, not both: with a mask the scan is not used")
+    if args.list_series and not args.scan:
+        parser.error("--list-series needs a scan (a DICOM folder)")
     try:
         if args.list_series:
             from lumen.scan.io import list_dicom_series

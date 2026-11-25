@@ -127,6 +127,11 @@ def lumen_side(tris: np.ndarray, mode: str, crease_deg: float = 55.0) -> np.ndar
     _, lab = connected_components(G, directed=False)
     patch_area = np.bincount(lab, weights=area)
     big = np.argsort(-patch_area)[:2]
+    # an open thin-walled shell has two large walls of similar area. One smooth patch, or a
+    # second patch far smaller than the first (an end cap), is a closed surface of the lumen
+    if len(big) < 2 or patch_area[big[1]] < 0.2 * patch_area[big[0]]:
+        raise ValueError("this mesh does not look like an open thin-walled shell (no inner and outer "
+                         "wall of similar size); for a closed surface of the lumen use mode='solid'")
     outer, inner = (big[0], big[1]) if patch_area[big[0]] >= patch_area[big[1]] else (big[1], big[0])
     side = np.zeros(n)
     side[lab == inner] = 1.0
@@ -921,7 +926,6 @@ def main(argv=None):
     tris = read_stl(a.mesh) * a.scale_to_mm
     side = lumen_side_cached(tris, a.mode, a.cache)
     rep["conversion_error"] = conversion_error(asset, a.mesh, task_edges=task_edges or None, tris=tris, side=side)
-    (out / "import_report.json").write_text(json.dumps(rep, indent=2))
     rep["figures"] = _plots(asset, tris, side, sites, out)
     (out / "import_report.json").write_text(json.dumps(rep, indent=2))
     print(json.dumps({k: rep[k] for k in ("voxelization", "skeleton", "edges", "routes", "site_projection",

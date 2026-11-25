@@ -96,6 +96,17 @@ def test_shell_matches_solid():
     assert abs(vox["volume_mm3"] - vol) / vol < 0.06
 
 
+def test_shell_mode_refuses_a_closed_surface():
+    """A closed surface of the lumen is not an open shell; saying so beats a wrong lumen."""
+    capped = _tube([0, 0, 0], [0, 40, 0], 3.0, n_theta=64)                 # barrel and two end caps
+    with pytest.raises(ValueError, match="mode='solid'"):
+        pi.lumen_side(capped, "shell")
+    barrel = _tube([0, 0, 0], [0, 40, 0], 3.0, cap0=False, cap1=False)     # one smooth patch
+    with pytest.raises(ValueError, match="mode='solid'"):
+        pi.lumen_side(barrel, "shell")
+    assert (pi.lumen_side(capped, "solid") == -1).all()
+
+
 def test_y_bifurcation_branches_and_sites():
     parts = [_tube([0, 0, 0], [0, 30, 0], 4.0, n_theta=64), _tube([0, 26, 0], [-18, 55, 0], 2.0),
              _tube([0, 26, 0], [18, 55, 0], 2.5)]

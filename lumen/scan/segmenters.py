@@ -289,7 +289,21 @@ def _make_env(seg: Segmenter, log: Path) -> None:
     if uv:
         _run([uv, "venv", "--python", seg.python, env_dir], log, what="creating the environment")
     else:
-        _run([sys.executable, "-m", "venv", env_dir], log, what="creating the environment")
+        _run([_pinned_python(seg), "-m", "venv", env_dir], log, what="creating the environment")
+
+
+def _pinned_python(seg: Segmenter) -> str:
+    """The interpreter the model was tried on, when uv is not there to fetch it."""
+    if "{}.{}".format(*sys.version_info[:2]) == seg.python:
+        return sys.executable
+    found = shutil.which(f"python{seg.python}")
+    if found:
+        return found
+    raise SegmenterError(
+        f"{seg.title} needs Python {seg.python} for its own environment, and this is Python "
+        "{}.{}. Install uv (https://docs.astral.sh/uv/), which fetches the right Python by "
+        "itself, or install Python {} and run the import again.".format(
+            *sys.version_info[:2], seg.python))
 
 
 def _pip(seg: Segmenter, args: list, log: Path) -> None:

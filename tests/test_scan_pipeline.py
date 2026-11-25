@@ -641,3 +641,39 @@ def test_the_head_model_environment_is_held_to_numpy_2(lumen_home, monkeypatch):
     monkeypatch.setattr(segmenters, "_fetch", lambda *a, **k: None)
     segmenters._install(segmenters.RSNA_INTRACRANIAL, lambda *_: None)
     assert "numpy>=2.0" in asked and any(a.startswith("nnxnet @ ") for a in asked)
+
+
+@pytest.mark.parametrize("argv, said", [
+    (["--mask", "m.nii.gz", "--list-series"], "--list-series needs a scan"),
+    (["scan-folder", "--mask", "m.nii.gz"], "not both"),
+    ([], "give a scan or --mask"),
+])
+def test_the_command_refuses_arguments_that_do_not_go_together(argv, said, capsys):
+    from lumen import cli
+
+    with pytest.raises(SystemExit) as stop:
+        cli.import_scan_main(argv, prog="lumen import")
+    assert stop.value.code == 2 and said in capsys.readouterr().err
+
+
+def test_without_uv_the_model_environment_still_gets_its_own_python(lumen_home, monkeypatch):
+    import shutil
+    import sys
+
+    seg = segmenters.TOTALSEGMENTATOR
+    ran = []
+    monkeypatch.setattr(segmenters, "_run", lambda cmd, log, what="": ran.append(cmd))
+    other = "3.11" if sys.version_info[:2] != (3, 11) else "3.10"
+    odd = segmenters.Segmenter(**{**seg.__dict__, "python": other})
+    # uv missing, the model's Python on the path: that one is used, not the one running Lumen
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == "uv" else f"/somewhere/{name}")
+    segmenters._make_env(odd, lumen_home / "log")
+    assert ran[-1][0] == f"/somewhere/python{other}"
+    # neither there: stop and say what to install, never build on an untried Python
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    with pytest.raises(segmenters.SegmenterError, match=f"needs Python {other}.*Install uv"):
+        segmenters._make_env(odd, lumen_home / "log")
+    # Lumen already on the model's Python: use it
+    same = segmenters.Segmenter(**{**seg.__dict__, "python": "{}.{}".format(*sys.version_info[:2])})
+    segmenters._make_env(same, lumen_home / "log")
+    assert ran[-1][0] == sys.executable
