@@ -84,7 +84,11 @@ def resolve_target(names: dict, asset: Asset, target: str) -> str:
     want = " ".join(target.lower().replace("_", " ").split())
     hits = [v for v in vessels if v.lower() == want] or [v for v in vessels if want in v.lower()]
     if len(hits) == 1:
-        return vessels[hits[0]]["target_node"]
+        node = vessels[hits[0]].get("target_node")
+        if node is None:
+            # never fall back to some other leaf: a run aimed at the wrong vessel looks like a result
+            raise ValueError(f"vessel {hits[0]!r} has no node the wire can reach from the entry")
+        return node
     known = ", ".join(sorted(vessels)) or "none"
     if not hits:
         raise ValueError(f"no vessel or node called {target!r}; named vessels: {known}")
@@ -113,8 +117,11 @@ def _merge(volumes: list):
         if v.data.shape != first.data.shape or not np.allclose(v.affine, first.affine, atol=1e-3):
             raise ValueError("segmenters returned different grids for one scan")
         for val, name in sorted(v.names.items()):
+            sel = (np.asarray(v.data) == val) & (data == 0)
+            if not sel.any():
+                continue                                      # no voxels left: list no vessel
             names[len(names) + 1] = name
-            data[(np.asarray(v.data) == val) & (data == 0)] = len(names)
+            data[sel] = len(names)
     return LabelVolume(data, first.affine, names)
 
 

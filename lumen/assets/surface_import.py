@@ -132,7 +132,7 @@ def lumen_side(tris: np.ndarray, mode: str, crease_deg: float = 55.0) -> np.ndar
     if len(big) < 2 or patch_area[big[1]] < 0.2 * patch_area[big[0]]:
         raise ValueError("this mesh does not look like an open thin-walled shell (no inner and outer "
                          "wall of similar size); for a closed surface of the lumen use mode='solid'")
-    outer, inner = (big[0], big[1]) if patch_area[big[0]] >= patch_area[big[1]] else (big[1], big[0])
+    inner = big[1] if patch_area[big[0]] >= patch_area[big[1]] else big[0]   # the smaller wall
     side = np.zeros(n)
     side[lab == inner] = 1.0
     cen = tris.mean(axis=1)

@@ -677,3 +677,27 @@ def test_without_uv_the_model_environment_still_gets_its_own_python(lumen_home, 
     same = segmenters.Segmenter(**{**seg.__dict__, "python": "{}.{}".format(*sys.version_info[:2])})
     segmenters._make_env(same, lumen_home / "log")
     assert ran[-1][0] == sys.executable
+
+
+def test_a_vessel_the_wire_cannot_reach_is_refused_not_swapped(tmp_path):
+    names = {"vessels": {"left vertebral artery": {"edges": ["e9"], "target_node": None}}}
+
+    class A:
+        nodes = []
+
+    with pytest.raises(ValueError, match="no node the wire can reach"):
+        pipeline.resolve_target(names, A(), "vertebral")
+
+
+def test_merge_lists_only_vessels_that_kept_voxels():
+    from lumen.assets.scan_import import LabelVolume
+
+    a = np.zeros((4, 4, 4), np.int16)
+    a[1:3, 1:3, 1:3] = 1
+    b = np.zeros_like(a)
+    b[1:3, 1:3, 1:3] = 1                                       # entirely under the first model's label
+    b[0, 0, 0] = 2
+    m = pipeline._merge([LabelVolume(a, np.eye(4), {1: "aorta"}),
+                         LabelVolume(b, np.eye(4), {1: "aorta copy", 2: "left iliac artery"})])
+    assert sorted(m.names.values()) == ["aorta", "left iliac artery"]
+    assert set(np.unique(m.data)) - {0} == set(m.names)
