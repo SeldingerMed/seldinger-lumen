@@ -9,7 +9,14 @@ from lumen.envs.tree_nav import TreeNavEnv
 from lumen.viewer.scene import resolve
 
 
+def _solver():
+    """Tests that step the wire need the optional solver; the rest run without it."""
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+
 def _push(env, steps):
+    _solver()
     env.reset()
     worst, info = 0.0, {}
     for _ in range(steps):
@@ -24,6 +31,7 @@ def _push(env, steps):
 def test_a_steered_wire_reaches_each_branch_without_going_through_the_wall(anatomy, target):
     from lumen.viewer.record import FollowPolicy
 
+    _solver()
     env = TreeNavEnv(resolve(anatomy).asset, target_node=target, max_steps=300)
     env.reset()
     policy, info, worst = FollowPolicy(), {"dist": 1e9, "off_route": False}, 0.0

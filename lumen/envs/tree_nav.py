@@ -234,8 +234,6 @@ class TreeNavEnv:
                                              else {"density": self.density}))
         else:
             self.sim.reset()
-        seed = self.sim.body_positions()
-        self._wire_mm = float(np.linalg.norm(np.diff(seed, axis=0), axis=1).sum())
         self.steps = 0
         self._wall_load_impulse = 0.0
         self._prev = abs(self._features()["s"] - self.target_s)
@@ -244,23 +242,34 @@ class TreeNavEnv:
     def step(self, action):
         a, twist = self._parse_action(action)
         insertion, turn = a * self.max_insertion, twist * self.max_twist
+        split = None
         if insertion > 0.0 and self.feed_stop_pen_mm is not None:
             # the route ends where the scan's vessel ends: a tip already there gets no more
-            # push, and the pushed end never runs past the end of the route
+            # push, and the pushed end never runs past the end of the route. The stop sits
+            # inside the goal band, so a target at the very end can still be reached.
+            stop = self.L - min(1.0, 0.5 * float(self.success_tol))
             pos = self.sim.body_positions()
             base_s = self.route_frame.project(pos[0]).s
-            if self.route_frame.project(pos[-1]).s >= self.L - 1.0:
+            if self.route_frame.project(pos[-1]).s >= stop:
                 insertion = 0.0
-            insertion = float(np.clip(self.L - 1.0 - base_s, 0.0, insertion))
+            insertion = float(np.clip(stop - base_s, 0.0, insertion))
         if (insertion > 0.0 or turn != 0.0) and self.feed_stop_pen_mm is not None:
             # push and turn a piece per substep, only while the wire is not pressing into the
-            # wall (turning a shaped tip that is already in the wall swings it through)
+            # wall (turning a shaped tip that is already in the wall swings it through). Each
+            # sim.step reports its own peaks and impulse, so they are combined over the pieces.
             n = max(1, int(self.substeps))
+            split = {"load": 0.0, "pressure": 0.0, "impulse": 0.0}
             for _ in range(n):
                 free = self._deepest_pen() <= self.feed_stop_pen_mm
                 self.sim.step(dt=5e-3 * self.substeps / n, substeps=self.substeps // n or 1,
                               insertion=(insertion / n if free or insertion < 0 else 0.0),
                               twist=(turn / n if free else 0.0))
+                if hasattr(self.sim, "wall_load_max"):
+                    split["load"] = max(split["load"], float(self.sim.wall_load_max()))
+                if hasattr(self.sim, "wall_pressure_max"):
+                    split["pressure"] = max(split["pressure"], float(self.sim.wall_pressure_max()))
+                if hasattr(self.sim, "wall_load_impulse"):
+                    split["impulse"] += float(self.sim.wall_load_impulse())
         else:
             self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
                           insertion=insertion, twist=turn)
@@ -292,18 +301,20 @@ class TreeNavEnv:
             np.asarray(self.sim.wall_load_grid(), dtype=float)
             if hasattr(self.sim, "wall_load_grid") else np.zeros(0, dtype=float)
         )
-        if hasattr(self.sim, "wall_load_max"):
+        if split is not None and hasattr(self.sim, "wall_load_max"):
+            wall_load_max = split["load"]
+        elif hasattr(self.sim, "wall_load_max"):
             wall_load_max = float(self.sim.wall_load_max())
         else:
             wall_load_max = float(load_grid.max()) if load_grid.size else 0.0
         wall_load_sum = float(load_grid.sum()) if load_grid.size else 0.0
         wall_pressure_max = (
-            float(self.sim.wall_pressure_max())
+            (split["pressure"] if split is not None else float(self.sim.wall_pressure_max()))
             if hasattr(self.sim, "wall_pressure_max") else 0.0
         )
         if hasattr(self.sim, "wall_load_impulse"):
             self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (
-                float(self.sim.wall_load_impulse())
+                split["impulse"] if split is not None else float(self.sim.wall_load_impulse())
             )
         else:
             self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (

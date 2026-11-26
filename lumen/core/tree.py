@@ -49,6 +49,13 @@ class _Edge:
         self.R_max = float(np.max(lf.R))          # bound for skipping edges in project()
 
 
+CAP_CLOSING = 0.15     # an end whose radius falls by more than this is a scan cap
+
+
+def _mean_R(e, s: float) -> float:
+    return float(np.mean([e.lf.eval(s, t) for t in np.linspace(0.0, 2 * np.pi, 16, endpoint=False)]))
+
+
 class VascularTree:
     """Frame over an `Asset`'s edge graph with branch-node-aware R.
 
@@ -73,9 +80,11 @@ class VascularTree:
             for nid in (e.node_a, e.node_b):
                 self._degree[nid] = self._degree.get(nid, 0) + 1
         # A scanned artery that runs off the edge of the scan (or where the segmentation
-        # stopped) ends in a rounded cap: the stored radius closes to a point over the last
+        # stopped) ends in a rounded cap: the stored radius closes toward a point over the last
         # ~1.5 radii. The vessel does not really end there, so over that cap the radius holds
-        # at its value just before it. Generated anatomy has no caps; this changes nothing. The
+        # at its value just before it. Only an end that really closes is held (by more than
+        # CAP_CLOSING over that stretch): on the shipped scans most ends close by 25-98%, while
+        # generated anatomy's tapered outlets narrow by under 5% there and stay as built. The
         # entry end is left alone: the wire starts there, and it is open (no wall past it).
         self._caps: list[list[tuple[float, float]]] = []
         for e in self.edges:
@@ -84,8 +93,15 @@ class VascularTree:
             span = min(1.5 * r_med, 0.3 * float(e.frame.length))
             for end_s, nid, sign in ((0.0, e.node_a, 1.0), (float(e.frame.length), e.node_b, -1.0)):
                 if self._degree.get(nid, 0) == 1 and span > 0 and nid != self.entry_node:
-                    caps.append((end_s, end_s + sign * span))
+                    ref_s = end_s + sign * span
+                    if _mean_R(e, end_s) < (1.0 - CAP_CLOSING) * _mean_R(e, ref_s):
+                        caps.append((end_s, ref_s))
             self._caps.append(caps)
+        # project() skips an edge whose widest possible radius cannot beat the current owner;
+        # near a junction the blend can widen an edge to the junction radius
+        self._R_bound = [max([e.R_max] + [self._junction_R(n) for n in (e.node_a, e.node_b)
+                                          if self._degree.get(n, 0) > 1])
+                         for e in self.edges]
 
     # --- junction radius -----------------------------------------------------
     def _edge_end_R(self, e: _Edge, node_id: str) -> float:
@@ -140,25 +156,28 @@ class VascularTree:
         branch-blended.
 
         Owner = the edge where the point has the most room (radius minus distance from the
-        axis), so a point is inside the vessel when it is inside ANY branch. Nearest-axis
+        axis), so a point is inside the vessel when it is inside ANY branch. The Newton tree
+        kernel compares the same room with the same blended radius; past an edge's end the two
+        still differ (here r is measured across the end's extended axis, the kernel uses the
+        distance to the end point), see issue #153. Nearest-axis
         ownership got this wrong where a thin branch leaves a wide vessel: a point well inside
         the wide lumen could be nearer the thin axis and be judged against the thin wall.
         Near a junction the blended R keeps the gap MAGNITUDE continuous. Also, like CenterlineFrame, a point past an
         open vessel end clips to the tip (reported inside); the contact kernel culls
         open ends, but tree.gap does not flag axial-beyond."""
         p = np.asarray(p, float)
-        best_i, best_pr, best_need = 0, None, np.inf
+        best_i, best_pr, best_need, best_R = 0, None, np.inf, 0.0
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)
-            if pr.r - e.R_max > best_need:
+            if pr.r - self._R_bound[i] > best_need:
                 continue                       # cannot beat the current owner
-            need = pr.r - self._edge_R(i, pr.s, pr.theta)
+            R = self.blended_R(i, pr.s, pr.theta)   # the radius the gap and the wall force use
+            need = pr.r - R
             if need < best_need:
-                best_i, best_pr, best_need = i, pr, need
-        R = self.blended_R(best_i, best_pr.s, best_pr.theta)
+                best_i, best_pr, best_need, best_R = i, pr, need, R
         return TreeProjection(edge_id=self.edges[best_i].id, edge_index=best_i,
                               s=best_pr.s, theta=best_pr.theta, r=best_pr.r,
-                              e_r=best_pr.e_r, R=R, gap=R - best_pr.r)
+                              e_r=best_pr.e_r, R=best_R, gap=best_R - best_pr.r)
 
     def project_edge_s(self, points) -> tuple[np.ndarray, np.ndarray]:
         """Vectorized nearest tree edge and local arc-length for many points.

@@ -245,3 +245,17 @@ def test_non_finite_blend_len_rejected(blend_len):
     asset = procedural.straight_tube(10.0, 1.0)
     with pytest.raises(ValueError, match="blend_len must be >= 0 and finite"):
         VascularTree(asset, blend_len=blend_len)
+
+
+def test_generated_anatomy_keeps_its_tapered_outlets():
+    # Only an end whose radius really closes (a scan's rounded cap) is held open; generated
+    # outlets taper a little and stay as built.
+    for build in (procedural.aortic_arch_tree, procedural.tortuous_tree, procedural.bifurcation):
+        assert all(not caps for caps in VascularTree(build())._caps), build.__name__
+
+
+def test_a_scan_cap_is_held_open():
+    from lumen import cases
+
+    held = sum(len(c) for cid in cases.names() for c in VascularTree(cases.load(cid)[0])._caps)
+    assert held > 0

@@ -211,7 +211,7 @@ class TubeVBDSolver(SolverVBD):
                     inputs=[color_group, self._tree_wire_mask, self._tree_body_radius, state_in.body_q,
                             state_in.body_qd,
                             self._tree_P, self._tree_Tg, self._tree_M1, self._tree_cum_s,
-                            self._tree_Rv, self._tree_vstart, self._tree_vcount, self._tree_smax,
+                            self._tree_vstart, self._tree_vcount, self._tree_smax,
                             self._tree_start_junc, self._tree_end_junc, self._tree_n_edges,
                             self._tree_R0, self._tree_w, self._tree_ns, self._tree_nth,
                             self._tree_n_per_env, self._tree_kappa, self._tree_d_hat,
@@ -587,7 +587,7 @@ class TubeVBDSolver(SolverVBD):
             raise RuntimeError("tube contact already set on this solver; cannot also enable tree "
                                "contact (the barriers would double up)")
         dev = self.device
-        P, Tg, M1, cum_s, Rv = [], [], [], [], []
+        P, Tg, M1, cum_s = [], [], [], []
         vstart, vcount, smax, sj, ej = [], [], [], [], []
         ss = _np.linspace(0.0, 1.0, n_s)              # fractional s; scaled per edge below
         th = -_np.pi + (_np.arange(n_th) + 0.5) / n_th * 2.0 * _np.pi
@@ -603,8 +603,6 @@ class TubeVBDSolver(SolverVBD):
             sj.append(0 if _entry_end(tree, e.node_a) else 1)
             ej.append(0 if _entry_end(tree, e.node_b) else 1)
             P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
-            Rv.append([float(_np.mean([tree.blended_R(i, float(sv), float(t)) for t in th[::4]]))
-                       for sv in f.cum_s])
             # bake the branch-blended R(s,θ) for this edge into its grid block
             block = _np.array([[tree.blended_R(i, float(sf) * f.length, float(t)) for t in th]
                                for sf in ss])
@@ -613,7 +611,6 @@ class TubeVBDSolver(SolverVBD):
         self._tree_Tg = _wp.array(_np.concatenate(Tg).astype(_np.float32), dtype=_wp.vec3, device=dev)
         self._tree_M1 = _wp.array(_np.concatenate(M1).astype(_np.float32), dtype=_wp.vec3, device=dev)
         self._tree_cum_s = _wp.array(_np.concatenate(cum_s).astype(_np.float32), dtype=_wp.float32, device=dev)
-        self._tree_Rv = _wp.array(_np.concatenate(Rv).astype(_np.float32), dtype=_wp.float32, device=dev)
         self._tree_vstart = _wp.array(_np.array(vstart, _np.int32), dtype=_wp.int32, device=dev)
         self._tree_vcount = _wp.array(_np.array(vcount, _np.int32), dtype=_wp.int32, device=dev)
         self._tree_smax = _wp.array(_np.array(smax, _np.float32), dtype=_wp.float32, device=dev)

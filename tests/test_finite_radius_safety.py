@@ -177,9 +177,9 @@ class TestNavEnvNativeEndpoints:
 
 
 class TestSuiteVersionBump:
-    def test_suite_version_is_v3(self):
+    def test_suite_version_is_v4(self):
         from lumen.bench import SUITE_VERSION
-        assert SUITE_VERSION == "lumen-bench/3"
+        assert SUITE_VERSION == "lumen-bench/4"
 
     def test_validator_rejects_v2_scorecard(self):
         from lumen.bench import Scorecard, SUITE, validate_scorecard
