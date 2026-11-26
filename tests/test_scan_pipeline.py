@@ -1083,9 +1083,9 @@ def test_a_different_scan_in_the_same_folder_is_not_served_the_cached_labels(tmp
         return labels
 
     monkeypatch.setattr(segmenters, "run_body", run_body)
-    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None: scan)
+    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None, **_: scan)
     pipeline.import_scan(tmp_path / "a.nii.gz", tmp_path / "out", say=lambda *_: None)
-    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None: other)
+    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None, **_: other)
     pipeline.import_scan(tmp_path / "b.nii.gz", tmp_path / "out", say=lambda *_: None)
     assert len(seen) == 2                                          # the second scan was not reused
 

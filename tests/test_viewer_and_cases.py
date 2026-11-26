@@ -72,6 +72,13 @@ def test_compact_surface_round_trips_within_storage_precision(tmp_path):
     assert np.abs(v - v2).max() <= mesh.QUANTUM_MM / 2 + 1e-4
 
 
+def test_simplify_returns_page_dtypes_even_when_nothing_is_dropped():
+    v = np.zeros((3, 3), np.float64)
+    f = np.array([[0, 1, 2]], np.int64)
+    v2, f2 = mesh.simplify_to(v, f, 10)
+    assert v2.dtype == np.float32 and f2.dtype == np.uint32
+
+
 def test_simplify_keeps_shape_and_drops_triangles():
     a = resolve("arch").asset
     v, f = tube_mesh(a, n_theta=32, step_mm=0.5)
@@ -151,6 +158,51 @@ def test_a_recorded_run_replays_and_reloads(tmp_path):
     assert again["outcome"] == run["outcome"]
     html = page.build(a, again)
     assert '"replay":{' in html
+
+
+class _BlowUpEnv:
+    """Stands in for TreeNavEnv: the solver diverges (NaN positions) on step 3."""
+
+    def __init__(self, asset):
+        self.asset, self.L, self.k = asset, 100.0, 0
+        self.route_frame = type("R", (), {"points": np.zeros((2, 3))})()
+        self.sim = type("S", (), {"body_positions": lambda s: self._pos()})()
+
+    def _pos(self):
+        pos = np.full((5, 3), float(self.k))
+        return pos * np.nan if self.k >= 3 else pos
+
+    def reset(self):
+        self.k = 0
+
+    def step(self, action):
+        self.k += 1
+        info = {"dist": 50.0 - self.k, "diverged": self.k >= 3}
+        return None, 0.0, self.k >= 3, False, info
+
+
+def test_a_diverged_run_ends_on_the_last_good_frame_and_stays_strict_json(tmp_path):
+    a = resolve("arch")
+    run = record.record(_BlowUpEnv(a.asset), steps=10, anatomy="arch", target="carotid")
+    assert [f["step"] for f in run["frames"]] == [0, 1, 2]
+    assert run["outcome"]["diverged"] is True and run["outcome"]["steps"] == 2
+    again = record.load(record.save(run, tmp_path / "run.json"))
+    assert "NaN" not in (tmp_path / "run.json").read_text() and again["outcome"] == run["outcome"]
+
+
+def test_run_without_the_solver_is_a_clear_error_not_a_traceback(monkeypatch, capsys):
+    import lumen.envs.tree_nav as tree_nav
+    from lumen.cli import view_main
+
+    class _NoSolver:
+        def __init__(self, *a, **k):
+            raise ModuleNotFoundError("No module named 'warp'")
+
+    monkeypatch.setattr(tree_nav, "TreeNavEnv", _NoSolver)
+    with pytest.raises(SystemExit) as exc:
+        view_main(["arch", "--run", "--target", "carotid", "--steps", "2"])
+    assert exc.value.code == 2
+    assert "--run needs the solver" in capsys.readouterr().err
 
 
 def test_a_damaged_replay_is_refused(tmp_path):

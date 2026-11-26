@@ -1175,9 +1175,14 @@ def view_main(argv=None, prog=None) -> None:
         except (KeyError, ValueError) as exc:
             parser.error(str(exc))
         print(f"Driving a wire to {args.target} ...", flush=True)
-        env = TreeNavEnv(anatomy.asset, target_node=node, max_steps=args.steps, **record.ENV_DEFAULTS)
-        replay = record.record(env, steps=args.steps, anatomy=args.anatomy, target=args.target)
+        try:
+            env = TreeNavEnv(anatomy.asset, target_node=node, max_steps=args.steps, **record.ENV_DEFAULTS)
+            replay = record.record(env, steps=args.steps, anatomy=args.anatomy, target=args.target)
+        except ImportError as exc:
+            parser.error(f"--run needs the solver: pip install -e '.[solver]' ({exc})")
         o = replay["outcome"]
+        if o.get("diverged"):
+            print(f"  the solver diverged after step {o['steps']}; the replay ends there")
         print(("  reached it" if o["reached"] else f"  stopped {o['left_mm']} mm short")
               + f" in {o['steps']} steps; most wall overlap {o['max_overlap_mm']} mm")
         if args.save_run:

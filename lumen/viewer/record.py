@@ -59,13 +59,21 @@ def record(env, policy=None, steps: int = 400, *, anatomy: str = "", target: str
     if hasattr(policy, "reset"):
         policy.reset()
     env.reset()
-    frames = [_frame(env, 0, np.zeros(2), {})]
+    first = _frame(env, 0, np.zeros(2), {})
+    if first is None:
+        raise RuntimeError("the wire's starting position is not finite; nothing to record")
+    frames = [first]
     info: dict = {}
     outcome = {"reached": False, "steps": 0, "left_mm": frames[0]["left_mm"]}
     for k in range(1, steps + 1):
         action = np.asarray(policy(info), np.float32)
         _, _, term, trunc, info = env.step(action)
-        frames.append(_frame(env, k, action, info))
+        frame = _frame(env, k, action, info)
+        if info.get("diverged") or frame is None:
+            # The solver blew up: its positions may be NaN. End the replay on the last good frame.
+            outcome = {**outcome, "diverged": True}
+            break
+        frames.append(frame)
         outcome = {"reached": bool(info.get("success")), "steps": k,
                    "left_mm": round(float(info.get("dist", 0.0)), 2)}
         if term or trunc:
@@ -83,8 +91,10 @@ def record(env, policy=None, steps: int = 400, *, anatomy: str = "", target: str
             "frames": frames, "outcome": outcome}
 
 
-def _frame(env, k: int, action, info: dict) -> dict:
+def _frame(env, k: int, action, info: dict) -> dict | None:
     pos = np.asarray(env.sim.body_positions(), float)
+    if not np.isfinite(pos).all():
+        return None
     return {"step": k, "nodes": np.round(pos, 2).tolist(),
             "action": [round(float(a), 3) for a in np.asarray(action).ravel()[:2]],
             "left_mm": round(float(info.get("dist", env.L)), 2),
@@ -94,7 +104,7 @@ def _frame(env, k: int, action, info: dict) -> dict:
 
 def save(replay: dict, path: str | Path) -> Path:
     p = Path(path)
-    p.write_text(json.dumps(replay, separators=(",", ":")))
+    p.write_text(json.dumps(replay, separators=(",", ":"), allow_nan=False))
     return p
 
 

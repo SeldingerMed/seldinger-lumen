@@ -56,7 +56,7 @@ def simplify_to(verts, faces, max_triangles: int):
     while len(f) > max_triangles and cell < 10.0:
         v, f = simplify(verts, faces, cell)
         cell *= 1.3
-    return v, f
+    return np.asarray(v, np.float32), np.asarray(f, np.uint32)   # the page decodes exactly these
 
 
 def save_npz(path: str | Path, verts: np.ndarray, faces: np.ndarray) -> Path:
