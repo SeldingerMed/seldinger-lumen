@@ -59,7 +59,11 @@ def record(env, policy=None, steps: int = 400, *, anatomy: str = "", target: str
     if hasattr(policy, "reset"):
         policy.reset()
     env.reset()
-    first = _frame(env, 0, np.zeros(2), {})
+    try:                                     # the env's own distance, as every step reports it
+        start = {"dist": abs(float(env._features()["s"]) - float(env.target_s))}
+    except AttributeError:
+        start = {}                           # a stand-in env: _frame falls back to the route length
+    first = _frame(env, 0, np.zeros(2), start)
     if first is None:
         raise RuntimeError("the wire's starting position is not finite; nothing to record")
     frames = [first]

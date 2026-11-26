@@ -86,6 +86,13 @@ def test_a_private_marker_behind_an_approved_one_is_still_refused(firewall):
     assert len(mod.check_provenance()) == 1
 
 
+def test_a_case_asset_must_carry_its_provenance_marker(firewall):
+    mod, root = firewall
+    d = _case(root, "ok")
+    (d / "asset.json.gz").write_bytes(gzip.compress(json.dumps({"edges": []}).encode()))
+    assert len(mod.check_provenance()) == 1
+
+
 def test_build_output_is_not_mistaken_for_loose_geometry(firewall):
     mod, root = firewall
     out = root / "build" / "lib" / "lumen" / "cases" / "ok"

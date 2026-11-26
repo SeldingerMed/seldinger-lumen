@@ -329,3 +329,16 @@ def test_the_c_arm_draws_a_closed_surface():
         assert (counts == 2).all(), cid                        # every edge shared by two faces
         assert _signed_volume(v, f) > 0
     assert scene_dict(resolve("arch"))["carm_mesh"] is None     # the model itself is used
+
+
+def test_a_replay_starts_at_the_real_distance_to_target():
+    _solver()
+    from lumen.envs.tree_nav import TreeNavEnv
+    from lumen.viewer.record import record
+    from lumen.viewer.scene import resolve
+
+    env = TreeNavEnv(resolve("arch").asset, target_node="carotid_out", max_steps=5)
+    rep = record(env, steps=1)
+    env.reset()
+    want = abs(env._features()["s"] - env.target_s)
+    assert abs(rep["frames"][0]["left_mm"] - want) < 0.5 and want < env.L - 1.0

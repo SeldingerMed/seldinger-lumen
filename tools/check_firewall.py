@@ -122,7 +122,12 @@ def check_provenance() -> list[str]:
             d = _read_json(p)
         except (ValueError, OSError, EOFError):
             continue
-        for prov in _provenances(d):
+        provs = list(_provenances(d))
+        if p.name == "asset.json.gz" and not provs and _open_case_problem(p) is None:
+            # a case asset must say what it is: an unlabelled one is not approved by default
+            bad.append(f"  case asset without a provenance marker: {p.relative_to(ROOT)} "
+                       f"(expected {CASE_FILES['asset.json.gz']!r})")
+        for prov in provs:
             if prov != "procedural":
                 why = _open_case_problem(p, prov)
                 if why is not None:
