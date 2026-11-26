@@ -17,9 +17,18 @@ external oracles):
   * STARK / SymX — accurate-tier oracle (cross-validation only).
   * ppf-contact-solver — GPU accurate-tier baseline (cross-validation only).
   * DiffDRR — differentiable X-ray rendering (sensor layer).
+  * TotalSegmentator — Apache-2.0 (University Hospital Basel). Optional; installed only
+    when the user agrees during `lumen import`, from the pinned fork
+    https://github.com/SeldingerMed/TotalSegmentator.
+  * RSNA 2025 intracranial artery model and nnXNet — Apache-2.0 (Pengcheng Shi and
+    co-authors). Optional; installed only when the user agrees during `lumen import`,
+    from the pinned fork
+    https://github.com/SeldingerMed/RSNA2025_Intracranial-Aneurysm-Detection.
 
 This repository deliberately does NOT depend on or derive from CathSim
 (CC-BY-NC-SA-4.0) or any patient-derived data. See tools/check_firewall.py.
+Anatomy a user imports from their own scan with `lumen import` is written to a
+folder the user chooses and is never part of this repository.
 
 
 Procedural anatomy pack policy:

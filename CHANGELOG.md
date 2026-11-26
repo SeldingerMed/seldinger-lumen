@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `lumen import`: turn a real CTA or MRA (DICOM folder, NIfTI, NRRD), or a vessel mask, into
+  anatomy the solver can navigate. Lumen works out the body region from the picture, picks the
+  segmentation model (head: the RSNA 2025 intracranial model; neck to pelvis: TotalSegmentator;
+  both when a scan shows both), asks before installing one into its own private environment,
+  names the branches and writes an accuracy report. Runs on the user's machine. Needs the new
+  `scan` extra. See `docs/import.md`.
 - A two-view registration challenge with overlapping procedural forks, calibrated projections and offline pose scoring.
 - Open-source project setup: CI (tests + firewall + lint across Python 3.10–3.12),
   DCO sign-off check, CONTRIBUTING / Code of Conduct / SECURITY, issue & PR

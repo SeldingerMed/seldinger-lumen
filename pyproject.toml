@@ -24,9 +24,25 @@ solver = [
 ]
 gym = ["gymnasium>=0.29"]         # M5: register the nav envs for gymnasium.make
 imaging = ["SimpleITK>=2.3"]      # optional DICOM series loading; core import path is NumPy/.npz
+# `lumen import`: read a CTA/MRA (DICOM, NIfTI, NRRD) and turn its vessels into a navigable asset.
+# Segmentation models are not listed here; Lumen asks before installing one (see docs/import.md).
+scan = [
+  "scipy>=1.10",
+  "scikit-image>=0.22",
+  "pydicom>=2.4",
+  "python-gdcm>=3.0",     # decoder for compressed DICOM (JPEG lossless, JPEG 2000), common from PACS
+  "nibabel>=5.0",
+  "pynrrd>=1.0",
+]
 dev = [
   "pytest>=7",
   "ruff>=0.5",
+  "scipy>=1.10",
+  "scikit-image>=0.22",
+  "pydicom>=2.4",
+  "python-gdcm>=3.0",
+  "nibabel>=5.0",
+  "pynrrd>=1.0",
   "gymnasium>=0.29",
   "warp-lang==1.16.0",
   "newton @ git+https://github.com/newton-physics/newton@6dfe7303d9ca50f7505cac31bee9885c813d89d7",

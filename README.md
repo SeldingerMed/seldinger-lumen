@@ -85,6 +85,18 @@ lumen index lumen-episodes --out lumen-episodes/index.jsonl --check-sidecars
 lumen split-index lumen-episodes/index.jsonl --out-dir lumen-episodes/splits
 ```
 
+## Use your own scan
+
+```bash
+pip install -e ".[scan]"    # from your clone of this repository
+lumen import /path/to/dicom-folder --out my-case
+```
+
+Lumen reads a CTA or MRA (DICOM, NIfTI or NRRD), finds and names the arteries, and writes
+anatomy the solver can navigate. It picks the segmentation model for the body region and asks
+before installing one. Everything runs on your machine. See [docs/import.md](docs/import.md).
+
+
 ## Python API
 
 ```python
