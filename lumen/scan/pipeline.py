@@ -103,7 +103,7 @@ def load_imported(folder: str | Path) -> tuple[Asset, dict]:
     asset = Asset.load(str(folder / "asset.json"))
     try:
         names = json.loads((folder / "names.json").read_text())
-    except OSError:
+    except (OSError, ValueError):                         # missing or damaged: no names
         names = {"edges": {}, "vessels": {}}
     return asset, names
 
@@ -183,7 +183,9 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
             if installs:
                 titles = " and ".join(seg.title for seg in missing if seg.key in installs)
                 say(f"Installing {titles} in the background (this happens once) ...")
-            digest = hashlib.sha256(np.ascontiguousarray(scan.data).tobytes()).hexdigest()
+            h = hashlib.sha256(np.ascontiguousarray(scan.data).tobytes())
+            h.update(np.ascontiguousarray(scan.affine, dtype=np.float64).tobytes())  # same voxels, other placement
+            digest = h.hexdigest()
             for seg in needed:
                 if seg.key in declined:
                     errors.append(f"{seg.title} was not installed, so {seg.finds} are not included")
@@ -270,7 +272,10 @@ def summary_lines(report: dict, out_dir) -> list[str]:
     if report.get("vessels"):
         lines.append("  named vessels you can target:")
         for name, row in sorted(report["vessels"].items(), key=lambda kv: kv[1]["route_mm"]):
-            lines.append(f"    {name}  (node {row['target_node']}, {row['route_mm']:.0f} mm from entry)")
+            if row.get("target_node") is None or row["route_mm"] < 0:
+                lines.append(f"    {name}  (not reachable from the entry)")
+            else:
+                lines.append(f"    {name}  (node {row['target_node']}, {row['route_mm']:.0f} mm from entry)")
     else:
         lines.append("  no vessel names (the mask carried none); target a node id from asset.json")
     for note in (report.get("segmentation") or {}).get("notes") or []:

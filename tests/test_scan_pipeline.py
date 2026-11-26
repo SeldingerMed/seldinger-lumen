@@ -1109,3 +1109,30 @@ def test_cli_refuses_a_nan_entry(capsys):
     with pytest.raises(SystemExit):
         cli.main(["import", "x.nii.gz", "--out", "o", "--entry", "nan,0,0"])
     assert "three numbers" in capsys.readouterr().err
+
+
+def test_a_slicer_segment_in_a_missing_layer_is_a_clean_error(tmp_path):
+    nrrd = pytest.importorskip("nrrd")
+    hdr = {"space": "left-posterior-superior", "space origin": [0.0, 0.0, 0.0],
+           "space directions": [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [np.nan, np.nan, np.nan]],
+           "kinds": ["domain", "domain", "domain", "list"],
+           "Segment0_Layer": 5, "Segment0_LabelValue": 1, "Segment0_Name": "aorta"}
+    f = tmp_path / "v.seg.nrrd"
+    nrrd.write(str(f), np.zeros((4, 4, 4, 2), np.uint8), hdr, index_order="F")
+    with pytest.raises(ValueError, match="layer 5"):
+        sc.load_label_volume(f)
+
+
+def test_a_damaged_names_file_reads_as_no_names(tmp_path, monkeypatch):
+    folder = tmp_path / "imp"
+    folder.mkdir()
+    (folder / "names.json").write_text("{ truncated")
+    monkeypatch.setattr(pipeline.Asset, "load", staticmethod(lambda p: "asset"))
+    assert pipeline.load_imported(folder) == ("asset", {"edges": {}, "vessels": {}})
+
+
+def test_an_unreachable_vessel_reads_as_unreachable():
+    report = {"entry_mm": [0, 0, 0], "edges": [], "wall_error_mm": {"source_to_lumen_mm": {}},
+              "vessels": {"left vertebral": {"target_node": None, "route_mm": -1}}}
+    text = "\n".join(pipeline.summary_lines(report, "out"))
+    assert "not reachable" in text and "None" not in text

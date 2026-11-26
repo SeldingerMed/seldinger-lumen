@@ -78,6 +78,9 @@ def _merge_slicer_layers(layers: np.ndarray, hdr: dict) -> tuple[np.ndarray, dic
     for n, i in enumerate(keys, 1):
         layer = int(hdr.get(f"Segment{i}_Layer", i))
         value = int(hdr.get(f"Segment{i}_LabelValue", 1))
+        if not 0 <= layer < layers.shape[3]:
+            raise ValueError(f"segment {i} is in layer {layer}, but the file has "
+                             f"{layers.shape[3]} layers")
         merged[(layers[..., layer] == value) & (merged == 0)] = n
         names[n] = str(hdr.get(f"Segment{i}_Name", ""))
     return merged, names
