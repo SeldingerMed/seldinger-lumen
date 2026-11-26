@@ -45,8 +45,14 @@ class LabelVolume:
 _RAS_TO_LPS = np.diag([-1.0, -1.0, 1.0, 1.0])
 
 
+def _names_sidecar(p: Path) -> Path:
+    """``labels.nii.gz`` -> ``labels.names.json``."""
+    stem = p.name[:-7] if p.name.endswith(".nii.gz") else p.stem
+    return p.with_name(stem + ".names.json")
+
+
 def save_label_volume(volume: LabelVolume, path: str | Path) -> None:
-    """Write a label volume as NIfTI, with the vessel names in the description header."""
+    """Write a label volume as NIfTI, with the vessel names in a ``.names.json`` file beside it."""
     import json
 
     import nibabel as nib
@@ -55,11 +61,9 @@ def save_label_volume(volume: LabelVolume, path: str | Path) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     img = nib.Nifti1Image(np.asarray(volume.data, dtype=np.int16),
                           _RAS_TO_LPS @ np.asarray(volume.affine, float))
-    img.header["descrip"] = json.dumps({str(k): v for k, v in volume.names.items()})[:79].encode()
     img.header.set_xyzt_units("mm")
     nib.save(img, str(p))
-    sidecar = p.with_suffix("").with_suffix(".names.json") if p.name.endswith(".nii.gz")         else p.with_suffix(".names.json")
-    sidecar.write_text(json.dumps({str(k): v for k, v in volume.names.items()}))
+    _names_sidecar(p).write_text(json.dumps({str(k): v for k, v in volume.names.items()}))
 
 
 def _merge_slicer_layers(layers: np.ndarray, hdr: dict) -> tuple[np.ndarray, dict]:
@@ -133,10 +137,14 @@ def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolum
             data = data[..., 0]
         if data.ndim != 3:
             raise ValueError(f"expected a 3-D label volume, got shape {data.shape}: {p}")
-        sidecar = p.with_suffix("").with_suffix(".names.json") if p.name.endswith(".nii.gz")             else p.with_suffix(".names.json")
         saved = {}
+        sidecar = _names_sidecar(p)
         if sidecar.exists():
-            saved = {int(k): v for k, v in json.loads(sidecar.read_text()).items()}
+            try:
+                raw = json.loads(sidecar.read_text())
+                saved = {int(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+            except (ValueError, TypeError):
+                saved = {}                                 # a damaged names file means no names
         return LabelVolume(np.rint(data).astype(np.int32), _RAS_TO_LPS @ np.asarray(img.affine, float),
                            {**saved, **(names or {})})
     raise ValueError(f"unsupported mask format (use .nrrd, .nii or .nii.gz): {p}")
@@ -281,6 +289,16 @@ def default_entry(tris: np.ndarray, slab_mm: float = 3.0) -> np.ndarray:
     return c
 
 
+REACH_WANTED = 0.97      # share of the vessel that should connect to the entry
+MIN_VOXEL_MM = 0.25      # finest working grid tried
+
+
+def _reached(rep: dict) -> float:
+    sk = rep.get("skeleton", {})
+    total = sk.get("lumen_voxels") or 0
+    return (sk.get("reachable_voxels", 0) / total) if total else 1.0
+
+
 def asset_from_vessel_mask(volume: LabelVolume, *, entry_mm=None, voxel_mm: float | None = None,
                            min_branch_mm: float = 6.0, step_mm: float = 0.5,
                            error_samples: int = 120_000) -> tuple[Asset, dict, np.ndarray]:
@@ -298,6 +316,20 @@ def asset_from_vessel_mask(volume: LabelVolume, *, entry_mm=None, voxel_mm: floa
     h = float(voxel_mm) if voxel_mm else float(np.clip(surf["iso_mm"], 0.5, 1.0))
     asset, rep = si.import_triangles(tris, side, voxel_mm=h, root_mm=root, min_branch_mm=min_branch_mm,
                                      step_mm=step_mm, provenance=PROVENANCE)
+    # Thin vessels (an MRA's small intracranial arteries, say) can pinch shut on the working
+    # grid, cutting whole branches off from the entry. Re-grid finer until nearly all of the
+    # vessel is reachable, when the grid was ours to choose.
+    tried = [h]
+    while not voxel_mm and _reached(rep) < REACH_WANTED and h > MIN_VOXEL_MM + 1e-6:
+        h = max(MIN_VOXEL_MM, round(h * 0.7, 3))
+        finer, finer_rep = si.import_triangles(tris, side, voxel_mm=h, root_mm=root,
+                                               min_branch_mm=min_branch_mm, step_mm=step_mm,
+                                               provenance=PROVENANCE)
+        tried.append(h)
+        if _reached(finer_rep) > _reached(rep):
+            asset, rep = finer, finer_rep
+    if len(tried) > 1:
+        rep["grids_tried_mm"] = tried
     asset.frame = Frame(name=FRAME_NAME, spacing_mm=(1.0, 1.0, 1.0), origin_mm=(0.0, 0.0, 0.0))
     err = si.conversion_error(asset, tris=tris, side=side, n_samples=error_samples)
     radii = [float(np.median(np.asarray(e.R))) for e in asset.edges]

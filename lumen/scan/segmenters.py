@@ -21,8 +21,10 @@ import contextlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -543,6 +545,38 @@ def _read_labels(path: Path) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(img.dataobj).astype(np.int32), _RAS_TO_LPS @ np.asarray(img.affine, float)
 
 
+def _holds_a_socket(folder: str) -> bool:
+    """Can the model's worker processes talk through ``folder``?
+
+    nnU-Net starts a multiprocessing manager, which listens on a Unix socket made under the
+    temp folder (``pymp-XXXXXXXX/listener-XXXXXXXX``). That fails on file systems without
+    sockets (exFAT, FAT32, many network shares) and on paths past the socket length limit
+    (104 bytes on macOS), and the model then dies with a bare ``EOFError``.
+    """
+    if not hasattr(socket, "AF_UNIX"):
+        return True                                  # Windows: the manager uses named pipes
+    try:
+        with tempfile.TemporaryDirectory(prefix="pymp-", dir=folder) as d:
+            s = socket.socket(socket.AF_UNIX)
+            try:
+                s.bind(os.path.join(d, "listener-" + "x" * 8))
+            finally:
+                s.close()
+        return True
+    except OSError:
+        return False
+
+
+def _socket_temp_dir(current: str) -> str | None:
+    """None when ``current`` works; otherwise a temp folder that does, or None if none does."""
+    if _holds_a_socket(current):
+        return None
+    for alt in ("/tmp", "/var/tmp"):
+        if os.path.isdir(alt) and _holds_a_socket(alt):
+            return alt
+    return None
+
+
 def _torch_env(extra: dict | None = None) -> dict:
     """Environment for a segmenter subprocess.
 
@@ -551,6 +585,9 @@ def _torch_env(extra: dict | None = None) -> dict:
     watermark ratio". Keep the user's cap and set the low watermark under it.
     """
     env = dict(os.environ, **(extra or {}))
+    tmp = _socket_temp_dir(env.get("TMPDIR") or tempfile.gettempdir())
+    if tmp:
+        env["TMPDIR"] = tmp
     high = env.get("PYTORCH_MPS_HIGH_WATERMARK_RATIO")
     if high and "PYTORCH_MPS_LOW_WATERMARK_RATIO" not in env:
         try:

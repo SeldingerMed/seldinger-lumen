@@ -100,7 +100,13 @@ def resolve_target(names: dict, asset: Asset, target: str) -> str:
 def load_imported(folder: str | Path) -> tuple[Asset, dict]:
     """Read an import folder back: ``(asset, names)``."""
     folder = Path(folder)
-    asset = Asset.load(str(folder / "asset.json"))
+    packed = folder / "asset.json.gz"
+    if not (folder / "asset.json").exists() and packed.exists():   # a shipped case
+        import gzip
+
+        asset = Asset.from_dict(json.loads(gzip.decompress(packed.read_bytes())))
+    else:
+        asset = Asset.load(str(folder / "asset.json"))
     try:
         names = json.loads((folder / "names.json").read_text())
     except (OSError, ValueError):                         # missing or damaged: no names
@@ -140,22 +146,25 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
     if mask is None and scan_path is None:
         raise ValueError("give a scan, or a vessel mask with --mask")
     out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
     report: dict = {"input": {"scan": bool(scan_path), "mask": bool(mask)}}
     if mask is not None:
         volume = sc.load_label_volume(mask)
+        out.mkdir(parents=True, exist_ok=True)             # only once the input has been read
         report["segmentation"] = {"source": "mask supplied by the user"}
     else:
         if scan_path is None:
             raise ValueError("give a scan (DICOM folder, NIfTI or NRRD) or a vessel mask")
         say("Reading the scan ...")
         scan = read_scan(scan_path, series=series)
+        out.mkdir(parents=True, exist_ok=True)
         region = detect_region(scan)
         shown = {(HEAD,): "the head", (BODY,): "the neck or trunk",
                  (HEAD, BODY): "the head and the neck or trunk"}[region.regions]
         report["scan"] = {"format": scan.source, "modality": scan.modality,
                           "shape": [int(v) for v in scan.data.shape],
                           "spacing_mm": [round(float(v), 4) for v in scan.spacing_mm]}
+        if scan.shifted_by:
+            report["scan"]["shifted_to_hounsfield_by"] = scan.shifted_by
         report["region"] = {"regions": list(region.regions), "basis": region.basis,
                             "confident": region.confident, "head_mm": round(region.head_mm),
                             "body_mm": round(region.body_mm)}

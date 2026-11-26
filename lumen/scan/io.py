@@ -34,6 +34,7 @@ class ScanVolume:
     modality: str = ""               # "CT", "MR" or "" when the file does not say
     hints: dict = field(default_factory=dict)     # region-hint header text (no identifiers)
     source: str = ""                 # "dicom", "nifti" or "nrrd"
+    shifted_by: float = 0.0          # added to the stored values to give Hounsfield units
 
     @property
     def spacing_mm(self) -> np.ndarray:
@@ -62,6 +63,35 @@ def _header_modality(header, where) -> str:
     return ""
 
 
+def _stored_ct_offset(data: np.ndarray, modality: str) -> float:
+    """-1024 for a CT stored without negative numbers (air at 0, water at 1024), else 0.
+
+    Some archives (KiTS, many NRRD exports) keep CT as unsigned whole numbers with 1024 added.
+    Such a volume is recognised by its values: nothing negative, whole numbers only, and most of
+    the body (anything above 500) in the fat-to-soft-tissue band 900..1124 around the 1024 mark.
+    An MR image has no such fixed band. A file that says it is MR is never shifted.
+    """
+    if modality == "MR":
+        return 0.0
+    d = np.asarray(data)[::2, ::2, ::2]
+    if d.size == 0 or float(np.nanmin(d)) < 0.0 or not np.all(d == np.round(d)):
+        return 0.0
+    body = d[d > 500.0]
+    if body.size < 0.05 * d.size:
+        return 0.0
+    band = float(((body >= 900.0) & (body <= 1124.0)).mean())
+    return -1024.0 if band >= 0.5 else 0.0
+
+
+def _with_ct_offset(scan: ScanVolume) -> ScanVolume:
+    off = _stored_ct_offset(scan.data, scan.modality)
+    if off:
+        scan.data = scan.data + np.float32(off)
+        scan.modality = scan.modality or "CT"
+        scan.shifted_by = off
+    return scan
+
+
 def is_ct(scan: ScanVolume) -> bool:
     """CT by its header, or for a file with no modality (NIfTI, NRRD) by its values: air in
     Hounsfield units sits near -1000, and an MR image has no values that low."""
@@ -83,9 +113,9 @@ def read_scan(path: str | Path, series: str | None = None) -> ScanVolume:
     if p.is_dir():
         return _read_dicom(p, series)
     if low.endswith(".nii") or low.endswith(".nii.gz"):
-        return _read_nifti(p)
+        return _with_ct_offset(_read_nifti(p))
     if low.endswith(".nrrd"):
-        return _read_nrrd(p)
+        return _with_ct_offset(_read_nrrd(p))
     return _read_dicom(p, series)
 
 
