@@ -105,6 +105,17 @@ def test_page_is_self_contained_and_carries_the_scene():
     assert s["source"]["licence"] == "CC0"
 
 
+def test_every_code_folder_is_a_regular_package_so_wheels_include_it():
+    # setuptools' find skips folders without an __init__.py, so their modules are left out of
+    # the wheel; on Python 3.10/3.11 such a folder's resources are also a MultiplexedPath.
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "lumen"
+    missing = sorted(str(d.relative_to(root)) for d in {p.parent for p in root.rglob("*.py")}
+                     if not (d / "__init__.py").exists())
+    assert missing == []
+
+
 def test_names_cannot_break_out_of_the_data_block():
     a = resolve("arch")
     a.label = "x</script><script>alert(1)</script>"

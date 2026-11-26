@@ -16,7 +16,7 @@ from lumen.viewer.scene import Anatomy, resolve, scene_dict
 
 
 def _static(name: str) -> str:
-    return resources.files("lumen.viewer").joinpath("static", name).read_text(encoding="utf-8")
+    return (resources.files("lumen.viewer") / "static" / name).read_text(encoding="utf-8")
 
 
 def render_page(scene: dict, replay: dict | None = None) -> str:
