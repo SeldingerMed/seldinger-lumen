@@ -1078,3 +1078,34 @@ def test_the_neck_model_is_run_for_each_scan_not_reused(tmp_path, lumen_home, mo
                             neck=(work / "scan.nii.gz", work / "log", "ts", "cpu", {}, work),
                             run=lambda cmd, *a, **k: ran.append(cmd))
     assert len(ran) == 1                                           # the stale neck output was not trusted
+
+
+def test_a_mask_nrrd_without_geometry_is_a_clean_error(tmp_path):
+    nrrd = pytest.importorskip("nrrd")
+    f = tmp_path / "m.nrrd"
+    nrrd.write(str(f), np.zeros((4, 4, 4), np.uint8), {}, index_order="F")
+    with pytest.raises(ValueError, match="cannot be placed in space"):
+        sc.load_label_volume(f)
+
+
+def test_a_neck_artery_that_adds_no_voxels_is_not_named(tmp_path, lumen_home, monkeypatch):
+    work = tmp_path / "w"
+    work.mkdir()
+    lab = np.zeros((4, 4, 4), np.int16)
+    lab[1, 1, 1] = 1                                               # the neck artery sits on the body one
+    monkeypatch.setattr(segmenters, "_read_labels", lambda path: (lab, np.eye(4)))
+    monkeypatch.setattr(segmenters, "_class_map",
+                        lambda seg, task: {1: "common_carotid_artery_left"} if task == "total"
+                        else {1: "internal_carotid_artery_left"})
+    monkeypatch.setattr(segmenters, "BODY_ARTERIES", ["common_carotid_artery_left"])
+    vol = segmenters._body_labels(segmenters.TOTALSEGMENTATOR, work / "body.nii.gz", "total",
+                                  neck=(work / "scan.nii.gz", work / "log", "ts", "cpu", {}, work),
+                                  run=lambda *a, **k: None)
+    assert len(vol.names) == 1 and set(np.unique(vol.data)) == {0, 1}
+
+
+def test_cli_refuses_a_nan_entry(capsys):
+    from lumen import cli
+    with pytest.raises(SystemExit):
+        cli.main(["import", "x.nii.gz", "--out", "o", "--entry", "nan,0,0"])
+    assert "three numbers" in capsys.readouterr().err

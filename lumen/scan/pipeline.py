@@ -200,20 +200,20 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
                 cached = work / seg.key / "labels.nii.gz"
                 stamp = work / seg.key / "scan.sha256"
                 try:
-                    if cached.exists() and stamp.exists() and stamp.read_text().strip() == digest:
+                    if cached.exists() and stamp.exists() and stamp.read_text().strip() == f"{digest} {seg.commit}":
                         # a previous import of this same scan finished this model and then failed
-                        # later: reuse it. A different scan in the same folder is run fresh.
+                        # later: reuse it. A different scan, or a different model version, is run fresh.
                         labels = sc.load_label_volume(cached)
                         say(f"Reusing the {seg.title} result from the previous attempt ...")
                     elif seg.region == HEAD:
                         cut = region.detail.get("head_from_mm") if BODY in region.regions else None
                         labels = sg.run_head(scan, work / seg.key, say=say, head_from_mm=cut)
                         sc.save_label_volume(labels, cached)
-                        stamp.write_text(digest)
+                        stamp.write_text(f"{digest} {seg.commit}")
                     else:
                         labels = sg.run_body(scan, work / seg.key, say=say)
                         sc.save_label_volume(labels, cached)
-                        stamp.write_text(digest)
+                        stamp.write_text(f"{digest} {seg.commit}")
                     volumes.append(labels)
                     used.append({"segmenter": seg.title, "repo": seg.repo, "commit": seg.commit,
                                  "licence": seg.licence})

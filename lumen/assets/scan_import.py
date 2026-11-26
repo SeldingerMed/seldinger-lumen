@@ -92,6 +92,10 @@ def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolum
     if low.endswith(".nrrd"):
         import nrrd
         data, hdr = nrrd.read(str(p), index_order="F")
+        missing = [k for k in ("space directions", "space origin") if k not in hdr]
+        if missing:
+            raise ValueError(f"the NRRD header has no {' or '.join(repr(k) for k in missing)}, so "
+                             f"the mask cannot be placed in space: {p}")
         dirs = np.asarray(hdr["space directions"], float)
         spatial = np.isfinite(dirs).all(axis=1) if dirs.ndim == 2 else np.array([])
         layered = data.ndim == 4 and spatial.sum() == 3

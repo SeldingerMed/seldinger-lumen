@@ -641,9 +641,10 @@ def _body_labels(seg: Segmenter, out: Path, task: str, neck=None, run=None):
              "--device", device], log, env=env, what=seg.title)
         lab2, _ = _read_labels(out2)
         for idx, name in _class_map(seg, "headneck_bones_vessels").items():
-            if name in NECK_ARTERIES and np.any(lab2 == idx):
+            fresh = (lab2 == idx) & (data == 0)
+            if name in NECK_ARTERIES and np.any(fresh):            # only if it adds voxels
                 names[len(names) + 1] = pretty(name)
-                data[(lab2 == idx) & (data == 0)] = len(names)
+                data[fresh] = len(names)
     if not names:
         raise SegmenterError(f"{seg.title} found no arteries in this scan")
     return LabelVolume(data, aff, names)

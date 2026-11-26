@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import argparse
 import json
 import os
@@ -471,7 +472,7 @@ def import_scan_main(argv=None, prog=None) -> None:
         if args.entry:
             try:
                 entry = [float(v) for v in args.entry.split(",")]
-                if len(entry) != 3:
+                if len(entry) != 3 or not all(math.isfinite(v) for v in entry):
                     raise ValueError
             except ValueError:
                 parser.error("--entry must be three numbers: x,y,z")
