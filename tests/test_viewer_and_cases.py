@@ -49,7 +49,13 @@ def test_case_names_cannot_escape_the_cases_folder():
         cases.card("no-such-case")
 
 
+def _solver():
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+
+
 def test_a_shipped_case_drives_like_an_import():
+    _solver()
     env = cases.make_env("head-tof-mra", "right middle cerebral artery", max_steps=3)
     _, _, _, _, info = env.step(np.array([1.0, 0.0], np.float32))
     assert np.isfinite(info["dist"])
@@ -132,6 +138,7 @@ def test_scene_mesh_is_capped_for_the_page():
 
 # ------------------------------------------------------------------ runs
 def test_a_recorded_run_replays_and_reloads(tmp_path):
+    _solver()
     from lumen.envs.tree_nav import TreeNavEnv
 
     a = resolve("arch")
@@ -195,3 +202,78 @@ def test_an_unknown_look_is_refused():
 
     with pytest.raises(ValueError):
         build("arch", look="neon")
+
+
+# ------------------------------------------------------------------ review round 2
+@pytest.mark.parametrize("argv, message", [
+    (["arch", "--replay", "r.json", "--run"], "cannot be combined"),
+    (["arch", "--save-run", "r.json"], "--save-run needs --run"),
+    (["arch", "--run", "--target", "x", "--steps", "0"], "positive whole number"),
+])
+def test_view_refuses_contradictory_options(argv, message, capsys):
+    from lumen.cli import view_main
+
+    with pytest.raises(SystemExit):
+        view_main(argv)
+    assert message in capsys.readouterr().err
+
+
+def test_a_replay_is_refused_on_other_anatomy(tmp_path, capsys):
+    from lumen.cli import view_main
+    from lumen.viewer.scene import fingerprint
+
+    frames = [{"step": 0, "nodes": [[0, 0, 0], [0, 0, 1]], "action": [0, 0], "left_mm": 1.0,
+               "overlap_mm": 0.0, "off_route": False}]
+    rep = {"version": record.REPLAY_VERSION, "anatomy": "arch", "anatomy_id":
+           fingerprint(resolve("arch").asset), "target": None, "frames": frames,
+           "route": [[0, 0, 0], [0, 0, 1]], "outcome": {}}
+    path = record.save(rep, tmp_path / "r.json")
+    view_main(["arch", "--replay", str(path), "--out", str(tmp_path / "ok.html")])
+    assert (tmp_path / "ok.html").exists()
+    with pytest.raises(SystemExit):
+        view_main(["tortuous", "--replay", str(path), "--out", str(tmp_path / "no.html")])
+    assert "recorded on different anatomy (arch)" in capsys.readouterr().err
+
+
+def test_the_fingerprint_follows_the_geometry_not_the_object():
+    from lumen.viewer.scene import fingerprint
+
+    a, b = resolve("arch").asset, resolve("arch").asset
+    assert fingerprint(a) == fingerprint(b) != fingerprint(resolve("tortuous").asset)
+
+
+def test_a_title_cannot_take_the_place_of_the_data():
+    scene = scene_dict(resolve("arch"))
+    scene["label"] = "x __DATA__ __TITLE__ y"
+    html = page.render_page(scene)
+    head, _, body = html.partition("</title>")
+    assert head.endswith("x __DATA__ __TITLE__ y")
+    assert '"label":"x __DATA__ __TITLE__ y"' in body and '"mesh":{' in body
+
+
+def test_scene_provenance_names_the_file_without_its_folder(tmp_path):
+    from lumen.assets import procedural
+
+    p = tmp_path / "deep" / "mine.json"
+    p.parent.mkdir()
+    procedural.aortic_arch_tree().save(str(p))
+    s = scene_dict(resolve(str(p)))
+    assert str(tmp_path) not in json.dumps(s) and s["source"] == {"kind": "asset", "name": "mine.json"}
+
+
+def test_the_c_arm_draws_a_closed_surface():
+    # A scan surface is open where the scan cut the vessel; the C-arm image adds path length
+    # through a surface and needs a closed one, so it draws the lumen model instead.
+    for cid in cases.names():
+        s = scene_dict(resolve(cid))
+        if s["mesh"]["kind"] != "scan surface":
+            continue
+        import base64
+
+        v = np.frombuffer(base64.b64decode(s["carm_mesh"]["positions"]), np.float32).reshape(-1, 3)
+        f = np.frombuffer(base64.b64decode(s["carm_mesh"]["indices"]), np.uint32).reshape(-1, 3)
+        edges = np.sort(np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        assert (counts == 2).all(), cid                        # every edge shared by two faces
+        assert _signed_volume(v, f) > 0
+    assert scene_dict(resolve("arch"))["carm_mesh"] is None     # the model itself is used

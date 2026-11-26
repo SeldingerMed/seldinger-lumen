@@ -77,7 +77,7 @@ def _slice_measures(volume) -> dict | None:
         level = 0.1 * float(np.percentile(d[::4, ::4, ::4], 99.5))
     step = max(1, int(round(_SAMPLE_MM / dz)))
     px = float(np.prod(inpl)) / 100.0  # cm2 per pixel
-    small_fov = bool(np.all(np.asarray(d.shape[:2]) * inpl <= _HEAD_WIDTH[1]))
+    small_fov = not ct and bool(np.all(np.asarray(d.shape[:2]) * inpl <= _HEAD_WIDTH[1]))
     area, bone, width, cut = [], [], [], []
     for k in range(0, d.shape[2], step):
         s = d[:, :, k]

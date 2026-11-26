@@ -50,9 +50,9 @@ def simplify(verts: np.ndarray, faces: np.ndarray, cell_mm: float) -> tuple[np.n
     return nv[used].astype(np.float32), remap[nf].astype(np.uint32)
 
 
-def simplify_to(verts, faces, max_triangles: int, start_mm: float = 0.2):
-    """Simplify with a growing cell until at most ``max_triangles`` remain."""
-    v, f, cell = np.asarray(verts), np.asarray(faces), start_mm
+def simplify_to(verts, faces, max_triangles: int):
+    """Simplify with a growing cell (from 0.2 mm) until at most ``max_triangles`` remain."""
+    v, f, cell = np.asarray(verts), np.asarray(faces), 0.2
     while len(f) > max_triangles and cell < 10.0:
         v, f = simplify(verts, faces, cell)
         cell *= 1.3

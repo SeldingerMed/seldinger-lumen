@@ -112,7 +112,8 @@ env = cases.make_env("head-cta-aneurysm", "aneurysm")
 ```bash
 lumen view head-cta-aneurysm                       # one HTML page; open it in a browser
 lumen view head-cta-aneurysm --target aneurysm --run --save-run run.json
-lumen view arch --replay run.json                  # generated anatomy works the same way
+lumen view head-cta-aneurysm --replay run.json     # show a saved run again (same anatomy only)
+lumen view arch --target carotid --run             # generated anatomy works the same way
 lumen view head-tof-mra --look glass               # monitor (default), anatomy or glass
 ```
 

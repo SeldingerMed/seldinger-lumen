@@ -451,6 +451,9 @@ def import_scan_main(argv=None, prog=None) -> None:
     parser.add_argument("--list-series", action="store_true", help="list the series in a DICOM folder and exit")
     parser.add_argument("--yes", action="store_true",
                         help="install a missing artery model without asking")
+    parser.add_argument("--modality", choices=("CT", "MR"),
+                        help="what a NIfTI or NRRD scan is, when Lumen reads it wrongly (a CT "
+                             "with no negative values is then read as stored with 1024 added)")
     parser.add_argument("--json", action="store_true", help="print the full report as JSON")
     args = parser.parse_args(argv)
     if not args.scan and not args.mask:
@@ -481,7 +484,8 @@ def import_scan_main(argv=None, prog=None) -> None:
                 parser.error("--entry must be three numbers: x,y,z")
         say = (lambda *_: None) if args.json else print
         report = import_scan(args.scan, args.out, mask=args.mask, entry_mm=entry,
-                             series=args.series, assume_yes=args.yes, say=say)
+                             series=args.series, assume_yes=args.yes, say=say,
+                             modality=args.modality)
     except (ValueError, RuntimeError) as exc:
         raise SystemExit(f"lumen import: {exc}") from exc
     if args.json:
@@ -1137,9 +1141,15 @@ def view_main(argv=None, prog=None) -> None:
     parser.add_argument("--look", choices=("monitor", "anatomy", "glass"), default="monitor",
                         help="how the 3D pane looks at first (switchable on the page)")
     args = parser.parse_args(argv)
+    if args.replay and (args.run or args.save_run):
+        parser.error("--replay shows a saved run; it cannot be combined with --run or --save-run")
+    if args.save_run and not args.run:
+        parser.error("--save-run needs --run")
+    if args.run and args.steps < 1:
+        parser.error("--steps must be a positive whole number")
 
     from lumen.viewer import page, record
-    from lumen.viewer.scene import resolve
+    from lumen.viewer.scene import fingerprint, resolve
 
     try:
         anatomy = resolve(args.anatomy)
@@ -1151,6 +1161,9 @@ def view_main(argv=None, prog=None) -> None:
             replay = record.load(args.replay)
         except (ValueError, OSError) as exc:
             parser.error(str(exc))
+        if replay.get("anatomy_id") != fingerprint(anatomy.asset):
+            parser.error(f"{args.replay} was recorded on different anatomy "
+                         f"({replay.get('anatomy') or 'unknown'}); replay it on that anatomy")
     elif args.run:
         if not args.target:
             parser.error("--run needs --target")

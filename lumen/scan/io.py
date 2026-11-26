@@ -63,13 +63,21 @@ def _header_modality(header, where) -> str:
     return ""
 
 
+CT_DIP = 0.6     # the fat/soft-tissue dip of a stored-unsigned CT is below this share of the peak
+
+
 def _stored_ct_offset(data: np.ndarray, modality: str) -> float:
     """-1024 for a CT stored without negative numbers (air at 0, water at 1024), else 0.
 
     Some archives (KiTS, many NRRD exports) keep CT as unsigned whole numbers with 1024 added.
-    Such a volume is recognised by its values: nothing negative, whole numbers only, and most of
-    the body (anything above 500) in the fat-to-soft-tissue band 900..1124 around the 1024 mark.
-    An MR image has no such fixed band. A file that says it is MR is never shifted.
+    Such a volume is recognised by its values: nothing negative, whole numbers only, most of
+    the body (anything above 500) in the fat-to-soft-tissue band 900..1124, and, inside that
+    band, the dip CT always has between fat (about -100 HU) and soft tissue (about +40 HU).
+    MR intensities have no fixed scale, so an MR image whose tissue happens to sit near 1024
+    can fill the band, but its tissue forms one broad hump with no dip at -30 HU. On real
+    scans the dip is 0.30-0.41 of the peak density (KiTS and TotalSegmentator CTs) against
+    about 1 for MR-like spreads. A file that says it is MR is never shifted; an untagged file
+    that fails the test is left as it is (``read_scan(modality="CT")`` forces the reading).
     """
     if modality == "MR":
         return 0.0
@@ -80,11 +88,20 @@ def _stored_ct_offset(data: np.ndarray, modality: str) -> float:
     if body.size < 0.05 * d.size:
         return 0.0
     band = float(((body >= 900.0) & (body <= 1124.0)).mean())
-    return -1024.0 if band >= 0.5 else 0.0
+    if band < 0.5:
+        return 0.0
+    fat = float(((body >= 894.0) & (body <= 974.0)).mean()) / 80.0       # density per unit
+    soft = float(((body >= 1004.0) & (body <= 1114.0)).mean()) / 110.0
+    dip = float(((body >= 984.0) & (body < 1004.0)).mean()) / 20.0       # -40..-20 HU
+    return -1024.0 if dip < CT_DIP * max(fat, soft) else 0.0
 
 
-def _with_ct_offset(scan: ScanVolume) -> ScanVolume:
-    off = _stored_ct_offset(scan.data, scan.modality)
+def _with_ct_offset(scan: ScanVolume, modality: str | None = None) -> ScanVolume:
+    if modality:                       # the caller says what it is: trust that over the values
+        scan.modality = modality
+        off = -1024.0 if (modality == "CT" and float(np.nanmin(scan.data)) >= 0.0) else 0.0
+    else:
+        off = _stored_ct_offset(scan.data, scan.modality)
     if off:
         scan.data = scan.data + np.float32(off)
         scan.modality = scan.modality or "CT"
@@ -100,12 +117,17 @@ def is_ct(scan: ScanVolume) -> bool:
     return float(np.nanmin(scan.data)) <= -500.0
 
 
-def read_scan(path: str | Path, series: str | None = None) -> ScanVolume:
+def read_scan(path: str | Path, series: str | None = None,
+              modality: str | None = None) -> ScanVolume:
     """Read a scan from a DICOM folder or file, a NIfTI file or an NRRD file.
 
     ``series`` selects one DICOM series by SeriesInstanceUID or by its 1-based position in
-    ``list_dicom_series``; by default the series with the most slices is used.
+    ``list_dicom_series``; by default the series with the most slices is used. ``modality``
+    ("CT" or "MR") overrides what a NIfTI or NRRD file says or what its values suggest; a CT
+    given that way with no negative values is read as stored with 1024 added.
     """
+    if modality not in (None, "", "CT", "MR"):
+        raise ScanError(f"modality must be CT or MR, not {modality!r}")
     p = Path(path)
     if not p.exists():
         raise ScanError(f"no such file or folder: {p}")
@@ -113,9 +135,9 @@ def read_scan(path: str | Path, series: str | None = None) -> ScanVolume:
     if p.is_dir():
         return _read_dicom(p, series)
     if low.endswith(".nii") or low.endswith(".nii.gz"):
-        return _with_ct_offset(_read_nifti(p))
+        return _with_ct_offset(_read_nifti(p), modality)
     if low.endswith(".nrrd"):
-        return _with_ct_offset(_read_nrrd(p))
+        return _with_ct_offset(_read_nrrd(p), modality)
     return _read_dicom(p, series)
 
 

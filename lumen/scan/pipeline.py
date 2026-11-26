@@ -134,7 +134,8 @@ def _merge(volumes: list):
 
 
 def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=None,
-                series=None, assume_yes: bool = False, ask=None, say=print, keep_work=False) -> dict:
+                series=None, assume_yes: bool = False, ask=None, say=print, keep_work=False,
+                modality: str | None = None) -> dict:
     """Run the whole import and return the report (also written to ``report.json``)."""
     from lumen.assets import surface_import as si
     from lumen.scan import segmenters as sg
@@ -155,7 +156,7 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
         if scan_path is None:
             raise ValueError("give a scan (DICOM folder, NIfTI or NRRD) or a vessel mask")
         say("Reading the scan ...")
-        scan = read_scan(scan_path, series=series)
+        scan = read_scan(scan_path, series=series, modality=modality)
         out.mkdir(parents=True, exist_ok=True)
         region = detect_region(scan)
         shown = {(HEAD,): "the head", (BODY,): "the neck or trunk",

@@ -319,17 +319,13 @@ def asset_from_vessel_mask(volume: LabelVolume, *, entry_mm=None, voxel_mm: floa
     # Thin vessels (an MRA's small intracranial arteries, say) can pinch shut on the working
     # grid, cutting whole branches off from the entry. Re-grid finer until nearly all of the
     # vessel is reachable, when the grid was ours to choose.
-    tried = [h]
     while not voxel_mm and _reached(rep) < REACH_WANTED and h > MIN_VOXEL_MM + 1e-6:
         h = max(MIN_VOXEL_MM, round(h * 0.7, 3))
         finer, finer_rep = si.import_triangles(tris, side, voxel_mm=h, root_mm=root,
                                                min_branch_mm=min_branch_mm, step_mm=step_mm,
                                                provenance=PROVENANCE)
-        tried.append(h)
         if _reached(finer_rep) > _reached(rep):
             asset, rep = finer, finer_rep
-    if len(tried) > 1:
-        rep["grids_tried_mm"] = tried
     asset.frame = Frame(name=FRAME_NAME, spacing_mm=(1.0, 1.0, 1.0), origin_mm=(0.0, 0.0, 0.0))
     err = si.conversion_error(asset, tris=tris, side=side, n_samples=error_samples)
     radii = [float(np.median(np.asarray(e.R))) for e in asset.edges]

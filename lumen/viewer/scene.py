@@ -57,7 +57,7 @@ def resolve(spec: str | Path) -> Anatomy:
         if p.is_dir() and (p / "asset.json").exists():
             folder = p
         elif p.is_file() and p.suffix == ".json":
-            return Anatomy(Asset.load(str(p)), p.stem, source={"kind": "asset", "path": str(p)})
+            return Anatomy(Asset.load(str(p)), p.stem, source={"kind": "asset", "name": p.name})
         else:
             known = ", ".join(list(BUILT_IN) + cases.names())
             raise ValueError(f"no anatomy called {text!r}: give an import folder, an asset .json "
@@ -73,7 +73,8 @@ def resolve(spec: str | Path) -> Anatomy:
         from lumen.assets.surface_import import read_stl
 
         surface = weld(np.asarray(read_stl(stl), np.float32))
-    source = {"kind": "import", "path": str(folder)}
+    source = {"kind": "import", "name": folder.name}      # never the path: a parent folder can
+    # carry a patient identifier, and the page is made to be passed around
     card = folder / "case.json"
     if card.exists():
         try:
@@ -82,6 +83,15 @@ def resolve(spec: str | Path) -> Anatomy:
             pass
     label = source.get("title") or folder.name
     return Anatomy(asset, label, names, surface, folder, source)
+
+
+def fingerprint(asset: Asset) -> str:
+    """A short hash of the geometry, so a replay can only be shown on the anatomy it was
+    recorded on (its wire positions are in that anatomy's coordinates)."""
+    import hashlib
+
+    raw = json.dumps(asset.to_dict(), sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def _leaf_names(asset: Asset) -> dict:
@@ -167,6 +177,13 @@ def scene_dict(anatomy: Anatomy, target: str | None = None) -> dict:
     else:
         verts, faces = tube_mesh(asset)
         mesh_kind = "lumen model"
+    # The C-arm image adds up path length through a surface, so every ray has to enter and leave
+    # it equally often. A simplified scan surface is open where the scan cut the vessel and has
+    # pinched edges; the lumen model is closed by construction and is the wall the wire feels.
+    carm = None
+    if mesh_kind == "scan surface":
+        cv, cf = tube_mesh(asset)
+        carm = {"positions": _b64(cv), "indices": _b64(cf)}
     nodes = {n.id: np.asarray(n.position_mm, float) for n in asset.nodes}
     labels = []
     for name, row in sorted((anatomy.names or {}).get("vessels", {}).items()):
@@ -186,6 +203,7 @@ def scene_dict(anatomy: Anatomy, target: str | None = None) -> dict:
         "frame": asset.frame.name,
         "mesh": {"kind": mesh_kind, "positions": _b64(verts), "indices": _b64(faces),
                  "vertex_count": int(len(verts)), "triangle_count": int(len(faces))},
+        "carm_mesh": carm,                     # null: the C-arm uses "mesh"
         "centerlines": lines,
         "labels": labels,
         "entry": _round(nodes[asset.device_spawn.node_id], 2),

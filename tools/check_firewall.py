@@ -71,15 +71,27 @@ def _provenances(obj):
             yield from _provenances(item)
 
 
-def _open_case_problem(p: pathlib.Path) -> str | None:
-    """None when ``p`` sits in a shipped open case whose card names an open licence, a
-    citation and a source; otherwise why it does not."""
+# the files a shipped case is made of; nothing else in a case folder gets its card's approval
+CASE_FILES = {"asset.json.gz": "imported(scan)", "names.json": None, "case.json": None,
+              "surface.npz": None}
+# derived geometry that carries no provenance field: allowed only as a file of an open case
+GEOMETRY_SUFFIXES = (".npz", ".stl", ".vtp", ".vtk", ".obj", ".ply", ".nii", ".nii.gz",
+                     ".nrrd", ".mha", ".mhd", ".dcm")
+
+
+def _open_case_problem(p: pathlib.Path, prov: str | None = None) -> str | None:
+    """None when ``p`` is one of the files of a shipped open case (with the provenance such a
+    file has) whose card names an open licence, a citation and a source; otherwise why not."""
     try:
         rel = p.resolve().relative_to(CASES.resolve())
     except ValueError:
         return "not in lumen/cases/"
     if len(rel.parts) != 2:
         return "not directly inside a case folder"
+    if rel.parts[1] not in CASE_FILES:
+        return f"not one of the files of a case ({', '.join(sorted(CASE_FILES))})"
+    if prov is not None and prov != CASE_FILES[rel.parts[1]]:
+        return f"a case's {rel.parts[1]} holds {CASE_FILES[rel.parts[1]]!r} geometry only"
     card_path = CASES / rel.parts[0] / "case.json"
     try:
         card = json.loads(card_path.read_text())
@@ -112,7 +124,7 @@ def check_provenance() -> list[str]:
             continue
         for prov in _provenances(d):
             if prov != "procedural":
-                why = _open_case_problem(p)
+                why = _open_case_problem(p, prov)
                 if why is not None:
                     bad.append(f"  non-procedural asset committed: {p.relative_to(ROOT)} "
                                f"(provenance={prov!r}; {why})")
@@ -120,8 +132,23 @@ def check_provenance() -> list[str]:
     return bad
 
 
+def check_geometry_files() -> list[str]:
+    """Surface and image files carry no provenance field, so they are allowed only as the
+    files of an open case: anywhere else they could be patient-derived and nothing would say."""
+    bad = []
+    for p in ROOT.rglob("*"):
+        if any(part in SKIP_DIRS for part in p.parts) or not p.is_file():
+            continue
+        if not p.name.lower().endswith(GEOMETRY_SUFFIXES):
+            continue
+        why = _open_case_problem(p)
+        if why is not None:
+            bad.append(f"  geometry file outside the open cases: {p.relative_to(ROOT)} ({why})")
+    return bad
+
+
 def main() -> int:
-    problems = check_no_banned() + check_provenance()
+    problems = check_no_banned() + check_provenance() + check_geometry_files()
     if problems:
         print("FIREWALL VIOLATION -- this repo must stay Apache-2.0, with patient-derived "
               "geometry only in openly licensed lumen/cases/:")

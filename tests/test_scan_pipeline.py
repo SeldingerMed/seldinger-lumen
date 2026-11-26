@@ -214,6 +214,31 @@ def test_an_mr_image_is_not_mistaken_for_shifted_ct(tmp_path):
     assert io_offset(stated) == 0.0                     # a file that says MR is never shifted
 
 
+def test_an_mr_whose_tissue_sits_around_1024_is_not_read_as_ct(tmp_path):
+    # MR has no fixed scale, so its tissue can fill the CT fat-to-soft-tissue band. CT has a
+    # dip there between fat and soft tissue; one broad MR hump has none.
+    rng = np.random.default_rng(0)
+    mr = np.round(rng.normal(1024.0, 80.0, (40, 40, 40))).clip(0).astype(np.float32)
+    mr[:4] = 0.0                                          # some background
+    nib.save(nib.Nifti1Image(mr, np.eye(4)), str(tmp_path / "mr.nii.gz"))
+    assert read_scan(tmp_path / "mr.nii.gz").shifted_by == 0.0
+    forced = read_scan(tmp_path / "mr.nii.gz", modality="CT")
+    assert forced.modality == "CT" and forced.shifted_by == -1024.0
+    assert read_scan(tmp_path / "mr.nii.gz", modality="MR").modality == "MR"
+    with pytest.raises(ScanError):
+        read_scan(tmp_path / "mr.nii.gz", modality="PET")
+
+
+def test_ct_with_fat_and_soft_tissue_is_still_read_as_ct(tmp_path):
+    rng = np.random.default_rng(1)
+    hu = np.full((40, 40, 40), -1000.0)
+    hu[5:35, 5:35, 5:20] = rng.normal(-95.0, 12.0, (30, 30, 15))      # fat
+    hu[5:35, 5:35, 20:35] = rng.normal(45.0, 15.0, (30, 30, 15))      # muscle and organs
+    stored = np.round(hu + 1024.0).clip(0).astype(np.float32)
+    nib.save(nib.Nifti1Image(stored, np.eye(4)), str(tmp_path / "ct.nii.gz"))
+    assert read_scan(tmp_path / "ct.nii.gz").shifted_by == -1024.0
+
+
 def io_offset(scan):
     from lumen.scan.io import _stored_ct_offset
     return _stored_ct_offset(scan.data, scan.modality)

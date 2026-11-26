@@ -66,5 +66,6 @@ Procedural anatomy pack policy:
   * The open cases in `lumen/cases/` are not procedural; they keep their sources'
     licences (above), not Apache-2.0.
   * A contributed anatomy case MUST ship reproducible generator parameters,
-    provenance, and license metadata. Patient-derived or unclear-license assets
-    belong outside this repository behind the private asset seam.
+    provenance, and license metadata. Patient-derived or unclear-license assets,
+    other than the credited open cases above, belong outside this repository behind
+    the private asset seam.

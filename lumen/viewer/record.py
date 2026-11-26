@@ -61,7 +61,7 @@ def record(env, policy=None, steps: int = 400, *, anatomy: str = "", target: str
     env.reset()
     frames = [_frame(env, 0, np.zeros(2), {})]
     info: dict = {}
-    outcome = {"reached": False, "steps": 0}
+    outcome = {"reached": False, "steps": 0, "left_mm": frames[0]["left_mm"]}
     for k in range(1, steps + 1):
         action = np.asarray(policy(info), np.float32)
         _, _, term, trunc, info = env.step(action)
@@ -72,7 +72,10 @@ def record(env, policy=None, steps: int = 400, *, anatomy: str = "", target: str
             break
     pens = [f["overlap_mm"] for f in frames]
     outcome["max_overlap_mm"] = round(max(pens), 3)
-    return {"version": REPLAY_VERSION, "anatomy": anatomy, "target": target,
+    from lumen.viewer.scene import fingerprint
+
+    return {"version": REPLAY_VERSION, "anatomy": Path(anatomy).name if anatomy else "",
+            "anatomy_id": fingerprint(env.asset), "target": target,
             "target_node": getattr(env, "target_node", None),
             "dt_s": 5e-3 * getattr(env, "substeps", 4),
             "device_radius_mm": float(getattr(env, "device_radius_mm", 0.2)),
@@ -99,8 +102,24 @@ def load(path: str | Path) -> dict:
     data = json.loads(Path(path).read_text())
     if not isinstance(data, dict) or data.get("version") != REPLAY_VERSION:
         raise ValueError(f"{path} is not a Lumen replay ({REPLAY_VERSION})")
-    for f in data.get("frames", []):
-        nodes = np.asarray(f.get("nodes"), float)
-        if nodes.ndim != 2 or nodes.shape[1] != 3 or not np.isfinite(nodes).all():
+    frames = data.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise ValueError(f"{path}: the replay has no frames")
+    for f in frames:
+        if not isinstance(f, dict):
+            raise ValueError(f"{path}: a frame is not an object")
+        try:
+            nodes = np.asarray(f.get("nodes"), float)
+        except (TypeError, ValueError):
+            nodes = np.zeros((0,))
+        if nodes.ndim != 2 or nodes.shape[1] != 3 or len(nodes) < 2 or not np.isfinite(nodes).all():
             raise ValueError(f"{path}: frame {f.get('step')} has no usable wire positions")
+        for key in ("left_mm", "overlap_mm"):
+            v = f.get(key)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not np.isfinite(v):
+                raise ValueError(f"{path}: frame {f.get('step')} has no {key}")
+    dt = data.get("dt_s")
+    if dt is not None and (isinstance(dt, bool) or not isinstance(dt, (int, float))
+                           or not np.isfinite(dt) or dt <= 0):
+        raise ValueError(f"{path}: dt_s must be a positive number of seconds")
     return data

@@ -75,6 +75,10 @@
   const lo = S.bounds.min, hi = S.bounds.max;
   const center = mul(add(lo, hi), 0.5);
   const radius = 0.5 * Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  const SOD = Math.max(700, radius * 4);        // source to anatomy, mm
+  // the field that shows the whole anatomy inside the round aperture (0.94 of the image height)
+  // at any angle: the near side is magnified by SOD / (SOD - radius)
+  const FIELD_ALL = Math.ceil(2 * radius * SOD / (SOD - radius) / 0.94);
 
   // ------------------------------------------------------------------ GL helpers
   function shader(vs, fs) {
@@ -156,7 +160,8 @@
     void main(){ gl_Position=uVP*vec4(aPos,1.); gl_PointSize=uSize; }`, `
     uniform vec4 uColor; uniform float uRound; out vec4 o;
     void main(){ if(uRound>0.5){ vec2 d=gl_PointCoord-.5; if(dot(d,d)>.25) discard; } o=uColor; }`);
-  // signed depth along the view axis: entering a surface subtracts, leaving adds
+  // signed depth along the view axis: entering a surface subtracts, leaving adds (needs a closed
+  // surface, so the C-arm draws the lumen model, never the open scan surface)
   const THICK = shader(`
     layout(location=0) in vec3 aPos; uniform mat4 uVP; uniform vec3 uDir; uniform vec3 uRef;
     out float vD; void main(){ vD=dot(uRef-aPos,uDir); gl_Position=uVP*vec4(aPos,1.); }`, `
@@ -186,6 +191,8 @@
     }`);
 
   const vessel = vao([pos, nrm], idx);
+  const carmVessel = S.carm_mesh
+    ? vao([b64(S.carm_mesh.positions, Float32Array)], b64(S.carm_mesh.indices, Uint32Array)) : vessel;
   const wireObj = vao([new Float32Array(3), new Float32Array(3)], new Uint32Array(3));
   const lineObj = vao([new Float32Array(3)]);
   const pointObj = vao([new Float32Array(3)]);
@@ -255,13 +262,14 @@
 
   function panes() {
     const w = canvas.width, h = canvas.height;
-    if (st.layout === "3d") return { d3: [0, 0, w, h], carm: null };
+    if (st.layout === "3d" || !floatOK) return { d3: [0, 0, w, h], carm: null };   // no float
+    // render targets: an 8-bit buffer cannot hold signed path length, so no C-arm image at all
     if (st.layout === "carm") return { d3: null, carm: [0, 0, w, h] };
     const half = Math.floor(w / 2);
     return { d3: [0, 0, half, h], carm: [half, 0, w - half, h] };
   }
   function cam3d(vp) {
-    const dir = viewDir(st.lao, st.cra), up = upFor(dir), right = cross(dir, up);
+    const dir = viewDir(st.lao, st.cra), up = upFor(dir), right = cross(up, dir);   // screen right, as in lookAt
     const at = add(center, add(mul(right, -st.panX), mul(up, st.panY)));
     const eye = add(at, mul(dir, st.dist));
     const P = perspective(rad(35), vp[2] / vp[3], st.dist * 0.05, st.dist + radius * 4);
@@ -269,7 +277,7 @@
   }
   function camCarm(vp) {
     const a = st.link ? { lao: st.lao, cra: st.cra } : st.carm;
-    const dir = viewDir(a.lao, a.cra), up = upFor(dir), sod = 700;
+    const dir = viewDir(a.lao, a.cra), up = upFor(dir), sod = SOD;
     const eye = add(center, mul(dir, sod));
     const fov = 2 * Math.atan(st.carm.field / 2 / sod);
     const P = perspective(fov, vp[2] / vp[3], sod - radius * 2, sod + radius * 2);
@@ -390,7 +398,7 @@
     gl.uniform3fv(THICK.u.uDir, cam.dir);
     gl.uniform3fv(THICK.u.uRef, add(center, mul(cam.dir, radius * 1.5)));
     gl.uniform4fv(THICK.u.uMask, [1, 0, 0, 0]);
-    gl.bindVertexArray(vessel.v); gl.drawElements(gl.TRIANGLES, vessel.count, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(carmVessel.v); gl.drawElements(gl.TRIANGLES, carmVessel.count, gl.UNSIGNED_INT, 0);
     if (hasWire) {
       gl.uniform4fv(THICK.u.uMask, [0, 1, 0, 0]);
       gl.bindVertexArray(wireObj.v); gl.drawElements(gl.TRIANGLES, wireObj.count, gl.UNSIGNED_INT, 0);
@@ -449,7 +457,9 @@
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
     if (st.playing && frames.length) {
-      st.acc += dt * 30 * st.speed;
+      // 1x plays at simulation speed: one frame per recorded step of dt_s seconds
+      const stepTime = Number.isFinite(R.dt_s) && R.dt_s > 0 ? R.dt_s : 1 / 30;
+      st.acc += dt * st.speed / stepTime;
       while (st.acc >= 1) { st.acc -= 1; st.frame++; if (st.frame >= frames.length) { st.frame = frames.length - 1; st.playing = false; break; } }
     }
     resize();
@@ -487,11 +497,12 @@
   }, { passive: false });
   document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
     const [l, c] = b.dataset.view.split(",").map(Number); st.lao = l; st.cra = c; st.panX = st.panY = 0;
+    if (!st.link) { st.carm.lao = l; st.carm.cra = c; }   // the C-arm on its own takes the preset too
   }));
   document.querySelectorAll("[data-layout]").forEach((b) => b.addEventListener("click", () => { st.layout = b.dataset.layout; }));
   $("alpha").addEventListener("input", (e) => { st.alpha = Number(e.target.value); });
   function setLook(name) {
-    if (!LOOKS[name]) return;
+    if (!Object.prototype.hasOwnProperty.call(LOOKS, name)) return;
     st.look = name; st.alpha = LOOKS[name].alpha;
     $("alpha").value = st.alpha; $("look").value = name;
     document.body.dataset.look = name;
@@ -505,7 +516,7 @@
   $("lao").addEventListener("input", (e) => { if (st.link) st.lao = Number(e.target.value); else st.carm.lao = Number(e.target.value); });
   $("cra").addEventListener("input", (e) => { if (st.link) st.cra = Number(e.target.value); else st.carm.cra = Number(e.target.value); });
   $("field").addEventListener("input", (e) => { st.carm.field = Number(e.target.value); });
-  $("field").max = Math.max(400, Math.ceil(2 * radius)); $("field").value = st.carm.field;
+  $("field").max = Math.max(400, FIELD_ALL); $("field").value = st.carm.field;
   if (R) {
     $("replay").style.display = "flex";
     $("scrub").max = frames.length - 1;
@@ -524,7 +535,10 @@
   const src = S.source || {};
   $("meta").textContent = [S.mesh.kind, src.licence ? `${src.licence}` : "", src.citation || ""].filter(Boolean).join("  ·  ");
   $("meta").title = $("meta").textContent;
-  if (!floatOK) $("meta").textContent += "  ·  C-arm view: this browser lacks float render targets";
+  if (!floatOK) {
+    $("meta").textContent += "  ·  no C-arm view: this browser lacks float render targets";
+    document.querySelectorAll("[data-layout]").forEach((b) => { b.style.display = "none"; });
+  }
   window.lumenViewer = { state: st, scene: S, replay: R, setLook, looks: Object.keys(LOOKS), ready: true };
   requestAnimationFrame(frame);
 })();

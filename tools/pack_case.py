@@ -12,8 +12,10 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -34,18 +36,43 @@ def _round(obj, nd=3):
 
 
 def pack(folder: Path, case_id: str, card: dict, dest_root: Path | None = None) -> Path:
-    from lumen.assets.mesh import save_npz, simplify_to, weld
-    from lumen.assets.surface_import import read_stl
     from lumen.scan.pipeline import load_imported
 
     if card.get("licence") not in ALLOWED_LICENCES:
         raise ValueError(f"licence {card.get('licence')!r} does not allow shipping derived data "
                          f"(allowed: {', '.join(ALLOWED_LICENCES)})")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", case_id or ""):
+        raise ValueError(f"case id {case_id!r} must be a plain name: lowercase letters, digits "
+                         f"and hyphens, starting with a letter or digit")
+    root = (dest_root or ROOT / "lumen" / "cases").resolve()
+    final = root / case_id
+    if final.parent != root:
+        raise ValueError(f"case id {case_id!r} does not name a folder inside {root}")
     asset, names = load_imported(folder)
-    dest = (dest_root or ROOT / "lumen" / "cases") / case_id
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True)
+    root.mkdir(parents=True, exist_ok=True)
+    # build the whole case next to the old one, and swap only once every read and write worked
+    dest = Path(tempfile.mkdtemp(prefix=f".{case_id}.", dir=root))
+    dest.chmod(0o755)
+    try:
+        _write_case(folder, dest, asset, names, card)
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    if final.exists():
+        old = final.with_name(f".{case_id}.old")
+        shutil.rmtree(old, ignore_errors=True)
+        final.rename(old)
+        dest.rename(final)
+        shutil.rmtree(old, ignore_errors=True)
+    else:
+        dest.rename(final)
+    return final
+
+
+def _write_case(folder: Path, dest: Path, asset, names: dict, card: dict) -> None:
+    from lumen.assets.mesh import save_npz, simplify_to, weld
+    from lumen.assets.surface_import import read_stl
+
     raw = json.dumps(_round(asset.to_dict()), separators=(",", ":")).encode()
     (dest / "asset.json.gz").write_bytes(gzip.compress(raw, 9, mtime=0))
     (dest / "names.json").write_text(json.dumps(names, indent=1))
@@ -63,7 +90,6 @@ def pack(folder: Path, case_id: str, card: dict, dest_root: Path | None = None) 
                         "segmenter": [u.get("segmenter") for u in
                                       (report.get("segmentation") or {}).get("used") or []]}}
     (dest / "case.json").write_text(json.dumps(full, indent=1))
-    return dest
 
 
 def main(argv=None):

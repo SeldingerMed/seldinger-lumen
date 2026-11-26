@@ -69,3 +69,29 @@ def test_a_case_missing_its_card_is_refused(firewall):
     d = _case(root, "nocard")
     (d / "case.json").unlink()
     assert len(mod.check_provenance()) == 1
+
+
+def test_private_data_is_refused_even_inside_an_open_case(firewall):
+    mod, root = firewall
+    d = _case(root, "ok")
+    (d / "asset.json.gz").write_bytes(gzip.compress(json.dumps({"provenance": "patient(private)"}).encode()))
+    assert len(mod.check_provenance()) == 1
+
+
+def test_only_a_cases_own_files_get_its_approval(firewall):
+    mod, root = firewall
+    d = _case(root, "ok")
+    (d / "episode.json").write_text(json.dumps({"provenance": "imported(scan)"}))
+    (d / "extra.stl").write_bytes(b"solid x\nendsolid x\n")
+    assert len(mod.check_provenance()) == 1 and len(mod.check_geometry_files()) == 1
+
+
+def test_surface_files_outside_the_cases_are_refused(firewall):
+    mod, root = firewall
+    (root / "data").mkdir()
+    for name in ("vessel.npz", "vessel.stl", "scan.nii.gz", "scan.nrrd"):
+        (root / "data" / name).write_bytes(b"x")
+    d = _case(root, "ok")
+    (d / "surface.npz").write_bytes(b"x")                   # a case's own surface is fine
+    bad = mod.check_geometry_files()
+    assert len(bad) == 4 and all("data" in b for b in bad)

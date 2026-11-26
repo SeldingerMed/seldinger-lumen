@@ -32,7 +32,16 @@ All notable changes to this project are documented here. The format follows
   the wire presses into the wall, `feed_stop_pen_mm`, default 0.2 mm); and the wall was soft
   enough for a taut wire to cut across a tight bend (`TreeNavEnv` wall stiffness 3e3 -> 6e3,
   now the `wall_stiffness` argument). These change `TreeNavEnv` dynamics on generated anatomy
-  too.
+  too, so the benchmark suites move to `lumen-bench/4` and `lumen-bench/heldout/2`; older
+  scores and replays are refused rather than compared.
+- The Newton tree contact kernel picks a node's vessel with the same branch-blended radius
+  R(s, theta) that `VascularTree.project` and the wall force use (it used a mean radius per
+  centerline point), finding the nearest point of each vessel's axis first, so a wider section
+  further along a vessel cannot take over a node in a narrowing. The wall-fit figure in import
+  reports is measured under that same rule.
+- Import no longer reads an untagged MR image as CT when its tissue happens to sit around
+  1024: unsigned CT is recognised by the dip between fat and soft tissue, which MR does not
+  have. `lumen import --modality CT|MR` overrides the reading.
 - Segmentation no longer fails with a bare `EOFError` when the temp folder cannot hold a Unix
   socket (exFAT/FAT32 drives, network shares, long macOS paths).
 - Vessel names live only in the `.names.json` sidecar beside a label volume (#151).

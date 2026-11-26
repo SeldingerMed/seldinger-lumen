@@ -13,8 +13,10 @@ one seam:
 - a private patient-capture pipeline → `provenance = "patient(private)"`
 
 Patient-derived episodes never live in this repo. The firewall
-(`tools/check_firewall.py`) scans every `*.json` and fails the build on any
-top-level `provenance != "procedural"`.
+(`tools/check_firewall.py`) scans every `*.json` and `*.json.gz` and fails the build on
+any `provenance != "procedural"`, at any depth. The only exception is the geometry of
+the open cases in `lumen/cases/` (`imported(scan)`, openly licensed and credited); an
+episode is never one of a case's files, so it is refused there too.
 
 ## On-disk layout
 

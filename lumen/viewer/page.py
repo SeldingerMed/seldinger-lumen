@@ -16,7 +16,7 @@ from lumen.viewer.scene import Anatomy, resolve, scene_dict
 
 
 def _static(name: str) -> str:
-    return (resources.files("lumen.viewer") / "static" / name).read_text(encoding="utf-8")
+    return resources.files("lumen.viewer").joinpath("static").joinpath(name).read_text(encoding="utf-8")
 
 
 def render_page(scene: dict, replay: dict | None = None) -> str:
@@ -26,7 +26,8 @@ def render_page(scene: dict, replay: dict | None = None) -> str:
     title = str(scene.get("label", "anatomy")).replace("<", "&lt;").replace(">", "&gt;")
     page = _static("index.html")
     for key, value in (("__CSS__", _static("viewer.css")), ("__JS__", _static("viewer.js")),
-                       ("__TITLE__", title), ("__DATA__", data)):
+                       ("__DATA__", data), ("__TITLE__", title)):     # data first: a title
+        # holding "__DATA__" must not take the data's place
         page = page.replace(key, value, 1)
     return page
 

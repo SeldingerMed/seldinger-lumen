@@ -47,7 +47,12 @@ the Newton-backed tests skip cleanly if `warp`/`newton` aren't installed.
 2. **No patient data.** Every committed asset must be procedurally generated
    (`provenance="procedural"`). Real anatomy, scans, or measurements stay in the
    private Seldinger repos behind the `lumen.assets.schema` seam. Never commit a
-   real centerline, mask, or patient-derived parameter.
+   real centerline, mask, or patient-derived parameter. The one exception is the
+   open cases in `lumen/cases/`: vessel geometry (no images, no identifiers) derived
+   from public, de-identified scans whose licence allows redistribution (CC0, CC BY,
+   CC BY-SA), each credited in its `case.json` and in NOTICE and built with
+   `tools/pack_case.py`. The firewall allows a case's own four files and nothing else
+   there; private data (`patient(private)`) is refused everywhere.
 
 If you need real-data behavior, calibrate privately and contribute the *procedural*
 analog or the *interface*, not the data.
