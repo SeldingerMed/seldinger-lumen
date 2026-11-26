@@ -54,7 +54,7 @@ def resolve(spec: str | Path) -> Anatomy:
     folder = cases.case_folder(text)
     if folder is None:
         p = Path(text).expanduser()
-        if p.is_dir() and (p / "asset.json").exists():
+        if p.is_dir() and ((p / "asset.json").exists() or (p / "asset.json.gz").exists()):
             folder = p
         elif p.is_file() and p.suffix == ".json":
             return Anatomy(Asset.load(str(p)), p.stem, source={"kind": "asset", "name": p.name})

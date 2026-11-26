@@ -93,6 +93,13 @@ def test_a_case_asset_must_carry_its_provenance_marker(firewall):
     assert len(mod.check_provenance()) == 1
 
 
+def test_an_unreadable_case_asset_is_refused(firewall):
+    mod, root = firewall
+    d = _case(root, "ok")
+    (d / "asset.json.gz").write_bytes(b"not gzip at all")
+    assert len(mod.check_provenance()) == 1
+
+
 def test_build_output_is_not_mistaken_for_loose_geometry(firewall):
     mod, root = firewall
     out = root / "build" / "lib" / "lumen" / "cases" / "ok"

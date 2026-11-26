@@ -342,3 +342,16 @@ def test_a_replay_starts_at_the_real_distance_to_target():
     env.reset()
     want = abs(env._features()["s"] - env.target_s)
     assert abs(rep["frames"][0]["left_mm"] - want) < 0.5 and want < env.L - 1.0
+
+
+def test_a_copied_case_folder_opens_by_path(tmp_path):
+    import shutil
+
+    from lumen import cases
+    from lumen.viewer.scene import resolve
+
+    name = cases.names()[0]
+    copy = tmp_path / "copy"
+    shutil.copytree(cases.case_folder(name), copy)
+    a = resolve(str(copy))
+    assert a.asset.edges and a.surface is not None

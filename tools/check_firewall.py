@@ -121,6 +121,9 @@ def check_provenance() -> list[str]:
         try:
             d = _read_json(p)
         except (ValueError, OSError, EOFError):
+            if p.name.endswith(".json.gz"):
+                # compressed data that cannot be read cannot be checked: refuse it
+                bad.append(f"  unreadable compressed file: {p.relative_to(ROOT)}")
             continue
         provs = list(_provenances(d))
         if p.name == "asset.json.gz" and not provs and _open_case_problem(p) is None:

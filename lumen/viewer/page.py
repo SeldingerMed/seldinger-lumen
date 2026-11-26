@@ -74,7 +74,11 @@ def serve(page: str, host: str = "127.0.0.1", port: int = 8765, *, say=print):
         def log_message(self, *args):
             pass
 
-    server = http.server.ThreadingHTTPServer((host, port), Handler)
+    try:
+        server = http.server.ThreadingHTTPServer((host, port), Handler)
+    except OSError as err:                       # port taken, or an address this host lacks
+        raise SystemExit(f"lumen view: cannot serve on {host}:{port} ({err.strerror or err}); "
+                         f"pick another with --port or --host") from None
     shown = host if host not in ("0.0.0.0", "::") else "<this machine's address>"
     say(f"Lumen viewer on http://{shown}:{server.server_address[1]}/  (Ctrl-C to stop)")
     try:

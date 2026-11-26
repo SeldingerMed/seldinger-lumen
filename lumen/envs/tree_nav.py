@@ -258,7 +258,7 @@ class TreeNavEnv:
             # wall (turning a shaped tip that is already in the wall swings it through). Each
             # sim.step reports its own peaks and impulse, so they are combined over the pieces.
             n = max(1, int(self.substeps))
-            split = {"load": 0.0, "pressure": 0.0, "impulse": 0.0}
+            split = {"load": 0.0, "pressure": 0.0, "impulse": 0.0, "sum": 0.0}
             for _ in range(n):
                 free = self._deepest_pen() <= self.feed_stop_pen_mm
                 self.sim.step(dt=5e-3 * self.substeps / n, substeps=self.substeps // n or 1,
@@ -270,6 +270,8 @@ class TreeNavEnv:
                     split["pressure"] = max(split["pressure"], float(self.sim.wall_pressure_max()))
                 if hasattr(self.sim, "wall_load_impulse"):
                     split["impulse"] += float(self.sim.wall_load_impulse())
+                if hasattr(self.sim, "wall_load_grid"):     # the largest total over the pieces
+                    split["sum"] = max(split["sum"], float(np.sum(self.sim.wall_load_grid())))
         else:
             self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
                           insertion=insertion, twist=turn)
@@ -308,6 +310,8 @@ class TreeNavEnv:
         else:
             wall_load_max = float(load_grid.max()) if load_grid.size else 0.0
         wall_load_sum = float(load_grid.sum()) if load_grid.size else 0.0
+        if split is not None and load_grid.size:
+            wall_load_sum = max(wall_load_sum, split["sum"])
         wall_pressure_max = (
             (split["pressure"] if split is not None else float(self.sim.wall_pressure_max()))
             if hasattr(self.sim, "wall_pressure_max") else 0.0
