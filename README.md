@@ -96,6 +96,33 @@ Lumen reads a CTA or MRA (DICOM, NIfTI or NRRD), finds and names the arteries, a
 anatomy the solver can navigate. It picks the segmentation model for the body region and asks
 before installing one. Everything runs on your machine. See [docs/import.md](docs/import.md).
 
+## Real cases included
+
+Five cases from public, openly licensed scans ship with Lumen (vessel geometry only, about
+1 MB each): `head-cta-aneurysm`, `head-neck-cta`, `head-tof-mra`, `aorta-cta` and
+`abdomen-cta`. `lumen cases` lists them with their credits; sources are in [NOTICE](NOTICE).
+
+```python
+from lumen import cases
+env = cases.make_env("head-cta-aneurysm", "aneurysm")
+```
+
+## Look at anatomy and runs
+
+```bash
+lumen view head-cta-aneurysm                       # one HTML page; open it in a browser
+lumen view head-cta-aneurysm --target aneurysm --run --save-run run.json
+lumen view arch --replay run.json                  # generated anatomy works the same way
+lumen view head-tof-mra --look glass               # monitor (default), anatomy or glass
+```
+
+The page shows the vessels in 3D (drag to rotate) beside a simulated C-arm image, with AP,
+lateral, LAO/RAO and cranial/caudal presets, and plays back a recorded run step by step. It is
+a single self-contained file with no network access. `lumen view` takes a shipped case, a
+folder written by `lumen import`, or generated anatomy (`arch`, `tortuous`, `bifurcation`,
+`tube`). The 3D view has three looks: Monitor (dark, see-through red vessels), Anatomy
+(solid vessels on a light page) and Glass (glowing, nearly clear walls).
+
 
 ## Python API
 

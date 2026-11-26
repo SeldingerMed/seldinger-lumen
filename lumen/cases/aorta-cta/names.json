@@ -1,0 +1,62 @@
+{
+ "edges": {
+  "e0": "aorta",
+  "e1": "brachiocephalic trunk",
+  "e2": "left common carotid artery",
+  "e3": "left subclavian artery",
+  "e4": "right iliac artery",
+  "e5": "right iliac artery",
+  "e6": "left iliac artery",
+  "e7": "right iliac artery",
+  "e8": "aorta",
+  "e9": "aorta"
+ },
+ "vessels": {
+  "aorta": {
+   "edges": [
+    "e0",
+    "e8",
+    "e9"
+   ],
+   "target_node": "end0",
+   "route_mm": 786.4
+  },
+  "brachiocephalic trunk": {
+   "edges": [
+    "e1"
+   ],
+   "target_node": "end1",
+   "route_mm": 726.6
+  },
+  "left common carotid artery": {
+   "edges": [
+    "e2"
+   ],
+   "target_node": "end2",
+   "route_mm": 688.0
+  },
+  "left subclavian artery": {
+   "edges": [
+    "e3"
+   ],
+   "target_node": "end3",
+   "route_mm": 682.7
+  },
+  "right iliac artery": {
+   "edges": [
+    "e4",
+    "e5",
+    "e7"
+   ],
+   "target_node": "end4",
+   "route_mm": 485.5
+  },
+  "left iliac artery": {
+   "edges": [
+    "e6"
+   ],
+   "target_node": "j0",
+   "route_mm": 233.1
+  }
+ }
+}

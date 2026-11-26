@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen · __TITLE__</title>
+<style>__CSS__</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="labels"></div>
+<div id="nogl">This page needs WebGL 2 (any current Chrome, Edge, Firefox or Safari).</div>
+<header>
+  <div class="brand"><b>Lumen</b> <span id="title"></span><div id="meta"></div></div>
+  <div class="group">
+    <span class="cap">View</span>
+    <button data-view="0,0">AP</button>
+    <button data-view="90,0">Lateral</button>
+    <button data-view="30,0">LAO 30</button>
+    <button data-view="-30,0">RAO 30</button>
+    <button data-view="0,25">Cranial</button>
+    <button data-view="0,-25">Caudal</button>
+  </div>
+  <div class="group">
+    <span class="cap">Layout</span>
+    <button data-layout="3d">3D</button>
+    <button data-layout="both">Both</button>
+    <button data-layout="carm">C-arm</button>
+  </div>
+</header>
+<aside>
+  <div class="row"><span class="cap">Look</span><select id="look"><option value="monitor">Monitor</option><option value="anatomy">Anatomy</option><option value="glass">Glass</option></select></div>
+  <div class="row"><span class="cap">Vessel</span><input id="alpha" type="range" min="0.12" max="1" step="0.01" value="0.6" title="See-through"></div>
+  <label><input id="showlabels" type="checkbox" checked> Vessel names</label>
+  <label><input id="showlines" type="checkbox"> Centrelines</label>
+  <hr>
+  <div class="row"><span class="cap">C-arm</span><span id="angles"></span></div>
+  <label><input id="link" type="checkbox" checked> Follow the 3D view</label>
+  <div class="row"><span class="mini">RAO</span><input id="lao" type="range" min="-90" max="90" step="1" value="0"><span class="mini">LAO</span></div>
+  <div class="row"><span class="mini">CAU</span><input id="cra" type="range" min="-45" max="45" step="1" value="0"><span class="mini">CRA</span></div>
+  <div class="row"><span class="mini">Field</span><input id="field" type="range" min="60" max="400" step="5" value="300"></div>
+  <label><input id="contrast" type="checkbox" checked> Contrast in the vessels</label>
+</aside>
+<footer id="replay">
+  <button id="play">Play</button>
+  <input id="scrub" type="range" min="0" max="0" step="1" value="0">
+  <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+  <span id="stepinfo"></span><span id="left"></span><span id="overlap"></span><span id="outcome"></span>
+</footer>
+<div id="help">drag: rotate · shift-drag: pan · wheel: zoom · space: play · ←/→: step</div>
+<script type="application/json" id="lumen-data">__DATA__</script>
+<script>__JS__</script>
+</body>
+</html>

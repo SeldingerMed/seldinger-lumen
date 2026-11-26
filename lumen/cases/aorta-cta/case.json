@@ -1,0 +1,30 @@
+{
+ "title": "Aortic CTA, arch to the iliac arteries",
+ "region": "chest, abdomen and pelvis",
+ "modality": "CTA",
+ "licence": "CC BY 4.0",
+ "citation": "Radl L, Jin Y, Pepe A, Li J, Gsaxner C, Zhao F, Egger J. AVT: Multicenter aortic vessel tree CTA dataset collection with ground truth segmentation masks. Data in Brief 40:107801 (2022)",
+ "source_url": "https://figshare.com/articles/dataset/14806362",
+ "source_doi": "10.6084/m9.figshare.14806362",
+ "scan": "Dongyang D10",
+ "vessels": [
+  "aorta",
+  "brachiocephalic trunk",
+  "left common carotid artery",
+  "left iliac artery",
+  "left subclavian artery",
+  "right iliac artery"
+ ],
+ "derived": {
+  "by": "lumen import",
+  "segments": 10,
+  "surface_triangles": 98003,
+  "wall_fit_p95_mm": 0.82,
+  "region": [
+   "body"
+  ],
+  "segmenter": [
+   "TotalSegmentator"
+  ]
+ }
+}

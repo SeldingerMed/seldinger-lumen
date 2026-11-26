@@ -7,21 +7,26 @@ Two hard boundaries keep this repo cleanly Apache-2.0 releasable:
      assets from it would contaminate this repo's license. The whole point of
      lumen is to be the clean-room generic solver, so this must never appear.
 
-  2. No patient data. Every committed asset must be procedurally generated
-     (provenance == "procedural"). Patient-derived geometry belongs in the
-     private seldinger repos behind the asset-schema seam, never here.
+  2. No patient data outside the open cases. Every committed asset must be procedurally
+     generated (provenance == "procedural"), with one exception: the few cases shipped in
+     lumen/cases/<id>/, derived from public, de-identified scans whose licence allows
+     redistribution (CC0 / CC BY / CC BY-SA). Each such folder must carry a case.json naming
+     that licence, a citation and the source. Anything else patient-derived stays out.
 
 Exit non-zero with a clear message if either boundary is crossed.
 """
 
 from __future__ import annotations
 
+import gzip
 import json
 import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BANNED = ("cathsim",)
+OPEN_LICENCES = ("CC0", "CC BY 4.0", "CC BY 3.0", "CC BY-SA 4.0")
+CASES = ROOT / "lumen" / "cases"
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".github"}
 
 
@@ -66,20 +71,51 @@ def _provenances(obj):
             yield from _provenances(item)
 
 
+def _open_case_problem(p: pathlib.Path) -> str | None:
+    """None when ``p`` sits in a shipped open case whose card names an open licence, a
+    citation and a source; otherwise why it does not."""
+    try:
+        rel = p.resolve().relative_to(CASES.resolve())
+    except ValueError:
+        return "not in lumen/cases/"
+    if len(rel.parts) != 2:
+        return "not directly inside a case folder"
+    card_path = CASES / rel.parts[0] / "case.json"
+    try:
+        card = json.loads(card_path.read_text())
+    except (ValueError, OSError):
+        return f"no readable {card_path.relative_to(ROOT)}"
+    if card.get("licence") not in OPEN_LICENCES:
+        return f"licence {card.get('licence')!r} is not one of {', '.join(OPEN_LICENCES)}"
+    for key in ("citation", "source_url"):
+        if not str(card.get(key) or "").strip():
+            return f"case.json has no {key}"
+    return None
+
+
+def _read_json(p: pathlib.Path):
+    raw = p.read_bytes()
+    if p.suffix == ".gz":
+        raw = gzip.decompress(raw)
+    return json.loads(raw)
+
+
 def check_provenance() -> list[str]:
     bad = []
-    # scan EVERY .json anywhere in the repo (not a fixed allow-list of dirs)
-    for p in ROOT.rglob("*.json"):
+    # scan EVERY .json and .json.gz anywhere in the repo (not a fixed allow-list of dirs)
+    for p in [*ROOT.rglob("*.json"), *ROOT.rglob("*.json.gz")]:
         if any(part in SKIP_DIRS for part in p.parts):
             continue
         try:
-            d = json.loads(p.read_text())
-        except (ValueError, OSError):
+            d = _read_json(p)
+        except (ValueError, OSError, EOFError):
             continue
         for prov in _provenances(d):
             if prov != "procedural":
-                bad.append(f"  non-procedural asset committed: {p.relative_to(ROOT)} "
-                           f"(provenance={prov!r})")
+                why = _open_case_problem(p)
+                if why is not None:
+                    bad.append(f"  non-procedural asset committed: {p.relative_to(ROOT)} "
+                               f"(provenance={prov!r}; {why})")
                 break                                      # one report per file is enough
     return bad
 
@@ -87,10 +123,11 @@ def check_provenance() -> list[str]:
 def main() -> int:
     problems = check_no_banned() + check_provenance()
     if problems:
-        print("FIREWALL VIOLATION -- this repo must stay Apache-2.0 / patient-free:")
+        print("FIREWALL VIOLATION -- this repo must stay Apache-2.0, with patient-derived "
+              "geometry only in openly licensed lumen/cases/:")
         print("\n".join(problems))
         return 1
-    print("firewall ok: no CathSim, no patient-derived assets")
+    print("firewall ok: no CathSim; patient-derived geometry only in openly licensed cases")
     return 0
 
 

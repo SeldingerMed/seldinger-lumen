@@ -42,6 +42,9 @@ def _command_table():
         "import-mask": ("Import a segmented .npz volume as a Lumen asset.", import_mask_main),
         "import": ("Import a real CTA/MRA (DICOM, NIfTI, NRRD) or a vessel mask as anatomy.",
                    import_scan_main),
+        "view": ("Look at anatomy in 3D and as a C-arm would see it; record and replay runs.",
+                 view_main),
+        "cases": ("List the real anatomy that ships with Lumen and its credits.", cases_main),
     }
 
 
@@ -1089,6 +1092,89 @@ def calibrate_main(argv=None, prog=None) -> None:
             print(f"{name:9s}  views={res['n_views']}  recovered={res['recovered_C10']:.0f}  "
                   f"noise-free={res['rel_error']:.2%}  under-noise={res['rel_error_noisy']:.2%}  "
                   f"-> {flag}")
+
+
+def cases_main(argv=None, prog=None) -> None:
+    from lumen import cases
+
+    parser = argparse.ArgumentParser(
+        prog=prog, description="List the real anatomy that ships with Lumen, with the licence and "
+                               "credit for the scan each case was derived from.")
+    parser.add_argument("--json", action="store_true", help="print the catalogue as JSON")
+    args = parser.parse_args(argv)
+    rows = cases.catalogue()
+    if args.json:
+        print(json.dumps(rows, indent=2))
+        return
+    for c in rows:
+        print(f"{c['id']}\n  {c.get('title', '')}  ({c.get('modality', '')}, {c.get('region', '')})")
+        vessels = c.get("vessels") or []
+        if vessels:
+            shown = ", ".join(vessels[:6]) + (" ..." if len(vessels) > 6 else "")
+            print(f"  targets: {shown}")
+        print(f"  from: {c.get('citation', '')}  [{c.get('licence', '')}]")
+    print("\nGenerated anatomy is always available too: arch, tortuous, bifurcation, tube.")
+
+
+def view_main(argv=None, prog=None) -> None:
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Open anatomy in a viewer: the vessels in 3D, which you can turn and zoom, "
+                    "beside the image a C-arm would show at the same angle. With --run, Lumen "
+                    "drives a wire to the target and the page replays it; --replay shows a saved "
+                    "run. The page is a single file that works offline.")
+    parser.add_argument("anatomy", help="a shipped case (see 'lumen cases'), an import folder, "
+                                        "an asset .json, or arch / tortuous / bifurcation / tube")
+    parser.add_argument("--target", help="vessel name (or node id) to aim the wire at")
+    parser.add_argument("--run", action="store_true", help="drive a wire to --target and replay it")
+    parser.add_argument("--steps", type=int, default=400, help="most steps for --run (default 400)")
+    parser.add_argument("--replay", help="a saved run (.json) to replay")
+    parser.add_argument("--save-run", help="also save the --run as a replay file here")
+    parser.add_argument("--out", default="lumen-view.html", help="page to write (default lumen-view.html)")
+    parser.add_argument("--serve", action="store_true", help="serve the page instead of only writing it")
+    parser.add_argument("--host", default="127.0.0.1", help="address to serve on (0.0.0.0: all)")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--look", choices=("monitor", "anatomy", "glass"), default="monitor",
+                        help="how the 3D pane looks at first (switchable on the page)")
+    args = parser.parse_args(argv)
+
+    from lumen.viewer import page, record
+    from lumen.viewer.scene import resolve
+
+    try:
+        anatomy = resolve(args.anatomy)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    replay = None
+    if args.replay:
+        try:
+            replay = record.load(args.replay)
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
+    elif args.run:
+        if not args.target:
+            parser.error("--run needs --target")
+        from lumen.envs.tree_nav import TreeNavEnv
+        from lumen.scan.pipeline import resolve_target
+
+        try:
+            node = resolve_target(anatomy.names, anatomy.asset, args.target)
+        except (KeyError, ValueError) as exc:
+            parser.error(str(exc))
+        print(f"Driving a wire to {args.target} ...", flush=True)
+        env = TreeNavEnv(anatomy.asset, target_node=node, max_steps=args.steps, **record.ENV_DEFAULTS)
+        replay = record.record(env, steps=args.steps, anatomy=args.anatomy, target=args.target)
+        o = replay["outcome"]
+        print(("  reached it" if o["reached"] else f"  stopped {o['left_mm']} mm short")
+              + f" in {o['steps']} steps; most wall overlap {o['max_overlap_mm']} mm")
+        if args.save_run:
+            record.save(replay, args.save_run)
+            print(f"  run saved to {args.save_run}")
+    html = page.build(anatomy, replay, target=args.target, look=args.look)
+    out = page.write_page(html, args.out)
+    print(f"Viewer written to {out} ({out.stat().st_size / 1e6:.1f} MB); open it in a browser.")
+    if args.serve:
+        page.serve(html, args.host, args.port)
 
 
 if __name__ == "__main__":

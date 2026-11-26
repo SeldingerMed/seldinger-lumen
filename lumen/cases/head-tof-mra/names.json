@@ -1,0 +1,140 @@
+{
+ "edges": {
+  "e0": "right infraclinoid internal carotid artery",
+  "e1": "right middle cerebral artery",
+  "e2": "right middle cerebral artery",
+  "e3": "left middle cerebral artery",
+  "e4": "right middle cerebral artery",
+  "e5": "right middle cerebral artery",
+  "e6": "left anterior cerebral artery",
+  "e7": "right middle cerebral artery",
+  "e8": "left middle cerebral artery",
+  "e9": "left middle cerebral artery",
+  "e10": "right supraclinoid internal carotid artery",
+  "e11": "right supraclinoid internal carotid artery",
+  "e12": "right posterior communicating artery",
+  "e13": "right anterior cerebral artery",
+  "e14": "left anterior cerebral artery",
+  "e15": "left middle cerebral artery",
+  "e16": "left anterior cerebral artery",
+  "e17": "left anterior cerebral artery",
+  "e18": "left middle cerebral artery",
+  "e19": "left middle cerebral artery",
+  "e20": "left middle cerebral artery",
+  "e21": "left infraclinoid internal carotid artery",
+  "e22": "left middle cerebral artery",
+  "e23": "left middle cerebral artery",
+  "e24": "left anterior cerebral artery",
+  "e25": "left middle cerebral artery",
+  "e26": "left middle cerebral artery",
+  "e27": "anterior communicating artery",
+  "e28": "left middle cerebral artery",
+  "e29": "right anterior cerebral artery",
+  "e30": "left middle cerebral artery",
+  "e31": "right anterior cerebral artery",
+  "e32": "right anterior cerebral artery",
+  "e33": "right supraclinoid internal carotid artery",
+  "e34": "right middle cerebral artery",
+  "e35": "right supraclinoid internal carotid artery",
+  "e36": "right supraclinoid internal carotid artery",
+  "e37": "right middle cerebral artery",
+  "e38": "right middle cerebral artery",
+  "e39": "right middle cerebral artery"
+ },
+ "vessels": {
+  "right infraclinoid internal carotid artery": {
+   "edges": [
+    "e0"
+   ],
+   "target_node": "end0",
+   "route_mm": 263.1
+  },
+  "right middle cerebral artery": {
+   "edges": [
+    "e1",
+    "e2",
+    "e4",
+    "e5",
+    "e7",
+    "e34",
+    "e37",
+    "e38",
+    "e39"
+   ],
+   "target_node": "end1",
+   "route_mm": 245.6
+  },
+  "left middle cerebral artery": {
+   "edges": [
+    "e3",
+    "e8",
+    "e9",
+    "e15",
+    "e18",
+    "e19",
+    "e20",
+    "e22",
+    "e23",
+    "e25",
+    "e26",
+    "e28",
+    "e30"
+   ],
+   "target_node": "end3",
+   "route_mm": 235.5
+  },
+  "left anterior cerebral artery": {
+   "edges": [
+    "e6",
+    "e14",
+    "e16",
+    "e17",
+    "e24"
+   ],
+   "target_node": "end6",
+   "route_mm": 195.1
+  },
+  "right supraclinoid internal carotid artery": {
+   "edges": [
+    "e10",
+    "e11",
+    "e33",
+    "e35",
+    "e36"
+   ],
+   "target_node": "end10",
+   "route_mm": 183.2
+  },
+  "right posterior communicating artery": {
+   "edges": [
+    "e12"
+   ],
+   "target_node": "end12",
+   "route_mm": 178.0
+  },
+  "right anterior cerebral artery": {
+   "edges": [
+    "e13",
+    "e29",
+    "e31",
+    "e32"
+   ],
+   "target_node": "end13",
+   "route_mm": 169.8
+  },
+  "left infraclinoid internal carotid artery": {
+   "edges": [
+    "e21"
+   ],
+   "target_node": "j0",
+   "route_mm": 122.0
+  },
+  "anterior communicating artery": {
+   "edges": [
+    "e27"
+   ],
+   "target_node": "j6",
+   "route_mm": 144.5
+  }
+ }
+}

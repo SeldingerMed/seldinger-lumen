@@ -1,0 +1,33 @@
+{
+ "title": "Head time-of-flight MRA",
+ "region": "head",
+ "modality": "TOF-MRA",
+ "licence": "CC0",
+ "citation": "Di Noto T, Marie G, Tourbier S, Aleman-Gomez Y, Esteban O, Saliou G, Bach Cuadra M, Hagmann P, Richiardi J. Lausanne TOF-MRA Aneurysm Cohort. OpenNeuro ds003949 v1.0.1",
+ "source_url": "https://openneuro.org/datasets/ds003949/versions/1.0.1",
+ "source_doi": "10.18112/openneuro.ds003949.v1.0.1",
+ "scan": "sub-000 ses-20110101",
+ "vessels": [
+  "anterior communicating artery",
+  "left anterior cerebral artery",
+  "left infraclinoid internal carotid artery",
+  "left middle cerebral artery",
+  "right anterior cerebral artery",
+  "right infraclinoid internal carotid artery",
+  "right middle cerebral artery",
+  "right posterior communicating artery",
+  "right supraclinoid internal carotid artery"
+ ],
+ "derived": {
+  "by": "lumen import",
+  "segments": 40,
+  "surface_triangles": 87148,
+  "wall_fit_p95_mm": 0.62,
+  "region": [
+   "head"
+  ],
+  "segmenter": [
+   "the RSNA 2025 intracranial artery model"
+  ]
+ }
+}
