@@ -10,8 +10,8 @@ Unlike clip 8, every tile uses one shared camera and one drawing of the arch: th
 bounds and the vessel shown behind every tile come from the comparator's phantom mesh (the anatomy
 both simulators run; Lumen's copy is the runtime import of that mesh), so the two rows differ only
 in the wire each simulator moved.
-Each simulator's safety readout stays on its own scale (Lumen: wall overlap, mm; the
-comparator: tip-wall contact force, N); the two are never placed on one axis.
+The tiles show navigation outcome only. Safety is reported per simulator, on its own scale, in the
+v2 table (Lumen: wall overlap, mm; the comparator: tip-wall contact force, N), never on one axis.
 
     python -m tools.xseries.clip_v2_matched --episodes DIR --target lcca [--out DIR]
 """
@@ -99,15 +99,15 @@ def main(argv=None):
         fd = out / f"frames_{kind}"
         shutil.rmtree(fd, ignore_errors=True)
         fd.mkdir(parents=True)
-        sides = [[Tile(d, tw, th, basis, bounds) for d in L], [Tile(d, tw, th, basis, bounds) for d in C]]
+        sides = [[Tile(d, tw, th, basis, bounds, show_safety=False) for d in L],
+                 [Tile(d, tw, th, basis, bounds, show_safety=False) for d in C]]
         big = kind == "landscape"
         for i in range(n_frames):
             if only and i not in only:
                 continue
             t = i / (FPS * a.slow)
             img = Image.new("RGB", size, (7, 9, 13))
-            heads = ("Lumen   |   wall overlap, limit 0.3 mm",
-                     f"{CMP_NAME}   |   tip-wall contact force, limit 1.0 N")
+            heads = ("Lumen", CMP_NAME)
             for side, (ox, oy), head in zip(sides, origins, heads):
                 label(img, head, (ox, oy - (36 if big else 32)), 24 if big else 19, (235, 240, 245))
                 for j, tile in enumerate(side):

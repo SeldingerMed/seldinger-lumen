@@ -55,9 +55,11 @@ def view_basis(V, env, tgt):
 
 
 class Tile:
-    def __init__(self, d, w, h, basis=None, bounds=None):
-        """`basis` (e1, e2) and `bounds` (lo, hi in that basis) let several tiles share one camera."""
+    def __init__(self, d, w, h, basis=None, bounds=None, show_safety=True):
+        """`basis` (e1, e2) and `bounds` (lo, hi in that basis) let several tiles share one camera.
+        `show_safety=False` leaves out the per-tile safety readout (the clip then shows outcome only)."""
         self.env = str(d["environment"])
+        self.show_safety = bool(show_safety)
         self.V = np.asarray(d["vessel"], float)
         self.e1, self.e2 = basis if basis is not None else view_basis(self.V, self.env, d["target"])
         self.wire = list(d["wire"])
@@ -116,15 +118,20 @@ class Tile:
                 d.line([tuple(x) for x in self.uv(w)], fill=WIRE, width=3, joint="curve")
             tp = self.uv(w[-1])[0]
             d.ellipse((tp[0] - 4, tp[1] - 4, tp[0] + 4, tp[1] + 4), fill=(240, 250, 252))
-        peak = float(self.safety[: k + 1].max())
-        over = peak > LIMIT[self.env]
         label(img, f"training seed {self.seed}", (10, 8), 18, (200, 206, 214))
-        col = (236, 110, 96) if over else (160, 168, 180)
-        label(img, f"peak {peak:.2f} {UNIT[self.env]}", (10, 32), 16, col)
+        over = False
+        if self.show_safety:
+            peak = float(self.safety[: k + 1].max())
+            over = peak > LIMIT[self.env]
+            col = (236, 110, 96) if over else (160, 168, 180)
+            label(img, f"peak {peak:.2f} {UNIT[self.env]}", (10, 32), 16, col)
         done = k >= self.steps
         if done:
             ok = self.success and not over
-            txt = "reached, safe" if ok else ("reached, over limit" if self.success else "did not reach")
+            if not self.show_safety:
+                txt = "reached target" if self.success else "did not reach"
+            else:
+                txt = "reached, safe" if ok else ("reached, over limit" if self.success else "did not reach")
             label(img, txt, (self.w - 10, 8), 18, (112, 211, 141) if ok else (236, 185, 88), anchor="ra")
         else:
             label(img, f"{k * self.dt:4.2f} s", (self.w - 10, 8), 18, (200, 206, 214), anchor="ra")
