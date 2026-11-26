@@ -1028,8 +1028,8 @@ def test_a_multi_segment_slicer_mask_keeps_its_names(tmp_path):
     hdr = {"space": "left-posterior-superior", "space origin": [0.0, 0.0, 0.0],
            "space directions": [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [np.nan, np.nan, np.nan]],
            "kinds": ["domain", "domain", "domain", "list"],
-           "Segment0_LabelValue": 1, "Segment0_Name": "aorta",
-           "Segment1_LabelValue": 2, "Segment1_Name": "left carotid"}
+           "Segment0_Layer": 0, "Segment0_LabelValue": 1, "Segment0_Name": "aorta",
+           "Segment1_Layer": 1, "Segment1_LabelValue": 1, "Segment1_Name": "left carotid"}
     f = tmp_path / "vessels.seg.nrrd"
     nrrd.write(str(f), layers, hdr, index_order="F")
     vol = sc.load_label_volume(f)
@@ -1040,3 +1040,41 @@ def test_a_multi_segment_slicer_mask_keeps_its_names(tmp_path):
 def test_a_missing_mask_file_is_a_clean_error(tmp_path):
     with pytest.raises(ValueError, match="no such mask file"):
         pipeline.import_scan(None, tmp_path / "out", mask=tmp_path / "missing.nii.gz", say=lambda *_: None)
+
+
+def test_slicer_segments_sharing_a_layer_keep_their_own_names(tmp_path):
+    nrrd = pytest.importorskip("nrrd")
+    layers = np.zeros((6, 6, 6, 2), np.uint8)
+    layers[1:3, 1:3, 1:3, 0] = 1                                   # aorta: layer 0, value 1
+    layers[3:5, 3:5, 3:5, 0] = 2                                   # carotid: layer 0, value 2
+    layers[0, 5, 5, 1] = 1                                         # iliac: layer 1, value 1
+    hdr = {"space": "left-posterior-superior", "space origin": [0.0, 0.0, 0.0],
+           "space directions": [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [np.nan, np.nan, np.nan]],
+           "kinds": ["domain", "domain", "domain", "list"],
+           "Segment0_Layer": 0, "Segment0_LabelValue": 1, "Segment0_Name": "aorta",
+           "Segment1_Layer": 0, "Segment1_LabelValue": 2, "Segment1_Name": "left carotid",
+           "Segment2_Layer": 1, "Segment2_LabelValue": 1, "Segment2_Name": "left iliac"}
+    f = tmp_path / "v.seg.nrrd"
+    nrrd.write(str(f), layers, hdr, index_order="F")
+    vol = sc.load_label_volume(f)
+    assert vol.names[int(vol.data[2, 2, 2])] == "aorta"
+    assert vol.names[int(vol.data[4, 4, 4])] == "left carotid"
+    assert vol.names[int(vol.data[0, 5, 5])] == "left iliac"
+
+
+def test_the_neck_model_is_run_for_each_scan_not_reused(tmp_path, lumen_home, monkeypatch):
+    work = tmp_path / "w"
+    work.mkdir()
+    lab = np.zeros((4, 4, 4), np.int16)
+    lab[1, 1, 1] = 1
+    monkeypatch.setattr(segmenters, "_read_labels", lambda path: (lab, np.eye(4)))
+    monkeypatch.setattr(segmenters, "_class_map",
+                        lambda seg, task: {1: "common_carotid_artery_left"} if task == "total"
+                        else {1: "internal_carotid_artery_left"})
+    monkeypatch.setattr(segmenters, "BODY_ARTERIES", ["common_carotid_artery_left"])
+    (work / "neck.nii.gz").write_bytes(b"left by another scan")
+    ran = []
+    segmenters._body_labels(segmenters.TOTALSEGMENTATOR, work / "body.nii.gz", "total",
+                            neck=(work / "scan.nii.gz", work / "log", "ts", "cpu", {}, work),
+                            run=lambda cmd, *a, **k: ran.append(cmd))
+    assert len(ran) == 1                                           # the stale neck output was not trusted

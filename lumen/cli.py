@@ -456,12 +456,17 @@ def import_scan_main(argv=None, prog=None) -> None:
     if args.list_series and not args.scan:
         parser.error("--list-series needs a scan (a DICOM folder)")
     try:
+        from lumen.scan.io import list_dicom_series
+        from lumen.scan.pipeline import import_scan, summary_lines
+        import nibabel  # noqa: F401  (the scan extra)
+    except ImportError as exc:
+        raise SystemExit("lumen import needs the scan extra: from your clone of the repository, "
+                         f"run pip install -e '.[scan]' ({exc})") from exc
+    try:
         if args.list_series:
-            from lumen.scan.io import list_dicom_series
             for k, row in enumerate(list_dicom_series(args.scan), 1):
                 print(f"{k}. {row['modality']}  {row['slices']} slices  {row['description']}")
             return
-        from lumen.scan.pipeline import import_scan, summary_lines
         entry = None
         if args.entry:
             try:
@@ -473,9 +478,6 @@ def import_scan_main(argv=None, prog=None) -> None:
         say = (lambda *_: None) if args.json else print
         report = import_scan(args.scan, args.out, mask=args.mask, entry_mm=entry,
                              series=args.series, assume_yes=args.yes, say=say)
-    except ImportError as exc:
-        raise SystemExit("lumen import needs the scan extra: from your clone of the repository, "
-                         f"run pip install -e '.[scan]' ({exc})") from exc
     except (ValueError, RuntimeError) as exc:
         raise SystemExit(f"lumen import: {exc}") from exc
     if args.json:

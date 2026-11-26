@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import json
+import re
 
 import numpy as np
 
@@ -61,6 +62,27 @@ def save_label_volume(volume: LabelVolume, path: str | Path) -> None:
     sidecar.write_text(json.dumps({str(k): v for k, v in volume.names.items()}))
 
 
+def _merge_slicer_layers(layers: np.ndarray, hdr: dict) -> tuple[np.ndarray, dict]:
+    """One label per segment of a layered 3D Slicer segmentation.
+
+    Each segment lives in layer ``Segment<i>_Layer`` at value ``Segment<i>_LabelValue``; several
+    segments may share a layer. The merged volume numbers segments 1..n in header order.
+    """
+    merged = np.zeros(layers.shape[:3], np.int32)
+    names: dict = {}
+    keys = sorted({int(k[7:].split("_")[0]) for k in hdr if re.match(r"Segment\d+_", k)})
+    if not keys:                                      # no segment table: one segment per layer
+        for i in range(layers.shape[3]):
+            merged[(layers[..., i] > 0) & (merged == 0)] = i + 1
+        return merged, names
+    for n, i in enumerate(keys, 1):
+        layer = int(hdr.get(f"Segment{i}_Layer", i))
+        value = int(hdr.get(f"Segment{i}_LabelValue", 1))
+        merged[(layers[..., layer] == value) & (merged == 0)] = n
+        names[n] = str(hdr.get(f"Segment{i}_Name", ""))
+    return merged, names
+
+
 def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolume:
     """Read a mask from NRRD (``.nrrd``, ``.seg.nrrd``) or NIfTI (``.nii``, ``.nii.gz``)."""
     p = Path(path)
@@ -72,14 +94,13 @@ def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolum
         data, hdr = nrrd.read(str(p), index_order="F")
         dirs = np.asarray(hdr["space directions"], float)
         spatial = np.isfinite(dirs).all(axis=1) if dirs.ndim == 2 else np.array([])
-        if data.ndim == 4 and spatial.sum() == 3:
+        layered = data.ndim == 4 and spatial.sum() == 3
+        if layered:
             # a 3D Slicer .seg.nrrd: one layer per segment, with a 'none' row for the list axis
             layers = data.transpose([i for i in range(4) if spatial[i]] + [int(np.nonzero(~spatial)[0][0])])
-            merged = np.zeros(layers.shape[:3], np.int32)
-            for i in range(layers.shape[3]):
-                merged[(layers[..., i] > 0) & (merged == 0)] = i + 1
-            data = merged
+            data, slicer_names = _merge_slicer_layers(layers, hdr)
             dirs = dirs[spatial]
+            names = {**slicer_names, **(names or {})}
         elif data.ndim != 3 or int(spatial.sum()) != 3:
             raise ValueError(f"the NRRD 'space directions' header does not give three spatial axes "
                              f"({dirs.tolist()}): {p}")
@@ -92,9 +113,10 @@ def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolum
         elif space not in ("left-posterior-superior", "lps"):
             raise ValueError(f"unsupported NRRD space {space!r}: {p}")
         found = {}
-        for k, v in hdr.items():
-            if k.startswith("Segment") and k.endswith("_LabelValue"):
-                found[int(v)] = str(hdr.get(k.replace("_LabelValue", "_Name"), ""))
+        if not layered:
+            for k, v in hdr.items():
+                if k.startswith("Segment") and k.endswith("_LabelValue"):
+                    found[int(v)] = str(hdr.get(k.replace("_LabelValue", "_Name"), ""))
         return LabelVolume(np.asarray(data), aff, {**found, **(names or {})})
     if low.endswith(".nii") or low.endswith(".nii.gz"):
         import nibabel as nib

@@ -183,6 +183,7 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
             if installs:
                 titles = " and ".join(seg.title for seg in missing if seg.key in installs)
                 say(f"Installing {titles} in the background (this happens once) ...")
+            digest = hashlib.sha256(np.ascontiguousarray(scan.data).tobytes()).hexdigest()
             for seg in needed:
                 if seg.key in declined:
                     errors.append(f"{seg.title} was not installed, so {seg.finds} are not included")
@@ -198,7 +199,6 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
                         continue
                 cached = work / seg.key / "labels.nii.gz"
                 stamp = work / seg.key / "scan.sha256"
-                digest = hashlib.sha256(np.ascontiguousarray(scan.data).tobytes()).hexdigest()
                 try:
                     if cached.exists() and stamp.exists() and stamp.read_text().strip() == digest:
                         # a previous import of this same scan finished this model and then failed

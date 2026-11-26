@@ -637,9 +637,8 @@ def _body_labels(seg: Segmenter, out: Path, task: str, neck=None, run=None):
     if any("carotid" in v for v in names.values()) and task == "total" and neck is not None:
         src, log, exe, device, env, work = neck
         out2 = work / "neck.nii.gz"
-        if not out2.exists():
-            run([exe, "-i", src, "-o", out2, "--ml", "--task", "headneck_bones_vessels",
-                 "--device", device], log, env=env, what=seg.title)
+        run([exe, "-i", src, "-o", out2, "--ml", "--task", "headneck_bones_vessels",
+             "--device", device], log, env=env, what=seg.title)
         lab2, _ = _read_labels(out2)
         for idx, name in _class_map(seg, "headneck_bones_vessels").items():
             if name in NECK_ARTERIES and np.any(lab2 == idx):
