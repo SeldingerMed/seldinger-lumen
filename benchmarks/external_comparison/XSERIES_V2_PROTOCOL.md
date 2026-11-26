@@ -105,6 +105,12 @@ retrained. All other runs are new.
      Candidates: in-process DummyVecEnv with 4 and 8 environments, and SubprocVecEnv with 2 workers;
      the fastest is used. Measured values and the choice are appended below before any CathSim
      multi-environment run.
+   - CathSim measured (same 20 s probe, phantom3 BCA): DummyVecEnv 1 13.26, DummyVecEnv 4 13.64,
+     DummyVecEnv 8 13.40, SubprocVecEnv 2 27.37 env-steps/s. Chosen: SubprocVecEnv with 2 workers.
+     SubprocVecEnv runs are measured and trained with the machine reserved for them (admission reserve
+     10.5 GB), because the shared machine's memory guard pauses worker processes while other heavy jobs
+     run. Run ids "best"; same PPO settings, with the rollout length per worker halved so each update
+     still uses 2,048 env steps (as for Lumen's batched runs).
 4. 2026-11-23, supplementary resolution check (declared after the Lumen single-environment learning curves
    were scored, so it is reported as supplementary and never replaces the preregistered metric).
    - Observation: every Lumen single-environment run (BCA and LCCA, seeds 0, 1, 5) was at >= 90% success at
