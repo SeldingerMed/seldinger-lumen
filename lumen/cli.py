@@ -466,8 +466,9 @@ def import_scan_main(argv=None, prog=None) -> None:
         if args.entry:
             try:
                 entry = [float(v) for v in args.entry.split(",")]
-                assert len(entry) == 3
-            except (ValueError, AssertionError):
+                if len(entry) != 3:
+                    raise ValueError
+            except ValueError:
                 parser.error("--entry must be three numbers: x,y,z")
         say = (lambda *_: None) if args.json else print
         report = import_scan(args.scan, args.out, mask=args.mask, entry_mm=entry,

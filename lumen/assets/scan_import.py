@@ -64,15 +64,23 @@ def save_label_volume(volume: LabelVolume, path: str | Path) -> None:
 def load_label_volume(path: str | Path, names: dict | None = None) -> LabelVolume:
     """Read a mask from NRRD (``.nrrd``, ``.seg.nrrd``) or NIfTI (``.nii``, ``.nii.gz``)."""
     p = Path(path)
+    if not p.exists():
+        raise ValueError(f"no such mask file: {p}")
     low = p.name.lower()
     if low.endswith(".nrrd"):
         import nrrd
         data, hdr = nrrd.read(str(p), index_order="F")
-        if data.ndim != 3:
-            raise ValueError(f"expected a 3-D label volume, got shape {data.shape}: {p}")
         dirs = np.asarray(hdr["space directions"], float)
-        if dirs.shape != (3, 3) or not np.isfinite(dirs).all():
-            # a 3-D volume needs three spatial axes; a 'none' (NaN) row means one is missing
+        spatial = np.isfinite(dirs).all(axis=1) if dirs.ndim == 2 else np.array([])
+        if data.ndim == 4 and spatial.sum() == 3:
+            # a 3D Slicer .seg.nrrd: one layer per segment, with a 'none' row for the list axis
+            layers = data.transpose([i for i in range(4) if spatial[i]] + [int(np.nonzero(~spatial)[0][0])])
+            merged = np.zeros(layers.shape[:3], np.int32)
+            for i in range(layers.shape[3]):
+                merged[(layers[..., i] > 0) & (merged == 0)] = i + 1
+            data = merged
+            dirs = dirs[spatial]
+        elif data.ndim != 3 or int(spatial.sum()) != 3:
             raise ValueError(f"the NRRD 'space directions' header does not give three spatial axes "
                              f"({dirs.tolist()}): {p}")
         aff = np.eye(4)

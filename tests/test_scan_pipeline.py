@@ -12,6 +12,7 @@ pytest.importorskip("skimage")
 pydicom = pytest.importorskip("pydicom")
 nib = pytest.importorskip("nibabel")
 
+from lumen.assets import scan_import as sc  # noqa: E402
 from lumen.assets.scan_import import LabelVolume  # noqa: E402
 from lumen.scan import pipeline, refine, region, segmenters  # noqa: E402
 from lumen.scan.io import ScanError, ScanVolume, list_dicom_series, read_scan  # noqa: E402
@@ -988,17 +989,8 @@ def test_sharpening_that_did_not_run_is_recorded(tmp_path, lumen_home, monkeypat
 
 def test_the_install_lock_works_without_fcntl(lumen_home, monkeypatch):
 
-    import builtins
-
     monkeypatch.setattr(segmenters, "_install_locked", lambda s, say=print: None)
-    real = builtins.__import__
-
-    def no_fcntl(name, *a, **k):
-        if name == "fcntl":
-            raise ImportError("no fcntl here")
-        return real(name, *a, **k)
-
-    monkeypatch.setattr(builtins, "__import__", no_fcntl)
+    monkeypatch.setattr(segmenters, "_USE_FLOCK", False)
     seg = segmenters.TOTALSEGMENTATOR
     segmenters._install(seg, lambda *_: None)                      # takes and releases the fallback lock
     assert not (segmenters._dir(seg) / "install.lock").exists()
@@ -1007,3 +999,44 @@ def test_the_install_lock_works_without_fcntl(lumen_home, monkeypatch):
     lock.write_text("99999999")
     segmenters._install(seg, lambda *_: None)
     assert not lock.exists()
+
+
+def test_a_different_scan_in_the_same_folder_is_not_served_the_cached_labels(tmp_path, lumen_home, monkeypatch):
+    scan, labels, _ = _fork_scan()
+    other = ScanVolume(scan.data + 50.0, scan.affine, modality="CT")
+    monkeypatch.setattr(region, "detect_region", lambda s: region.RegionReport(("body",), True, "picture"))
+    monkeypatch.setattr(segmenters, "installed", lambda seg: True)
+    seen = []
+
+    def run_body(s, work, say=print):
+        seen.append(float(s.data.mean()))
+        return labels
+
+    monkeypatch.setattr(segmenters, "run_body", run_body)
+    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None: scan)
+    pipeline.import_scan(tmp_path / "a.nii.gz", tmp_path / "out", say=lambda *_: None)
+    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None: other)
+    pipeline.import_scan(tmp_path / "b.nii.gz", tmp_path / "out", say=lambda *_: None)
+    assert len(seen) == 2                                          # the second scan was not reused
+
+
+def test_a_multi_segment_slicer_mask_keeps_its_names(tmp_path):
+    nrrd = pytest.importorskip("nrrd")
+    layers = np.zeros((6, 6, 6, 2), np.uint8)
+    layers[1:3, 1:3, 1:3, 0] = 1
+    layers[3:5, 3:5, 3:5, 1] = 1
+    hdr = {"space": "left-posterior-superior", "space origin": [0.0, 0.0, 0.0],
+           "space directions": [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [np.nan, np.nan, np.nan]],
+           "kinds": ["domain", "domain", "domain", "list"],
+           "Segment0_LabelValue": 1, "Segment0_Name": "aorta",
+           "Segment1_LabelValue": 2, "Segment1_Name": "left carotid"}
+    f = tmp_path / "vessels.seg.nrrd"
+    nrrd.write(str(f), layers, hdr, index_order="F")
+    vol = sc.load_label_volume(f)
+    assert vol.data.shape == (6, 6, 6) and set(vol.names.values()) >= {"aorta", "left carotid"}
+    assert int(vol.data[2, 2, 2]) != int(vol.data[4, 4, 4]) != 0
+
+
+def test_a_missing_mask_file_is_a_clean_error(tmp_path):
+    with pytest.raises(ValueError, match="no such mask file"):
+        pipeline.import_scan(None, tmp_path / "out", mask=tmp_path / "missing.nii.gz", say=lambda *_: None)

@@ -422,6 +422,30 @@ def _fetch(url: str, dest: Path, size: int, sha256: str) -> None:
     part.replace(dest)
 
 
+_USE_FLOCK = True
+
+
+def _holder_gone(path: Path) -> bool:
+    """Whether the process holding the lock file is gone.
+
+    The file holds a PID. ``os.kill(pid, 0)`` probes liveness on Unix but terminates the process
+    on Windows, so there the file's age decides: an install never takes three hours.
+    """
+    try:
+        owner = int(path.read_text().strip() or "0")
+    except (OSError, ValueError):
+        return True
+    if os.name == "nt":
+        return time.time() - path.stat().st_mtime > 3 * 3600
+    try:
+        os.kill(owner, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False                                     # it exists; it belongs to someone else
+    return False
+
+
 @contextlib.contextmanager
 def _install_lock(seg: Segmenter):
     """One install of a model at a time, across processes.
@@ -435,6 +459,8 @@ def _install_lock(seg: Segmenter):
     try:
         import fcntl
     except ImportError:
+        fcntl = None
+    if not _USE_FLOCK:                                   # tests exercise the portable path
         fcntl = None
     if fcntl is not None:
         f = path.open("a")
@@ -454,12 +480,12 @@ def _install_lock(seg: Segmenter):
             os.close(fd)
             break
         except FileExistsError:
-            try:
-                owner = int(path.read_text().strip() or "0")
-                os.kill(owner, 0)
-            except (OSError, ValueError):
-                path.unlink(missing_ok=True)                 # the holder is gone
-                continue
+            if _holder_gone(path):
+                try:
+                    path.unlink()                            # the holder is gone; take the lock over
+                    continue
+                except OSError:
+                    pass
             _time.sleep(2)
     try:
         yield

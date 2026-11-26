@@ -161,9 +161,10 @@ def test_a_small_gap_is_joined_and_a_large_one_is_not():
 
 def test_nrrd_without_three_spatial_axes_is_refused_clearly(tmp_path):
     nrrd = pytest.importorskip("nrrd")
-    data = np.zeros((4, 4, 4), np.uint8)
+    data = np.zeros((4, 4, 4, 2), np.uint8)
     hdr = {"space": "left-posterior-superior", "space origin": [0.0, 0.0, 0.0],
-           "space directions": [[1.0, 0, 0], [0, 1.0, 0], [np.nan, np.nan, np.nan]]}
+           "space directions": [[1.0, 0, 0], [0, 1.0, 0], [np.nan, np.nan, np.nan],
+                                [np.nan, np.nan, np.nan]]}
     f = tmp_path / "m.nrrd"
     nrrd.write(str(f), data, hdr, index_order="F")
     with pytest.raises(ValueError, match="three spatial axes"):

@@ -10,6 +10,7 @@ The output folder holds
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -196,18 +197,23 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
                                       f"({str(exc).splitlines()[0]})")
                         continue
                 cached = work / seg.key / "labels.nii.gz"
+                stamp = work / seg.key / "scan.sha256"
+                digest = hashlib.sha256(np.ascontiguousarray(scan.data).tobytes()).hexdigest()
                 try:
-                    if cached.exists() and not (work / seg.key / "scan.nii.gz").exists():
-                        # a previous import finished this model and then failed later: reuse it
+                    if cached.exists() and stamp.exists() and stamp.read_text().strip() == digest:
+                        # a previous import of this same scan finished this model and then failed
+                        # later: reuse it. A different scan in the same folder is run fresh.
                         labels = sc.load_label_volume(cached)
                         say(f"Reusing the {seg.title} result from the previous attempt ...")
                     elif seg.region == HEAD:
                         cut = region.detail.get("head_from_mm") if BODY in region.regions else None
                         labels = sg.run_head(scan, work / seg.key, say=say, head_from_mm=cut)
                         sc.save_label_volume(labels, cached)
+                        stamp.write_text(digest)
                     else:
                         labels = sg.run_body(scan, work / seg.key, say=say)
                         sc.save_label_volume(labels, cached)
+                        stamp.write_text(digest)
                     volumes.append(labels)
                     used.append({"segmenter": seg.title, "repo": seg.repo, "commit": seg.commit,
                                  "licence": seg.licence})
@@ -238,13 +244,7 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
                 if not any(work.rglob("*")):
                     shutil.rmtree(work, ignore_errors=True)
     say("Building the vessel tree ...")
-    try:
-        asset, conv, tris = sc.asset_from_vessel_mask(volume, entry_mm=entry_mm)
-    except Exception:
-        if not keep_work:
-            for f in work.rglob("scan.nii.gz"):
-                f.unlink(missing_ok=True)
-        raise
+    asset, conv, tris = sc.asset_from_vessel_mask(volume, entry_mm=entry_mm)
     edge_names = name_edges(asset, volume)
     names = {"edges": edge_names, "vessels": vessel_table(asset, edge_names)}
     asset.save(str(out / "asset.json"))
