@@ -259,3 +259,11 @@ def test_a_scan_cap_is_held_open():
 
     held = sum(len(c) for cid in cases.names() for c in VascularTree(cases.load(cid)[0])._caps)
     assert held > 0
+
+
+def test_a_diverged_point_projects_to_nans_instead_of_crashing():
+    from lumen.assets import procedural
+    from lumen.core import VascularTree
+
+    pr = VascularTree(procedural.aortic_arch_tree()).project(np.array([np.nan, 0.0, 0.0]))
+    assert not np.isfinite(pr.gap)

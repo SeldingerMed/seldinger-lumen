@@ -174,6 +174,10 @@ class VascularTree:
         open vessel end clips to the tip (reported inside); the contact kernel culls
         open ends, but tree.gap does not flag axial-beyond."""
         p = np.asarray(p, float)
+        if not np.isfinite(p).all():      # a diverged wire: report NaNs so the env's
+            nan = float("nan")            # divergence guard sees them, rather than crashing
+            return TreeProjection(edge_id=self.edges[0].id, edge_index=0, s=nan, theta=nan,
+                                  r=nan, e_r=np.full(3, nan), R=nan, gap=nan)
         best_i, best_pr, best_need, best_R = 0, None, np.inf, 0.0
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)

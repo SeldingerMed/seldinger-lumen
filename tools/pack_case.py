@@ -85,7 +85,8 @@ def _write_case(folder: Path, dest: Path, asset, names: dict, card: dict) -> Non
     full = {**card, "vessels": vessels,
             "derived": {"by": "lumen import", "segments": len(asset.edges),
                         "surface_triangles": int(len(f)),
-                        "wall_fit_p95_mm": round(float(wall.get("p95", float("nan"))), 2),
+                        "wall_fit_p95_mm": (round(float(wall["p95"]), 2)
+                                            if wall.get("p95") is not None else None),
                         "region": report.get("region", {}).get("regions"),
                         "segmenter": [u.get("segmenter") for u in
                                       (report.get("segmentation") or {}).get("used") or []]}}

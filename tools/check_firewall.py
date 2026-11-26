@@ -27,7 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 BANNED = ("cathsim",)
 OPEN_LICENCES = ("CC0", "CC BY 4.0", "CC BY 3.0", "CC BY-SA 4.0")
 CASES = ROOT / "lumen" / "cases"
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".github"}
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".github", "build", "dist"}
 
 
 # banned tokens are checked in code + packaging + scripts/configs (the real
@@ -128,7 +128,7 @@ def check_provenance() -> list[str]:
                 if why is not None:
                     bad.append(f"  non-procedural asset committed: {p.relative_to(ROOT)} "
                                f"(provenance={prov!r}; {why})")
-                break                                      # one report per file is enough
+                    break                                  # one report per file is enough
     return bad
 
 

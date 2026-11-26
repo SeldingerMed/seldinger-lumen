@@ -78,6 +78,22 @@ def test_private_data_is_refused_even_inside_an_open_case(firewall):
     assert len(mod.check_provenance()) == 1
 
 
+def test_a_private_marker_behind_an_approved_one_is_still_refused(firewall):
+    mod, root = firewall
+    d = _case(root, "ok")
+    doc = {"provenance": "imported(scan)", "parts": [{"provenance": "patient(private)"}]}
+    (d / "asset.json.gz").write_bytes(gzip.compress(json.dumps(doc).encode()))
+    assert len(mod.check_provenance()) == 1
+
+
+def test_build_output_is_not_mistaken_for_loose_geometry(firewall):
+    mod, root = firewall
+    out = root / "build" / "lib" / "lumen" / "cases" / "ok"
+    out.mkdir(parents=True)
+    (out / "surface.npz").write_bytes(b"x")
+    assert mod.check_geometry_files() == []
+
+
 def test_only_a_cases_own_files_get_its_approval(firewall):
     mod, root = firewall
     d = _case(root, "ok")
