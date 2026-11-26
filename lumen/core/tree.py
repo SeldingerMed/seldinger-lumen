@@ -38,7 +38,7 @@ class TreeProjection:
 
 
 class _Edge:
-    __slots__ = ("id", "node_a", "node_b", "frame", "lf")
+    __slots__ = ("id", "node_a", "node_b", "frame", "lf", "R_max")
 
     def __init__(self, edge, asset):
         pts, lf = asset.edge_arrays(edge)
@@ -46,6 +46,7 @@ class _Edge:
         self.node_a, self.node_b = edge.node_a, edge.node_b
         self.frame = CenterlineFrame(np.asarray(pts, float))
         self.lf = lf
+        self.R_max = float(np.max(lf.R))          # bound for skipping edges in project()
 
 
 class VascularTree:
@@ -64,11 +65,27 @@ class VascularTree:
             raise ValueError(f"blend_len must be >= 0 and finite, got {blend_len}")
         self.blend_len = blend_len
         self._node_pos = {n.id: np.asarray(n.position_mm, float) for n in asset.nodes}
+        spawn = getattr(asset, "device_spawn", None)
+        self.entry_node = getattr(spawn, "node_id", None)   # where the wire comes in
         # degree = how many edges touch a node; >1 marks a junction
         self._degree: dict[str, int] = {}
         for e in self.edges:
             for nid in (e.node_a, e.node_b):
                 self._degree[nid] = self._degree.get(nid, 0) + 1
+        # A scanned artery that runs off the edge of the scan (or where the segmentation
+        # stopped) ends in a rounded cap: the stored radius closes to a point over the last
+        # ~1.5 radii. The vessel does not really end there, so over that cap the radius holds
+        # at its value just before it. Generated anatomy has no caps; this changes nothing. The
+        # entry end is left alone: the wire starts there, and it is open (no wall past it).
+        self._caps: list[list[tuple[float, float]]] = []
+        for e in self.edges:
+            caps = []
+            r_med = float(np.median(np.asarray(e.lf.R, float)))
+            span = min(1.5 * r_med, 0.3 * float(e.frame.length))
+            for end_s, nid, sign in ((0.0, e.node_a, 1.0), (float(e.frame.length), e.node_b, -1.0)):
+                if self._degree.get(nid, 0) == 1 and span > 0 and nid != self.entry_node:
+                    caps.append((end_s, end_s + sign * span))
+            self._caps.append(caps)
 
     # --- junction radius -----------------------------------------------------
     def _edge_end_R(self, e: _Edge, node_id: str) -> float:
@@ -95,7 +112,7 @@ class VascularTree:
         blend_len). Smoothstep (3w²−2w³) if a penalty-force kink ever shows in
         dynamics."""
         e = self.edges[ei]
-        R_edge = float(e.lf.eval(s, theta))
+        R_edge = self._edge_R(ei, s, theta)
         if self.blend_len <= 0:
             return R_edge
         best = R_edge
@@ -108,24 +125,36 @@ class VascularTree:
                     best = max(best, cand)                # bulge wins if two junctions overlap
         return best
 
+    def _edge_R(self, ei: int, s: float, theta: float) -> float:
+        """Edge ei's own radius at (s, theta), held open over a free end's cap."""
+        lf = self.edges[ei].lf
+        R = float(lf.eval(s, theta))
+        for end_s, ref_s in self._caps[ei]:
+            if abs(s - end_s) < abs(ref_s - end_s):
+                R = max(R, float(lf.eval(ref_s, theta)))
+        return R
+
     # --- projection ----------------------------------------------------------
     def project(self, p) -> TreeProjection:
-        """Project a world point onto the nearest edge; R/gap are branch-blended.
+        """Project a world point onto the edge whose lumen holds it best; R/gap are
+        branch-blended.
 
-        Nearest = smallest radial distance r (the point belongs to whichever lumen
-        contains it); near a junction the blended R keeps the gap MAGNITUDE continuous.
-        ponytail ceiling: at a Y the min-r winner can be the wrong branch, so the
-        contact NORMAL e_r may point off the true lumen's axis within the junction
-        band — fine for navigation, revisit (min-gap ownership / averaged normals) if
-        junction contact accuracy matters. Also, like CenterlineFrame, a point past an
+        Owner = the edge where the point has the most room (radius minus distance from the
+        axis), so a point is inside the vessel when it is inside ANY branch. Nearest-axis
+        ownership got this wrong where a thin branch leaves a wide vessel: a point well inside
+        the wide lumen could be nearer the thin axis and be judged against the thin wall.
+        Near a junction the blended R keeps the gap MAGNITUDE continuous. Also, like CenterlineFrame, a point past an
         open vessel end clips to the tip (reported inside); the contact kernel culls
         open ends, but tree.gap does not flag axial-beyond."""
         p = np.asarray(p, float)
-        best_i, best_pr = 0, None
+        best_i, best_pr, best_need = 0, None, np.inf
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)
-            if best_pr is None or pr.r < best_pr.r:
-                best_i, best_pr = i, pr
+            if pr.r - e.R_max > best_need:
+                continue                       # cannot beat the current owner
+            need = pr.r - self._edge_R(i, pr.s, pr.theta)
+            if need < best_need:
+                best_i, best_pr, best_need = i, pr, need
         R = self.blended_R(best_i, best_pr.s, best_pr.theta)
         return TreeProjection(edge_id=self.edges[best_i].id, edge_index=best_i,
                               s=best_pr.s, theta=best_pr.theta, r=best_pr.r,

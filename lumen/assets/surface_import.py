@@ -527,15 +527,58 @@ def cross_section(rays: Rays, poly: np.ndarray, n_theta: int = N_THETA):
     return th, R, D
 
 
+def _local_size(m: np.ndarray, half: int = 6) -> np.ndarray:
+    """For each section, the median section size of the vessel either side of it."""
+    n = len(m)
+    out = np.empty(n)
+    for i in range(n):
+        lo, hi = max(0, i - half), min(n, i + half + 1)
+        around = np.r_[m[lo:i], m[i + 1:hi]]
+        out[i] = float(np.median(around)) if len(around) else float(m[i])
+    return out
+
+
+def along_vessel(R: np.ndarray, wide: float = 3.0, slack_mm: float = 1.0,
+                 narrow: float = 0.12) -> tuple[np.ndarray, np.ndarray]:
+    """Check each cross-section against the vessel either side of it. Returns (R, odd rows).
+
+    A section cut along a neighbouring vessel, or through a gap in the segmentation, has every
+    ray long, so its own median is long too and a per-section test passes it; a centre line
+    running along the wall of a thin artery leaves rays near zero on one side and far too long
+    on the other. Against the median of the sections around it (``ref``), a section whose
+    median is over ``wide`` x ref + ``slack_mm`` or under ``narrow`` x ref (collapsed to almost
+    nothing) is rebuilt from its neighbours, and no single ray may exceed wide x ref + slack.
+    A real aneurysm or other bulge, two or three times the parent vessel, stays under that, and
+    a genuinely wide stretch (an artery's origin from the aorta) raises its own ``ref``; a
+    stenosis of up to about 85% in diameter stays above the collapse test."""
+    R = np.asarray(R, float).copy()
+    n = len(R)
+    odd = np.zeros(n, bool)
+    if n < 3:
+        return R, odd
+    m = np.median(R, axis=1)
+    ref = _local_size(m)
+    odd = (m > wide * ref + slack_mm) | (m < narrow * ref)
+    if odd.all():                                    # nothing to judge by
+        return R, np.zeros(n, bool)
+    if odd.any():
+        idx = np.arange(n)
+        for j in range(R.shape[1]):
+            R[odd, j] = np.interp(idx[odd], idx[~odd], R[~odd, j])
+        ref = _local_size(np.median(R, axis=1))
+    np.minimum(R, (wide * ref + slack_mm)[:, None], out=R)
+    return R, odd
+
+
 def fill_ostia(R: np.ndarray, factor: float = 1.25, far: float = 40.0) -> tuple[np.ndarray, np.ndarray]:
     """Close a vessel's wall across side openings.
 
     A ray that leaves through a branch ostium (or an open end) measures the other vessel, not
     this one. Such rays (longer than ``factor`` x the section's median, or no hit within ``far``)
     are replaced by periodic interpolation in theta from the rays that hit this vessel's wall, so
-    each edge's R(s, theta) is its own closed tube; the branch's own edge supplies the opening
-    (Lumen assigns a point to the edge whose centerline is nearest). Rows where every ray escaped
-    are interpolated along s from valid rows. Returns (R, escaped mask).
+    each edge's R(s, theta) is its own closed tube; the branch's own edge supplies the opening.
+    Rows where every ray escaped are interpolated along s from valid rows, then each section is
+    checked against the vessel either side of it (``along_vessel``). Returns (R, escaped mask).
     """
     R = np.asarray(R, float).copy()
     n_s, n_t = R.shape
@@ -554,6 +597,8 @@ def fill_ostia(R: np.ndarray, factor: float = 1.25, far: float = 40.0) -> tuple[
     for j in range(n_t):
         R[~row_ok, j] = np.interp(s_idx[~row_ok], s_idx[row_ok], R[row_ok, j])
     esc[~row_ok] = True
+    R, odd = along_vessel(R)
+    esc[odd] = True
     return R, esc
 
 

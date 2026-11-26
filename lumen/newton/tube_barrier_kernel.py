@@ -226,6 +226,7 @@ def accumulate_tree_barrier(
     Tg: wp.array(dtype=wp.vec3),
     M1: wp.array(dtype=wp.vec3),
     cum_s: wp.array(dtype=wp.float32),        # per-edge cumulative arc-length (each edge starts at 0)
+    Rv: wp.array(dtype=wp.float32),           # per-vertex mean lumen radius, to pick the owning edge
     edge_vstart: wp.array(dtype=wp.int32),    # [n_edges] first vertex index of each edge in P
     edge_vcount: wp.array(dtype=wp.int32),    # [n_edges] vertex count per edge
     edge_smax: wp.array(dtype=wp.float32),    # [n_edges] arc length per edge
@@ -241,8 +242,11 @@ def accumulate_tree_barrier(
     body_hessian_ll: wp.array(dtype=wp.mat33),
     wall_load: wp.array(dtype=wp.float32),    # [n_edges*n_s*n_th] (out)
 ):
-    """Tree variant of the tube barrier: each wire node finds its nearest segment
-    ACROSS ALL EDGES, then reads that edge's blended rigid radius block. The §3.5.2
+    """Tree variant of the tube barrier: each wire node finds the segment, ACROSS ALL EDGES,
+    where it has the most room (largest radius minus distance from the axis), then reads that
+    edge's blended rigid radius block. Owning by room rather than by nearest axis matters where
+    a thin branch leaves a wide vessel: a node inside the wide lumen can be nearer the thin
+    branch's axis, and judging it against the thin wall would push it the wrong way. The §3.5.2
     branch blending is pre-baked into R0_grid at build time, so the kernel stays
     simple. Junction ends are NOT culled (a node there is transitioning between edges),
     unlike open vessel ends. Batched envs share the same edge graph but read/write
@@ -268,15 +272,20 @@ def accumulate_tree_barrier(
             L2 = wp.dot(ab, ab)
             u = wp.clamp(wp.dot(p - a, ab) / L2, 0.0, 1.0)
             dd = p - (a + u * ab)
-            d2 = wp.dot(dd, dd)
-            if d2 < best:
-                best = d2
+            # negative room: distance past the local wall (smaller = more inside)
+            need = wp.length(dd) - (Rv[j] + u * (Rv[j + 1] - Rv[j]))
+            if need < best:
+                best = need
                 bj = j
                 bu = u
                 be = e
     v0 = edge_vstart[be]
     vend = v0 + edge_vcount[be] - 1
-    # open vessel end -> no contact; but a JUNCTION end is not open (node transits edges)
+    # The flags mark which edge ends are "held" (1): junctions, where a node transits edges, and
+    # every vessel end except the one the wire enters through. Past the entry end there is no
+    # contact (the wire comes in from outside). Past any other open end the wall continues as a
+    # straight tube along the last tangent: a scanned artery stops only where the segmentation
+    # stopped, and a wire node there must still be held, not set free to swing out of the vessel.
     if edge_start_junc[be] == 0 and wp.dot(p - P[v0], Tg[v0]) < 0.0:
         return
     if edge_end_junc[be] == 0 and wp.dot(p - P[vend], Tg[vend]) > 0.0:

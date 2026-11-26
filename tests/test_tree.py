@@ -49,7 +49,9 @@ def test_blend_len_zero_gives_sharp_junction():
     asset = procedural.bifurcation(radius=2.0, angle_deg=35.0)
     sharp = VascularTree(asset, blend_len=0.0)
     apex = _apex(asset)
-    after = sharp.project(apex + 0.5 * _branch_dir()).R
+    # 3 mm into the branch only the branch holds the point (just past the apex it is still
+    # inside the wider trunk too, and the roomier lumen owns a point inside both)
+    after = sharp.project(apex + 3.0 * _branch_dir()).R
     assert abs(after - 1.6) < 0.05                              # no blend: steps straight to branch R
 
 

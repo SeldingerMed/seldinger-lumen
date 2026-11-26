@@ -7,6 +7,35 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `lumen view`: a self-contained HTML viewer with a rotatable 3D view, a simulated C-arm image
+  (AP, lateral, LAO/RAO, cranial/caudal), and step-by-step replay of recorded runs
+  (`--run`, `--save-run`, `--replay`). Works on shipped cases, imported scans and generated
+  anatomy. Three looks for the 3D view (`--look monitor|anatomy|glass`, switchable on the
+  page).
+- Five open real cases in `lumen/cases/` (head CTA with aneurysm, head and neck CTA, head
+  TOF-MRA, aortic CTA, abdominal CTA), derived from CC BY 4.0 and CC0 public datasets with
+  attribution in NOTICE. `lumen cases` lists them; `lumen.cases.make_env` drives one.
+- Import reads unsigned CT files (stored with 1024 added) as Hounsfield units, and re-grids
+  thin MRA arteries finer so small branches stay connected. An intracranial MRA slab that
+  fills its picture is recognised as a head, and is segmented with the head model.
+- Import checks each vessel cross-section against the vessel either side of it: a section cut
+  along a neighbouring vessel, or a ray that runs along the wall of a thin artery, is rebuilt
+  from its neighbours. Aneurysms, stenoses and a vessel widening into the aorta are kept.
+
+### Fixed
+- The wire stays in the vessel on imported anatomy. Five causes, each fixed: past the open far
+  end of a scanned artery the wall force switched off (the wall now continues past it); where
+  a thin branch left a wide vessel, a wire node inside the wide vessel was judged against the
+  thin branch's wall (each node now belongs to the branch where it has the most room); a
+  scanned artery cut off at the scan edge closed to a point (its radius now holds over that
+  cap, except at the entry, where the wire starts); the pushed end was driven with unlimited force into a jam (feeding now pauses while
+  the wire presses into the wall, `feed_stop_pen_mm`, default 0.2 mm); and the wall was soft
+  enough for a taut wire to cut across a tight bend (`TreeNavEnv` wall stiffness 3e3 -> 6e3,
+  now the `wall_stiffness` argument). These change `TreeNavEnv` dynamics on generated anatomy
+  too.
+- Segmentation no longer fails with a bare `EOFError` when the temp folder cannot hold a Unix
+  socket (exFAT/FAT32 drives, network shares, long macOS paths).
+- Vessel names live only in the `.names.json` sidecar beside a label volume (#151).
 - `lumen import`: turn a real CTA or MRA (DICOM folder, NIfTI, NRRD), or a vessel mask, into
   anatomy the solver can navigate. Lumen works out the body region from the picture, picks the
   segmentation model (head: the RSNA 2025 intracranial model; neck to pelvis: TotalSegmentator;
