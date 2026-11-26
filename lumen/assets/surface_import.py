@@ -737,9 +737,10 @@ def _stats(d: np.ndarray) -> dict:
 
 
 def _open_entry(tree, node_id) -> bool:
-    """The kernel's open end: the entry (or every free end when the tree names no entry)."""
-    entry = getattr(tree, "entry_node", None)
-    return not tree.is_junction(node_id) and (entry is None or node_id == entry)
+    """The kernel's open end (see :func:`lumen.core.tree.is_open_entry`)."""
+    from lumen.core.tree import is_open_entry
+
+    return is_open_entry(tree, node_id)
 
 
 def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:

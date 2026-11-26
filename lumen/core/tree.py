@@ -25,6 +25,14 @@ import numpy as np
 from lumen.core.frame import CenterlineFrame
 
 
+def is_open_entry(tree, node_id) -> bool:
+    """The one open-end rule shared by the contact kernel's edge flags and the wall fit: the
+    open vessel end the wire enters through has no wall past it. A tree that does not say where
+    the wire enters keeps every free end open."""
+    entry = getattr(tree, "entry_node", None)
+    return not tree.is_junction(node_id) and (entry is None or node_id == entry)
+
+
 @dataclass
 class TreeProjection:
     edge_id: str          # which edge owns the point

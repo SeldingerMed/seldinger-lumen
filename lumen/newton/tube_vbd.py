@@ -38,8 +38,9 @@ from lumen.newton.tube_barrier_kernel import (
 def _entry_end(tree, node_id) -> bool:
     """True for the open vessel end the wire enters through: no wall past it. A tree that
     does not say where the wire enters keeps every open end open, as before."""
-    entry = getattr(tree, "entry_node", None)
-    return not tree.is_junction(node_id) and (entry is None or node_id == entry)
+    from lumen.core.tree import is_open_entry
+
+    return is_open_entry(tree, node_id)
 
 
 class TubeVBDSolver(SolverVBD):
