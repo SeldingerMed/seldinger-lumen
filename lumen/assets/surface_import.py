@@ -736,13 +736,20 @@ def _stats(d: np.ndarray) -> dict:
             "p99": float(np.percentile(d, 99)), "max": float(d.max())}
 
 
+def _open_entry(tree, node_id) -> bool:
+    """The kernel's open end: the entry (or every free end when the tree names no entry)."""
+    entry = getattr(tree, "entry_node", None)
+    return not tree.is_junction(node_id) and (entry is None or node_id == entry)
+
+
 def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
     """The Newton tree-contact kernel's projection (``tube_barrier_kernel``), in NumPy.
 
     On every edge a point's foot is the nearest point of that edge's centerline; the point
     belongs to the edge where it has the most room there (3D distance to the foot minus the
-    branch-blended radius R(s, theta) at the foot). A point beyond an OPEN vessel end gets no
-    contact (``culled``), junction ends are kept; r is the radial distance at the foot and R the
+    branch-blended radius R(s, theta) at the foot). As in the kernel, only a point beyond the
+    open end the wire enters through gets no contact (``culled``); past any other end the
+    wall continues as a straight tube; r is the radial distance at the foot and R the
     blended radius there. This is the rule that produces wall forces in simulation, so wall
     error is measured under it.
     """
@@ -792,9 +799,9 @@ def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
                     ej[k], r[k], s[k], Rb[k] = i, np.linalg.norm(rad), sk, R
             e = tree.edges[ej[k]]
             f = e.frame
-            if not tree.is_junction(e.node_a) and np.dot(q[k] - f.points[0], f.tangents[0]) < 0:
+            if _open_entry(tree, e.node_a) and np.dot(q[k] - f.points[0], f.tangents[0]) < 0:
                 culled[k] = True
-            if not tree.is_junction(e.node_b) and np.dot(q[k] - f.points[-1], f.tangents[-1]) > 0:
+            if _open_entry(tree, e.node_b) and np.dot(q[k] - f.points[-1], f.tangents[-1]) > 0:
                 culled[k] = True
         for key, v in (("edge", ej), ("s", s), ("r", r), ("R", Rb), ("culled", culled)):
             out[key].append(v)
@@ -867,9 +874,9 @@ def conversion_error(asset: Asset, mesh_path: str | Path | None = None, *, scale
            "source_to_lumen_junction_zones_mm": _stats(d_src[in_j]),
            "junction_zone_surface_fraction": float(in_j.mean()),
            "definition": "source_to_lumen: source lumen-surface samples, |r - R| under the Newton tree-contact "
-                         "kernel's projection (each edge's nearest foot, owned by the edge with most room; branch-blended R; samples on open vessel "
-                         "end caps excluded, where Lumen applies no contact); tree_project_rule: the same under "
-                         "VascularTree.project (min radial distance, used for observations); lumen_to_source: Lumen wall points to the "
+                         "kernel's projection (each edge's nearest foot, owned by the edge with most room; branch-blended R; samples past the "
+                         "open entry end excluded, where Lumen applies no contact); tree_project_rule: the same under "
+                         "VascularTree.project (most room by radial distance, used for observations); lumen_to_source: Lumen wall points to the "
                          "nearest source surface sample (virtual walls across ostia excluded); junction zone: "
                          "within the widest meeting vessel's radius of a branch point"}
     if task_edges:
