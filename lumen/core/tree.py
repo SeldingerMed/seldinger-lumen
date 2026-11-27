@@ -170,9 +170,8 @@ class VascularTree:
 
         Owner = the edge where the point has the most room (radius minus distance from the
         axis), so a point is inside the vessel when it is inside ANY branch. The Newton tree
-        kernel compares the same room with the same blended radius; past an edge's end the two
-        still differ (here r is measured across the end's extended axis, the kernel uses the
-        distance to the end point), see issue #153. Nearest-axis
+        kernel compares the same room with the same blended radius and the same distance (to
+        the nearest point of the axis, so past an edge's end, to the end point). Nearest-axis
         ownership got this wrong where a thin branch leaves a wide vessel: a point well inside
         the wide lumen could be nearer the thin axis and be judged against the thin wall.
         Near a junction the blended R keeps the gap MAGNITUDE continuous. Also, like CenterlineFrame, a point past an
@@ -186,10 +185,18 @@ class VascularTree:
         best_i, best_pr, best_need, best_R = 0, None, np.inf, 0.0
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)
-            if pr.r - self._R_bound[i] > best_need:
+            # the owner is chosen by the distance to the nearest point of each vessel's axis,
+            # as in the contact kernel: past an end that is the distance to the end point,
+            # not across the axis carried on beyond it (issue #153). The gap and the wall
+            # direction stay measured across the axis, as the kernel's force is.
+            d = pr.r
+            if pr.s <= 1e-6 or pr.s >= e.frame.length - 1e-6:
+                d = float(np.linalg.norm(p - np.asarray(
+                    e.frame.points[0 if pr.s <= 1e-6 else -1], float)))
+            if d - self._R_bound[i] > best_need:
                 continue                       # cannot beat the current owner
             R = self.blended_R(i, pr.s, pr.theta)   # the radius the gap and the wall force use
-            need = pr.r - R
+            need = d - R
             if need < best_need:
                 best_i, best_pr, best_need, best_R = i, pr, need, R
         return TreeProjection(edge_id=self.edges[best_i].id, edge_index=best_i,

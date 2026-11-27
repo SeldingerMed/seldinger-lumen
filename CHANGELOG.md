@@ -23,6 +23,12 @@ All notable changes to this project are documented here. The format follows
   from its neighbours. Aneurysms, stenoses and a vessel widening into the aorta are kept.
 
 ### Fixed
+- Which vessel holds a point near a junction is decided as the contact physics decides it:
+  by the distance to the nearest point of each vessel's axis, so past a vessel's end, the
+  distance to the end point (it was measured across the axis carried on beyond the end).
+  On the aortic arch the two agreed for 42 of 100 points near the junctions and now agree
+  for all. The wall gap and direction are unchanged. Wall contact near junctions changes,
+  so the benchmark suites move to `lumen-bench/6` and `lumen-bench/heldout/4` (#153).
 - A tree-navigation step whose simulation blew up is marked off the route, so the benchmark's
   clinical target check cannot count it as a reach. Containment works before the solver keeps
   a previous state. An asset whose device spawn names a node it does not have is refused when

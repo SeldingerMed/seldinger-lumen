@@ -267,3 +267,43 @@ def test_a_diverged_point_projects_to_nans_instead_of_crashing():
 
     pr = VascularTree(procedural.aortic_arch_tree()).project(np.array([np.nan, 0.0, 0.0]))
     assert not np.isfinite(pr.gap)
+
+
+
+def _kernel_owner(tree, p):
+    """The Newton tree contact kernel's owner rule (tube_barrier_kernel.py), in numpy: per
+    vessel the nearest point of its axis (clamped to its ends), then the most room there
+    against the same blended radius."""
+    best, owner = np.inf, -1
+    for i, e in enumerate(tree.edges):
+        P, cs = e.frame.points, e.frame.cum_s
+        a, ab = P[:-1], P[1:] - P[:-1]
+        L2 = np.einsum("ij,ij->i", ab, ab)
+        L2[L2 == 0] = 1.0
+        u = np.clip(((p - a) * ab).sum(1) / L2, 0.0, 1.0)
+        d = np.linalg.norm(p - (a + u[:, None] * ab), axis=1)
+        j = int(np.argmin(d))
+        s = cs[j] + u[j] * (cs[j + 1] - cs[j])
+        need = d[j] - tree.blended_R(i, float(s), float(e.frame.project(p).theta))
+        if need < best:
+            best, owner = need, i
+    return owner, best
+
+
+@pytest.mark.parametrize("name", ["arch", "bifurcation"])
+def test_projection_and_the_contact_kernel_pick_the_same_vessel_near_junctions(name):
+    """Issue #153: past a vessel's end, project() measured across the axis carried on beyond
+    it while the kernel measured to the end point, so near junctions they disagreed on which
+    vessel held a wire node (42 of 100 points on the arch agreed)."""
+    from lumen.viewer.scene import resolve
+
+    tree = VascularTree(resolve(name).asset)
+    rng = np.random.default_rng(0)
+    checked = 0
+    for n in [n for n in tree._node_pos if tree.is_junction(n)]:
+        for q in tree._node_pos[n] + rng.normal(size=(60, 3)) * 5.0:
+            owner, need = _kernel_owner(tree, q)
+            if need < -0.1:                       # inside the lumen by the kernel's reading
+                checked += 1
+                assert tree.project(q).edge_index == owner
+    assert checked >= 5
