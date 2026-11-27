@@ -49,7 +49,9 @@ def test_blend_len_zero_gives_sharp_junction():
     asset = procedural.bifurcation(radius=2.0, angle_deg=35.0)
     sharp = VascularTree(asset, blend_len=0.0)
     apex = _apex(asset)
-    after = sharp.project(apex + 0.5 * _branch_dir()).R
+    # 3 mm into the branch only the branch holds the point (just past the apex it is still
+    # inside the wider trunk too, and the roomier lumen owns a point inside both)
+    after = sharp.project(apex + 3.0 * _branch_dir()).R
     assert abs(after - 1.6) < 0.05                              # no blend: steps straight to branch R
 
 
@@ -243,3 +245,25 @@ def test_non_finite_blend_len_rejected(blend_len):
     asset = procedural.straight_tube(10.0, 1.0)
     with pytest.raises(ValueError, match="blend_len must be >= 0 and finite"):
         VascularTree(asset, blend_len=blend_len)
+
+
+def test_generated_anatomy_keeps_its_tapered_outlets():
+    # Only an end whose radius really closes (a scan's rounded cap) is held open; generated
+    # outlets taper a little and stay as built.
+    for build in (procedural.aortic_arch_tree, procedural.tortuous_tree, procedural.bifurcation):
+        assert all(not caps for caps in VascularTree(build())._caps), build.__name__
+
+
+def test_a_scan_cap_is_held_open():
+    from lumen import cases
+
+    held = sum(len(c) for cid in cases.names() for c in VascularTree(cases.load(cid)[0])._caps)
+    assert held > 0
+
+
+def test_a_diverged_point_projects_to_nans_instead_of_crashing():
+    from lumen.assets import procedural
+    from lumen.core import VascularTree
+
+    pr = VascularTree(procedural.aortic_arch_tree()).project(np.array([np.nan, 0.0, 0.0]))
+    assert not np.isfinite(pr.gap)

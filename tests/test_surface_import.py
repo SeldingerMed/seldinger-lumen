@@ -152,3 +152,16 @@ def test_cli_writes_its_report_without_matplotlib(tmp_path: Path, monkeypatch):
              "--voxel-mm", "0.4", "--root", "0,1,0"])
     rep = json.loads((tmp_path / "out" / "import_report.json").read_text())
     assert rep["figures"] == [] and "conversion_error" in rep
+
+
+def test_wall_fit_skips_only_points_past_the_entry_end():
+    # the kernel holds the wall past every open end except the one the wire enters through
+    import numpy as np
+
+    from lumen.assets import procedural
+    from lumen.assets.surface_import import contact_project
+    from lumen.core import VascularTree
+
+    tree = VascularTree(procedural.straight_tube(40.0, 2.0, n=20))       # wire enters at z = 0
+    out = contact_project(tree, np.array([[1.0, 0.0, -3.0], [1.0, 0.0, 43.0], [1.0, 0.0, 20.0]]))
+    assert out["culled"].tolist() == [True, False, False]

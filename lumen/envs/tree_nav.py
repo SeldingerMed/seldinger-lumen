@@ -56,7 +56,17 @@ class TreeNavEnv:
     def __init__(self, asset, target_node=None, target_frac=1.0, max_insertion=2.0,
                  max_twist=1.0, substeps=4, max_steps=60, success_tol=2.5,
                  safety_max_pen=0.3, blend_len=4.0, terminate_on_unsafe: bool = False,
-                 device=None, device_radius_mm=0.2):
+                 device=None, device_radius_mm=0.2, density: float | None = None,
+                 feed_stop_pen_mm: float | None = 0.2, wall_stiffness: float = 6.0e3):
+        """``density`` is the wire's mass per cubic millimetre in the solver's units (None
+        keeps the solver default). ``feed_stop_pen_mm`` stops feeding, for the rest of a step,
+        once any part of the wire presses that far into the wall. The pushed end is driven
+        kinematically, so without this a jammed wire is pushed with unlimited force and goes
+        through the wall; with it, more push against a jam only loads the wire, as a hand on
+        a real wire would feel. None turns the limit off. ``wall_stiffness`` is the barrier
+        stiffness of the vessel wall. Too soft (the old 3e3) and a wire pulled taut through a
+        tight bend of a small artery cuts across it; much stiffer (1e4 and up) and, with the
+        solver's few iterations per step, the wire sticks at junctions."""
         terminate_on_unsafe = validate_boolean(
             terminate_on_unsafe,
             "terminate_on_unsafe",
@@ -86,6 +96,13 @@ class TreeNavEnv:
         self.terminate_on_unsafe = terminate_on_unsafe
         self.device = device or detect_device()
         self.device_radius_mm = float(device_radius_mm)
+        self.density = None if density is None else float(density)
+        if self.density is not None and not (np.isfinite(self.density) and self.density > 0):
+            raise ValueError("density must be finite and positive")
+        self.feed_stop_pen_mm = None if feed_stop_pen_mm is None else float(feed_stop_pen_mm)
+        self.wall_stiffness = float(wall_stiffness)
+        if not (np.isfinite(self.wall_stiffness) and self.wall_stiffness > 0):
+            raise ValueError("wall_stiffness must be finite and positive")
         if not np.isfinite(self.device_radius_mm) or self.device_radius_mm <= 0.0:
             raise ValueError("device_radius_mm must be finite and positive")
         if _HAS_GYM:
@@ -195,6 +212,11 @@ class TreeNavEnv:
         x, y, z, w = quats[-1]
         return float(2.0 * np.arctan2(z, w))
 
+    def _deepest_pen(self) -> float:
+        pos = self.sim.body_positions()
+        return max(0.0, max(float(pr.r + self.device_radius_mm - pr.R)
+                            for pr in (self.tree.project(p) for p in pos)))
+
     def _parse_action(self, action):
         return parse_nav_action(action)
 
@@ -205,9 +227,11 @@ class TreeNavEnv:
             # junction into the target branch (not just up the trunk).
             self.sim = NewtonGuidewireSim(np.asarray(self.route_frame.points), self.R,
                                           self._device_points(), radius=self.device_radius_mm,
-                                          kappa=3e3, d_hat=0.3, vbd_iterations=8,
+                                          kappa=self.wall_stiffness, d_hat=0.3, vbd_iterations=8,
                                           device=self.device, tree=self.tree,
-                                          route_centerline=np.asarray(self.route_frame.points))
+                                          route_centerline=np.asarray(self.route_frame.points),
+                                          **({} if self.density is None
+                                             else {"density": self.density}))
         else:
             self.sim.reset()
         self.steps = 0
@@ -217,8 +241,40 @@ class TreeNavEnv:
 
     def step(self, action):
         a, twist = self._parse_action(action)
-        self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
-                      insertion=a * self.max_insertion, twist=twist * self.max_twist)
+        insertion, turn = a * self.max_insertion, twist * self.max_twist
+        split = None
+        if insertion > 0.0 and self.feed_stop_pen_mm is not None:
+            # the route ends where the scan's vessel ends: a tip already there gets no more
+            # push, and the pushed end never runs past the end of the route. The stop sits
+            # inside the goal band, so a target at the very end can still be reached.
+            stop = self.L - min(1.0, 0.5 * float(self.success_tol))
+            pos = self.sim.body_positions()
+            base_s = self.route_frame.project(pos[0]).s
+            if self.route_frame.project(pos[-1]).s >= stop:
+                insertion = 0.0
+            insertion = float(np.clip(stop - base_s, 0.0, insertion))
+        if (insertion > 0.0 or turn != 0.0) and self.feed_stop_pen_mm is not None:
+            # push and turn a piece per substep, only while the wire is not pressing into the
+            # wall (turning a shaped tip that is already in the wall swings it through). Each
+            # sim.step reports its own peaks and impulse, so they are combined over the pieces.
+            n = max(1, int(self.substeps))
+            split = {"load": 0.0, "pressure": 0.0, "impulse": 0.0, "sum": 0.0}
+            for _ in range(n):
+                free = self._deepest_pen() <= self.feed_stop_pen_mm
+                self.sim.step(dt=5e-3 * self.substeps / n, substeps=self.substeps // n or 1,
+                              insertion=(insertion / n if free or insertion < 0 else 0.0),
+                              twist=(turn / n if free else 0.0))
+                if hasattr(self.sim, "wall_load_max"):
+                    split["load"] = max(split["load"], float(self.sim.wall_load_max()))
+                if hasattr(self.sim, "wall_pressure_max"):
+                    split["pressure"] = max(split["pressure"], float(self.sim.wall_pressure_max()))
+                if hasattr(self.sim, "wall_load_impulse"):
+                    split["impulse"] += float(self.sim.wall_load_impulse())
+                if hasattr(self.sim, "wall_load_grid"):     # the largest total over the pieces
+                    split["sum"] = max(split["sum"], float(np.sum(self.sim.wall_load_grid())))
+        else:
+            self.sim.step(dt=5e-3 * self.substeps, substeps=self.substeps,
+                          insertion=insertion, twist=turn)
         self.steps += 1
         f = self._features()
         obs = self._obs(f)
@@ -247,18 +303,22 @@ class TreeNavEnv:
             np.asarray(self.sim.wall_load_grid(), dtype=float)
             if hasattr(self.sim, "wall_load_grid") else np.zeros(0, dtype=float)
         )
-        if hasattr(self.sim, "wall_load_max"):
+        if split is not None and hasattr(self.sim, "wall_load_max"):
+            wall_load_max = split["load"]
+        elif hasattr(self.sim, "wall_load_max"):
             wall_load_max = float(self.sim.wall_load_max())
         else:
             wall_load_max = float(load_grid.max()) if load_grid.size else 0.0
         wall_load_sum = float(load_grid.sum()) if load_grid.size else 0.0
+        if split is not None and load_grid.size:
+            wall_load_sum = max(wall_load_sum, split["sum"])
         wall_pressure_max = (
-            float(self.sim.wall_pressure_max())
+            (split["pressure"] if split is not None else float(self.sim.wall_pressure_max()))
             if hasattr(self.sim, "wall_pressure_max") else 0.0
         )
         if hasattr(self.sim, "wall_load_impulse"):
             self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (
-                float(self.sim.wall_load_impulse())
+                split["impulse"] if split is not None else float(self.sim.wall_load_impulse())
             )
         else:
             self._wall_load_impulse = getattr(self, "_wall_load_impulse", 0.0) + (

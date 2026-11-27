@@ -72,6 +72,7 @@ device option + a torque-to-select-branch task) rather than shipped empty.
 
 - **Live keyboard tele-operation.** `lumen play` is policy-driven and headless by
   design (CI/servers/parallel agents). A live interactive viewer can layer on top.
-- **Patient meshes / mesh-processing pipeline.** Real anatomy lives behind the private
-  asset-schema seam; the open repo ships only procedurally generated geometry.
+- **Patient meshes / mesh-processing pipeline.** Private anatomy lives behind the private
+  asset-schema seam. The open repo ships procedurally generated geometry, five open cases
+  from public, openly licensed scans, and `lumen import` for scans you hold yourself.
 - **VR/AR front-ends.** Out of scope for Layer 0.

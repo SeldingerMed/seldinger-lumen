@@ -527,15 +527,58 @@ def cross_section(rays: Rays, poly: np.ndarray, n_theta: int = N_THETA):
     return th, R, D
 
 
+def _local_size(m: np.ndarray, half: int = 6) -> np.ndarray:
+    """For each section, the median section size of the vessel either side of it."""
+    n = len(m)
+    out = np.empty(n)
+    for i in range(n):
+        lo, hi = max(0, i - half), min(n, i + half + 1)
+        around = np.r_[m[lo:i], m[i + 1:hi]]
+        out[i] = float(np.median(around)) if len(around) else float(m[i])
+    return out
+
+
+def along_vessel(R: np.ndarray, wide: float = 3.0, slack_mm: float = 1.0,
+                 narrow: float = 0.12) -> tuple[np.ndarray, np.ndarray]:
+    """Check each cross-section against the vessel either side of it. Returns (R, odd rows).
+
+    A section cut along a neighbouring vessel, or through a gap in the segmentation, has every
+    ray long, so its own median is long too and a per-section test passes it; a centre line
+    running along the wall of a thin artery leaves rays near zero on one side and far too long
+    on the other. Against the median of the sections around it (``ref``), a section whose
+    median is over ``wide`` x ref + ``slack_mm`` or under ``narrow`` x ref (collapsed to almost
+    nothing) is rebuilt from its neighbours, and no single ray may exceed wide x ref + slack.
+    A real aneurysm or other bulge, two or three times the parent vessel, stays under that, and
+    a genuinely wide stretch (an artery's origin from the aorta) raises its own ``ref``; a
+    stenosis of up to about 85% in diameter stays above the collapse test."""
+    R = np.asarray(R, float).copy()
+    n = len(R)
+    odd = np.zeros(n, bool)
+    if n < 3:
+        return R, odd
+    m = np.median(R, axis=1)
+    ref = _local_size(m)
+    odd = (m > wide * ref + slack_mm) | (m < narrow * ref)
+    if odd.all():                                    # nothing to judge by
+        return R, np.zeros(n, bool)
+    if odd.any():
+        idx = np.arange(n)
+        for j in range(R.shape[1]):
+            R[odd, j] = np.interp(idx[odd], idx[~odd], R[~odd, j])
+        ref = _local_size(np.median(R, axis=1))
+    np.minimum(R, (wide * ref + slack_mm)[:, None], out=R)
+    return R, odd
+
+
 def fill_ostia(R: np.ndarray, factor: float = 1.25, far: float = 40.0) -> tuple[np.ndarray, np.ndarray]:
     """Close a vessel's wall across side openings.
 
     A ray that leaves through a branch ostium (or an open end) measures the other vessel, not
     this one. Such rays (longer than ``factor`` x the section's median, or no hit within ``far``)
     are replaced by periodic interpolation in theta from the rays that hit this vessel's wall, so
-    each edge's R(s, theta) is its own closed tube; the branch's own edge supplies the opening
-    (Lumen assigns a point to the edge whose centerline is nearest). Rows where every ray escaped
-    are interpolated along s from valid rows. Returns (R, escaped mask).
+    each edge's R(s, theta) is its own closed tube; the branch's own edge supplies the opening.
+    Rows where every ray escaped are interpolated along s from valid rows, then each section is
+    checked against the vessel either side of it (``along_vessel``). Returns (R, escaped mask).
     """
     R = np.asarray(R, float).copy()
     n_s, n_t = R.shape
@@ -554,6 +597,8 @@ def fill_ostia(R: np.ndarray, factor: float = 1.25, far: float = 40.0) -> tuple[
     for j in range(n_t):
         R[~row_ok, j] = np.interp(s_idx[~row_ok], s_idx[row_ok], R[row_ok, j])
     esc[~row_ok] = True
+    R, odd = along_vessel(R)
+    esc[odd] = True
     return R, esc
 
 
@@ -691,53 +736,76 @@ def _stats(d: np.ndarray) -> dict:
             "p99": float(np.percentile(d, 99)), "max": float(d.max())}
 
 
-def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
-    """The Newton tree-contact kernel's projection (``tube_barrier_kernel``), vectorized in NumPy.
+def _open_entry(tree, node_id) -> bool:
+    """The kernel's open end (see :func:`lumen.core.tree.is_open_entry`)."""
+    from lumen.core.tree import is_open_entry
 
-    Each point takes the nearest centerline segment over all edges by 3D distance to the clamped
-    foot; a point beyond an OPEN vessel end gets no contact (``culled``), junction ends are kept;
-    r is the radial distance at the foot and R the branch-blended radius there. This is the rule
-    that produces wall forces in simulation, so wall error is measured under it.
+    return is_open_entry(tree, node_id)
+
+
+def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
+    """The Newton tree-contact kernel's projection (``tube_barrier_kernel``), in NumPy.
+
+    On every edge a point's foot is the nearest point of that edge's centerline; the point
+    belongs to the edge where it has the most room there (3D distance to the foot minus the
+    branch-blended radius R(s, theta) at the foot). As in the kernel, only a point beyond the
+    open end the wire enters through gets no contact (``culled``); past any other end the
+    wall continues as a straight tube; r is the radial distance at the foot and R the
+    blended radius there. This is the rule that produces wall forces in simulation, so wall
+    error is measured under it.
     """
-    P, Tg, CS, EI = [], [], [], []
-    for i, e in enumerate(tree.edges):
+    A, B, T0, T1, CS, slices = [], [], [], [], [], []
+    for e in tree.edges:
         f = e.frame
-        P.append(f.points[:-1]); Tg.append(f.tangents); CS.append(f.cum_s[:-1]); EI.append(np.full(len(f.points) - 1, i))
-    A = np.concatenate(P)
-    B = np.concatenate([e.frame.points[1:] for e in tree.edges])
-    T0 = np.concatenate([t[:-1] for t in Tg])
-    T1 = np.concatenate([t[1:] for t in Tg])
-    CS, EI = np.concatenate(CS), np.concatenate(EI)
+        slices.append((sum(len(x) for x in A), sum(len(x) for x in A) + len(f.points) - 1))
+        A.append(f.points[:-1]); B.append(f.points[1:])
+        T0.append(f.tangents[:-1]); T1.append(f.tangents[1:]); CS.append(f.cum_s[:-1])
+    A, B, T0, T1, CS = (np.concatenate(x) for x in (A, B, T0, T1, CS))
     AB = B - A
     L2 = np.maximum(np.einsum("ij,ij->i", AB, AB), 1e-18)
+    bound = np.asarray([tree._R_bound[i] for i in range(len(tree.edges))])
     out = {k: [] for k in ("edge", "s", "r", "R", "culled")}
     for c0 in range(0, len(Q), chunk):
         q = Q[c0:c0 + chunk]
+        rows = np.arange(len(q))
         u = np.clip((q @ AB.T - np.einsum("ij,ij->i", A, AB)[None]) / L2[None], 0.0, 1.0)
         foot = A[None] + u[:, :, None] * AB[None]
         d2 = np.einsum("nmj,nmj->nm", q[:, None] - foot, q[:, None] - foot)
-        j = np.argmin(d2, axis=1)
-        rows = np.arange(len(q))
-        uj, ej = u[rows, j], EI[j]
-        ft = foot[rows, j]
-        tang = T0[j] + uj[:, None] * (T1[j] - T0[j])
-        tang /= np.linalg.norm(tang, axis=1, keepdims=True)
-        rad = (q - ft) - np.einsum("ij,ij->i", q - ft, tang)[:, None] * tang
-        r = np.linalg.norm(rad, axis=1)
-        s = CS[j] + uj * np.sqrt(L2[j])
+        jn = np.empty((len(q), len(slices)), int)
+        dn = np.empty((len(q), len(slices)))
+        for i, (s0, s1) in enumerate(slices):
+            k = np.argmin(d2[:, s0:s1], axis=1)
+            jn[:, i] = s0 + k
+            dn[:, i] = np.sqrt(d2[rows, s0 + k])
+        lower = dn - bound[None]                 # no edge can give more room than this
+        order = np.argsort(lower, axis=1)
+        ej = np.zeros(len(q), int)
+        r, s, Rb = np.empty(len(q)), np.empty(len(q)), np.empty(len(q))
         culled = np.zeros(len(q), bool)
-        Rb = np.empty(len(q))
         for k in range(len(q)):
+            best = np.inf
+            for i in order[k]:
+                if lower[k, i] >= best:
+                    break
+                j = jn[k, i]
+                ft = foot[k, j]
+                tang = T0[j] + u[k, j] * (T1[j] - T0[j])
+                tang = tang / np.linalg.norm(tang)
+                rad = (q[k] - ft) - np.dot(q[k] - ft, tang) * tang
+                sk = CS[j] + u[k, j] * np.sqrt(L2[j])
+                theta = tree.edges[i].frame.project(ft + rad).theta   # frame-consistent theta
+                R = tree.blended_R(int(i), float(sk), float(theta))
+                if dn[k, i] - R < best:
+                    best = dn[k, i] - R
+                    ej[k], r[k], s[k], Rb[k] = i, np.linalg.norm(rad), sk, R
             e = tree.edges[ej[k]]
             f = e.frame
-            if not tree.is_junction(e.node_a) and np.dot(q[k] - f.points[0], f.tangents[0]) < 0:
+            if _open_entry(tree, e.node_a) and np.dot(q[k] - f.points[0], f.tangents[0]) < 0:
                 culled[k] = True
-            if not tree.is_junction(e.node_b) and np.dot(q[k] - f.points[-1], f.tangents[-1]) > 0:
+            if _open_entry(tree, e.node_b) and np.dot(q[k] - f.points[-1], f.tangents[-1]) > 0:
                 culled[k] = True
-            pr = f.project(ft[k] + rad[k])             # theta at this foot (frame-consistent)
-            Rb[k] = tree.blended_R(int(ej[k]), float(s[k]), float(pr.theta))
-        for k, v in (("edge", ej), ("s", s), ("r", r), ("R", Rb), ("culled", culled)):
-            out[k].append(v)
+        for key, v in (("edge", ej), ("s", s), ("r", r), ("R", Rb), ("culled", culled)):
+            out[key].append(v)
     return {k: np.concatenate(v) for k, v in out.items()}
 
 
@@ -807,9 +875,9 @@ def conversion_error(asset: Asset, mesh_path: str | Path | None = None, *, scale
            "source_to_lumen_junction_zones_mm": _stats(d_src[in_j]),
            "junction_zone_surface_fraction": float(in_j.mean()),
            "definition": "source_to_lumen: source lumen-surface samples, |r - R| under the Newton tree-contact "
-                         "kernel's projection (nearest segment in 3D, branch-blended R; samples on open vessel "
-                         "end caps excluded, where Lumen applies no contact); tree_project_rule: the same under "
-                         "VascularTree.project (min radial distance, used for observations); lumen_to_source: Lumen wall points to the "
+                         "kernel's projection (each edge's nearest foot, owned by the edge with most room; branch-blended R; samples past the "
+                         "open entry end excluded, where Lumen applies no contact); tree_project_rule: the same under "
+                         "VascularTree.project (most room by radial distance, used for observations); lumen_to_source: Lumen wall points to the "
                          "nearest source surface sample (virtual walls across ostia excluded); junction zone: "
                          "within the widest meeting vessel's radius of a branch point"}
     if task_edges:

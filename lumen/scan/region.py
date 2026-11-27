@@ -77,6 +77,7 @@ def _slice_measures(volume) -> dict | None:
         level = 0.1 * float(np.percentile(d[::4, ::4, ::4], 99.5))
     step = max(1, int(round(_SAMPLE_MM / dz)))
     px = float(np.prod(inpl)) / 100.0  # cm2 per pixel
+    small_fov = not ct and bool(np.all(np.asarray(d.shape[:2]) * inpl <= _HEAD_WIDTH[1]))
     area, bone, width, cut = [], [], [], []
     for k in range(0, d.shape[2], step):
         s = d[:, :, k]
@@ -90,9 +91,11 @@ def _slice_measures(volume) -> dict | None:
         area.append(float(body.sum()) * px)
         bone.append(float(((s > 300.0) & body).sum()) * px if ct else 0.0)
         width.append(float(max((np.ptp(ii) + 1) * inpl[0], (np.ptp(jj) + 1) * inpl[1])))
-        # the body runs off the picture on two or more sides: wider than the field of view
+        # the body runs off the picture on two or more sides: wider than the field of view. A
+        # picture no wider than a head (an intracranial MRA slab, say) says nothing by this, so
+        # there the outline's own size has to decide
         sides = [body[0].any(), body[-1].any(), body[:, 0].any(), body[:, -1].any()]
-        cut.append(sum(sides) >= 2)
+        cut.append(sum(sides) >= 2 and not small_fov)
     # patient z of the first (most caudal) slice of the feet-to-head view
     A = np.asarray(volume.affine, float)
     ax = int(np.argmax(np.abs(A[2, :3] / np.linalg.norm(A[:3, :3], axis=0))))

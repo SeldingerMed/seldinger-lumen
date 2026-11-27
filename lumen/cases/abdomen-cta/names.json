@@ -1,0 +1,34 @@
+{
+ "edges": {
+  "e0": "aorta",
+  "e1": "left iliac artery",
+  "e2": "aorta",
+  "e3": "right iliac artery",
+  "e4": "left iliac artery"
+ },
+ "vessels": {
+  "aorta": {
+   "edges": [
+    "e0",
+    "e2"
+   ],
+   "target_node": "end0",
+   "route_mm": 440.5
+  },
+  "left iliac artery": {
+   "edges": [
+    "e1",
+    "e4"
+   ],
+   "target_node": "end1",
+   "route_mm": 401.3
+  },
+  "right iliac artery": {
+   "edges": [
+    "e3"
+   ],
+   "target_node": "j0",
+   "route_mm": 195.3
+  }
+ }
+}

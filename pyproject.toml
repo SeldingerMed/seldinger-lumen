@@ -62,6 +62,8 @@ include = ["lumen*", "tools"]
 
 [tool.setuptools.package-data]
 lumen = ["py.typed"]
+"lumen.cases" = ["*/case.json", "*/names.json", "*/asset.json.gz", "*/surface.npz"]
+"lumen.viewer" = ["static/*"]
 "lumen.registration_pack" = ["README.md", "full-tree-v1/problem/*", "full-tree-v1/answer/*",
     "selective-?-v1/problem/*", "selective-?-v1/answer/*",
     "overlap-?-v1/problem/*", "overlap-?-v1/answer/*"]

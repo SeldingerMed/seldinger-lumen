@@ -35,6 +35,14 @@ from lumen.newton.tube_barrier_kernel import (
 )
 
 
+def _entry_end(tree, node_id) -> bool:
+    """True for the open vessel end the wire enters through: no wall past it. A tree that
+    does not say where the wire enters keeps every open end open, as before."""
+    from lumen.core.tree import is_open_entry
+
+    return is_open_entry(tree, node_id)
+
+
 class TubeVBDSolver(SolverVBD):
     """SolverVBD with the tube-intrinsic barrier injected into the AVBD solve."""
 
@@ -592,8 +600,9 @@ class TubeVBDSolver(SolverVBD):
             vcount.append(len(f.points))
             off += len(f.points)
             smax.append(float(f.length))
-            sj.append(1 if tree.is_junction(e.node_a) else 0)
-            ej.append(1 if tree.is_junction(e.node_b) else 0)
+            # 0 only at the open end the wire enters through (see the tree barrier kernel)
+            sj.append(0 if _entry_end(tree, e.node_a) else 1)
+            ej.append(0 if _entry_end(tree, e.node_b) else 1)
             P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
             # bake the branch-blended R(s,θ) for this edge into its grid block
             block = _np.array([[tree.blended_R(i, float(sf) * f.length, float(t)) for t in th]

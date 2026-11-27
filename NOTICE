@@ -26,9 +26,34 @@ external oracles):
     https://github.com/SeldingerMed/RSNA2025_Intracranial-Aneurysm-Detection.
 
 This repository deliberately does NOT depend on or derive from CathSim
-(CC-BY-NC-SA-4.0) or any patient-derived data. See tools/check_firewall.py.
-Anatomy a user imports from their own scan with `lumen import` is written to a
-folder the user chooses and is never part of this repository.
+(CC-BY-NC-SA-4.0). Patient-derived geometry appears only in the open cases listed
+below, each derived from a public, de-identified scan whose licence allows
+redistribution; tools/check_firewall.py enforces both rules. Anatomy a user imports
+from their own scan with `lumen import` is written to a folder the user chooses and
+is never part of this repository.
+
+
+Open cases shipped in lumen/cases/ (derived vessel geometry only; no images):
+
+  * head-cta-aneurysm, head-neck-cta — derived from studies 006 and 002 of
+    Blagosklonova E, Dolotova D, Polunina N, Grigorieva E, Pakhomov D, Krylov V, et al.,
+    "Open dataset of annotated DICOM images of head CTA for intracranial aneurysm
+    detection", Zenodo, doi:10.5281/zenodo.15697196. CC BY 4.0.
+  * aorta-cta — derived from case D10 of Radl L, Jin Y, Pepe A, Li J, Gsaxner C, Zhao F,
+    Egger J, "AVT: Multicenter aortic vessel tree CTA dataset collection with ground
+    truth segmentation masks", Data in Brief 40:107801 (2022),
+    doi:10.6084/m9.figshare.14806362. CC BY 4.0.
+  * abdomen-cta — derived from scan s1405 of the TotalSegmentator dataset v2.0.1,
+    Wasserthal J et al., "TotalSegmentator: robust segmentation of 104 anatomic
+    structures in CT images", Radiology: Artificial Intelligence 5(5):e230024 (2023),
+    doi:10.5281/zenodo.10047292. CC BY 4.0.
+  * head-tof-mra — derived from sub-000 of Di Noto T et al., "Lausanne TOF-MRA Aneurysm
+    Cohort", OpenNeuro ds003949 v1.0.1, doi:10.18112/openneuro.ds003949.v1.0.1. CC0.
+
+Changes made: the arteries were segmented from the scan by `lumen import` (head: the
+RSNA 2025 intracranial model; body: TotalSegmentator), converted to centre lines with
+cross-sections, and the vessel surface was simplified. Each case's case.json repeats
+its source, licence and citation.
 
 
 Procedural anatomy pack policy:
@@ -38,6 +63,9 @@ Procedural anatomy pack policy:
     externally licensed anatomy.
   * Pack metadata is released under Apache-2.0 with
     `provenance="procedural"` and records the generator source.
+  * The open cases in `lumen/cases/` are not procedural; they keep their sources'
+    licences (above), not Apache-2.0.
   * A contributed anatomy case MUST ship reproducible generator parameters,
-    provenance, and license metadata. Patient-derived or unclear-license assets
-    belong outside this repository behind the private asset seam.
+    provenance, and license metadata. Patient-derived or unclear-license assets,
+    other than the credited open cases above, belong outside this repository behind
+    the private asset seam.

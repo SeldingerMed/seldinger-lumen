@@ -21,7 +21,7 @@ you verified. Skip if this is a pure bug fix or non-physics change. -->
 
 - [ ] Commits are **signed off** (`git commit -s`, DCO)
 - [ ] `pytest -q` passes locally
-- [ ] `python tools/check_firewall.py` passes (no CathSim, no patient data)
+- [ ] `python tools/check_firewall.py` passes (no CathSim, no patient data outside the open cases)
 - [ ] `ruff check .` passes
 - [ ] Added/updated a **test** for non-trivial logic
 - [ ] Updated `README.md` / `ARCHITECTURE.md` if public behavior or layout changed

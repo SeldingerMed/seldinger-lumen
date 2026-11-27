@@ -241,8 +241,11 @@ def accumulate_tree_barrier(
     body_hessian_ll: wp.array(dtype=wp.mat33),
     wall_load: wp.array(dtype=wp.float32),    # [n_edges*n_s*n_th] (out)
 ):
-    """Tree variant of the tube barrier: each wire node finds its nearest segment
-    ACROSS ALL EDGES, then reads that edge's blended rigid radius block. The §3.5.2
+    """Tree variant of the tube barrier: each wire node finds, on every edge, the nearest point
+    of its axis, and is owned by the edge where it has the most room there (radius minus
+    distance from the axis), then reads that edge's blended rigid radius block. Owning by room rather than by nearest axis matters where
+    a thin branch leaves a wide vessel: a node inside the wide lumen can be nearer the thin
+    branch's axis, and judging it against the thin wall would push it the wrong way. The §3.5.2
     branch blending is pre-baked into R0_grid at build time, so the kernel stays
     simple. Junction ends are NOT culled (a node there is transitioning between edges),
     unlike open vessel ends. Batched envs share the same edge graph but read/write
@@ -252,15 +255,23 @@ def accumulate_tree_barrier(
     if wire_mask[bid] == 0:
         return
     p = wp.transform_get_translation(body_q[bid])
+    env = bid // n_per_env
+    edge_cells = n_s * n_th
     best = float(1.0e30)
     bj = int(0)
     bu = float(0.0)
     be = int(0)
-    # O(n_edges × verts) nearest-segment scan, no spatial cull — fine for procedural
-    # small trees; add a per-edge bbox skip before use on full anatomical meshes.
+    # O(n_edges × verts) scan, no spatial cull. Per edge, the foot is the nearest point on its
+    # axis (plain distance: a wider section further along the same edge must not take over a
+    # node sitting in a stenosis). The edges are then compared by room at their feet, with the
+    # same blended R(s, theta) the force below uses, so VascularTree.project and this kernel
+    # pick the same owner from the same radius.
     for e in range(n_edges):
         v0 = edge_vstart[e]
         nv = edge_vcount[e]
+        ej = int(v0)
+        eu = float(0.0)
+        ed2 = float(1.0e30)
         for k in range(nv - 1):
             j = v0 + k
             a = P[j]
@@ -269,14 +280,36 @@ def accumulate_tree_barrier(
             u = wp.clamp(wp.dot(p - a, ab) / L2, 0.0, 1.0)
             dd = p - (a + u * ab)
             d2 = wp.dot(dd, dd)
-            if d2 < best:
-                best = d2
-                bj = j
-                bu = u
-                be = e
+            if d2 < ed2:
+                ed2 = d2
+                ej = j
+                eu = u
+        a = P[ej]
+        foot = a + eu * (P[ej + 1] - a)
+        tang = wp.normalize(Tg[ej] + eu * (Tg[ej + 1] - Tg[ej]))
+        radial = (p - foot) - wp.dot(p - foot, tang) * tang
+        m1 = M1[ej] - wp.dot(M1[ej], tang) * tang
+        m1 = m1 / (wp.length(m1) + 1.0e-9)
+        m2 = wp.cross(tang, m1)
+        theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
+        s = cum_s[ej] + eu * (cum_s[ej + 1] - cum_s[ej])
+        i_s = wp.clamp(int(s / edge_smax[e] * float(n_s - 1) + 0.5), 0, n_s - 1)
+        i_th = int((theta + wp.pi) / (2.0 * wp.pi) * float(n_th)) % n_th
+        cell = (env * n_edges + e) * edge_cells + i_s * n_th + i_th
+        # negative room: distance past the local wall (smaller = more inside)
+        need = wp.sqrt(ed2) - (R0_grid[cell] + w_field[cell])
+        if need < best:
+            best = need
+            bj = ej
+            bu = eu
+            be = e
     v0 = edge_vstart[be]
     vend = v0 + edge_vcount[be] - 1
-    # open vessel end -> no contact; but a JUNCTION end is not open (node transits edges)
+    # The flags mark which edge ends are "held" (1): junctions, where a node transits edges, and
+    # every vessel end except the one the wire enters through. Past the entry end there is no
+    # contact (the wire comes in from outside). Past any other open end the wall continues as a
+    # straight tube along the last tangent: a scanned artery stops only where the segmentation
+    # stopped, and a wire node there must still be held, not set free to swing out of the vessel.
     if edge_start_junc[be] == 0 and wp.dot(p - P[v0], Tg[v0]) < 0.0:
         return
     if edge_end_junc[be] == 0 and wp.dot(p - P[vend], Tg[vend]) > 0.0:
@@ -295,8 +328,6 @@ def accumulate_tree_barrier(
     theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
     th01 = (theta + wp.pi) / (2.0 * wp.pi)
     i_th = int(th01 * float(n_th)) % n_th
-    env = bid // n_per_env
-    edge_cells = n_s * n_th
     cell = (env * n_edges + be) * edge_cells + i_s * n_th + i_th
     R_eff = R0_grid[cell] + w_field[cell]      # SHARED radius: blended base R0 + HGO deformation
     dwall = R_eff - (r + body_radius[bid])     # clearance from device SURFACE to wall

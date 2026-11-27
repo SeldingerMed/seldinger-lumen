@@ -1,0 +1,33 @@
+{
+ "title": "Head CTA with an intracranial aneurysm",
+ "region": "head",
+ "modality": "CTA",
+ "licence": "CC BY 4.0",
+ "citation": "Blagosklonova E, Dolotova D, Polunina N, Grigorieva E, Pakhomov D, Krylov V, et al. Open dataset of annotated DICOM images of head CTA for intracranial aneurysm detection. Zenodo (2025)",
+ "source_url": "https://zenodo.org/records/15697196",
+ "source_doi": "10.5281/zenodo.15697196",
+ "scan": "study 006",
+ "vessels": [
+  "aneurysm",
+  "left anterior cerebral artery",
+  "left infraclinoid internal carotid artery",
+  "left middle cerebral artery",
+  "left supraclinoid internal carotid artery",
+  "right anterior cerebral artery",
+  "right infraclinoid internal carotid artery",
+  "right middle cerebral artery",
+  "right supraclinoid internal carotid artery"
+ ],
+ "derived": {
+  "by": "lumen import",
+  "segments": 28,
+  "surface_triangles": 91734,
+  "wall_fit_p95_mm": 1.75,
+  "region": [
+   "head"
+  ],
+  "segmenter": [
+   "the RSNA 2025 intracranial artery model"
+  ]
+ }
+}

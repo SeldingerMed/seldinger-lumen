@@ -1,0 +1,27 @@
+{
+ "title": "Abdominal and pelvic CTA, aorta to the iliac arteries",
+ "region": "abdomen and pelvis",
+ "modality": "CTA",
+ "licence": "CC BY 4.0",
+ "citation": "Wasserthal J, Breit H-C, Meyer MT, et al. TotalSegmentator: robust segmentation of 104 anatomic structures in CT images. Radiology: Artificial Intelligence 5(5):e230024 (2023). Dataset v2.0.1, Zenodo",
+ "source_url": "https://zenodo.org/records/10047292",
+ "source_doi": "10.5281/zenodo.10047292",
+ "scan": "s1405",
+ "vessels": [
+  "aorta",
+  "left iliac artery",
+  "right iliac artery"
+ ],
+ "derived": {
+  "by": "lumen import",
+  "segments": 5,
+  "surface_triangles": 97292,
+  "wall_fit_p95_mm": 0.31,
+  "region": [
+   "body"
+  ],
+  "segmenter": [
+   "TotalSegmentator"
+  ]
+ }
+}

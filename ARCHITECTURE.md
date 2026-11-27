@@ -92,7 +92,10 @@ add a regression test for the newly supported combination.
 Apache-2.0 clean-room. Enforced by `tools/check_firewall.py` in CI:
 
 1. **No CathSim** (CC-BY-NC-SA-4.0) anywhere — it would contaminate the license.
-2. **No patient data** — every committed asset is `provenance="procedural"`.
+2. **No patient data** — every committed asset is `provenance="procedural"`, except the
+   open cases in `lumen/cases/`: vessel geometry from public, de-identified scans under
+   CC0 / CC BY / CC BY-SA, credited in each `case.json` and in NOTICE. The firewall allows
+   only a case's own files there and refuses private (`patient(private)`) data everywhere.
 
 There are now two seams to the private world, both firewall-guarded:
 `lumen.assets.schema.Asset` (geometry, `lumen-asset/0`) and

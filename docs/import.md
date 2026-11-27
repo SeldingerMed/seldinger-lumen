@@ -15,6 +15,9 @@ runs on your machine. The scan is never uploaded.
 
 1. **Read.** Lumen reads the scan in patient millimetres. In a DICOM folder with several series
    it takes the one with the most slices (`--list-series` shows them, `--series` picks another).
+   A NIfTI or NRRD CT stored without negative numbers (1024 added) is recognised from its
+   values and read in Hounsfield units; `--modality CT` or `--modality MR` settles it when a
+   file is read the wrong way.
 2. **Work out the body region.** Lumen looks at the picture itself, slice by slice, to decide
    whether it shows the head, the neck or trunk, or both. You do not have to say.
 3. **Find and name the arteries.** Two open models do this, one per region:

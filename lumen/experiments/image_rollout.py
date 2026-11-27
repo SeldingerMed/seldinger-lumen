@@ -38,7 +38,11 @@ def choose(image):
 def run_case(case_id):
     target, angle, axis, gain = _REGISTRY[case_id]
     asset = bifurcation(trunk=35, branch=40, angle_deg=angle)
-    env = TreeNavEnv(asset, target_node="left_out", max_insertion=gain, device="cpu")
+    # The insertions are open-loop and force-blind on purpose (case-b shows what that does), so
+    # the feed limit that pauses a push against the wall is off, with the wall stiffness this
+    # experiment was built on.
+    env = TreeNavEnv(asset, target_node="left_out", max_insertion=gain, device="cpu",
+                     feed_stop_pen_mm=None, wall_stiffness=3.0e3)
     sensor = FluoroSensor(res=48, n_samples=96, nu=64, nv=64)
     camera = CArm.looking_at((0, 0, 36), axis=axis, width=168, height=168, nu=64, nv=64)
     branch = next(e for e in asset.edges if e.id == target)

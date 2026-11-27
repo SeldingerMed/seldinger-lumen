@@ -1,0 +1,44 @@
+{
+ "title": "Head and neck CTA",
+ "region": "neck and head",
+ "modality": "CTA",
+ "licence": "CC BY 4.0",
+ "citation": "Blagosklonova E, Dolotova D, Polunina N, Grigorieva E, Pakhomov D, Krylov V, et al. Open dataset of annotated DICOM images of head CTA for intracranial aneurysm detection. Zenodo (2025)",
+ "source_url": "https://zenodo.org/records/15697196",
+ "source_doi": "10.5281/zenodo.15697196",
+ "scan": "study 002",
+ "vessels": [
+  "aneurysm",
+  "anterior communicating artery",
+  "aorta",
+  "brachiocephalic trunk",
+  "left anterior cerebral artery",
+  "left common carotid artery",
+  "left infraclinoid internal carotid artery",
+  "left internal carotid artery",
+  "left middle cerebral artery",
+  "left subclavian artery",
+  "left supraclinoid internal carotid artery",
+  "other posterior circulation",
+  "right anterior cerebral artery",
+  "right common carotid artery",
+  "right infraclinoid internal carotid artery",
+  "right middle cerebral artery",
+  "right subclavian artery",
+  "right supraclinoid internal carotid artery"
+ ],
+ "derived": {
+  "by": "lumen import",
+  "segments": 58,
+  "surface_triangles": 100132,
+  "wall_fit_p95_mm": 2.04,
+  "region": [
+   "head",
+   "body"
+  ],
+  "segmenter": [
+   "TotalSegmentator",
+   "the RSNA 2025 intracranial artery model"
+  ]
+ }
+}

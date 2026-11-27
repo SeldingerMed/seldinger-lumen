@@ -189,6 +189,76 @@ def test_region_falls_back_to_header_then_to_both():
     assert region.detect_region(air).regions == ("body",)
 
 
+def test_ct_stored_with_1024_added_is_read_as_ct_in_hounsfield_units(tmp_path):
+    nrrd = pytest.importorskip("nrrd")
+    hu = _phantom([("trunk", 200)]).data
+    stored = np.round(hu + 1024.0).astype(np.uint16)              # air 24, tissue 1064, bone 1624
+    nrrd.write(str(tmp_path / "ct.nrrd"), stored, {"space": "left-posterior-superior",
+               "space directions": np.diag([2.0, 2.0, 2.5]), "space origin": np.zeros(3)},
+               index_order="F")
+    scan = read_scan(tmp_path / "ct.nrrd")
+    assert scan.modality == "CT" and scan.shifted_by == -1024.0
+    assert np.allclose(scan.data, np.round(hu + 1024.0) - 1024.0)
+    assert region.detect_region(scan).regions == ("body",)
+
+
+def test_an_mr_image_is_not_mistaken_for_shifted_ct(tmp_path):
+    rng = np.random.default_rng(0)
+    mr = np.round(rng.uniform(0, 400, (40, 40, 40))).astype(np.float32)
+    mr[10:30, 10:30, 10:30] = 1100.0                     # bright, but not a band around 1024
+    mr[10:30, 10:30, 10:30] += np.round(rng.uniform(0, 900, (20, 20, 20)))
+    nib.save(nib.Nifti1Image(mr, np.eye(4)), str(tmp_path / "mr.nii.gz"))
+    scan = read_scan(tmp_path / "mr.nii.gz")
+    assert scan.shifted_by == 0.0 and scan.modality == ""
+    stated = ScanVolume(np.full((8, 8, 8), 1024.0, np.float32), np.eye(4), modality="MR")
+    assert io_offset(stated) == 0.0                     # a file that says MR is never shifted
+
+
+def test_an_mr_whose_tissue_sits_around_1024_is_not_read_as_ct(tmp_path):
+    # MR has no fixed scale, so its tissue can fill the CT fat-to-soft-tissue band. CT has a
+    # dip there between fat and soft tissue; one broad MR hump has none.
+    rng = np.random.default_rng(0)
+    mr = np.round(rng.normal(1024.0, 80.0, (40, 40, 40))).clip(0).astype(np.float32)
+    mr[:4] = 0.0                                          # some background
+    nib.save(nib.Nifti1Image(mr, np.eye(4)), str(tmp_path / "mr.nii.gz"))
+    assert read_scan(tmp_path / "mr.nii.gz").shifted_by == 0.0
+    forced = read_scan(tmp_path / "mr.nii.gz", modality="CT")
+    assert forced.modality == "CT" and forced.shifted_by == -1024.0
+    assert read_scan(tmp_path / "mr.nii.gz", modality="MR").modality == "MR"
+    with pytest.raises(ScanError):
+        read_scan(tmp_path / "mr.nii.gz", modality="PET")
+
+
+def test_ct_with_fat_and_soft_tissue_is_still_read_as_ct(tmp_path):
+    rng = np.random.default_rng(1)
+    hu = np.full((40, 40, 40), -1000.0)
+    hu[5:35, 5:35, 5:20] = rng.normal(-95.0, 12.0, (30, 30, 15))      # fat
+    hu[5:35, 5:35, 20:35] = rng.normal(45.0, 15.0, (30, 30, 15))      # muscle and organs
+    stored = np.round(hu + 1024.0).clip(0).astype(np.float32)
+    nib.save(nib.Nifti1Image(stored, np.eye(4)), str(tmp_path / "ct.nii.gz"))
+    assert read_scan(tmp_path / "ct.nii.gz").shifted_by == -1024.0
+
+
+def io_offset(scan):
+    from lumen.scan.io import _stored_ct_offset
+    return _stored_ct_offset(scan.data, scan.modality)
+
+
+def test_an_mr_slab_in_a_head_sized_picture_is_a_head():
+    """An intracranial TOF slab is often reconstructed in a 160 mm field of view, so the head
+    touches the picture's edges. That must not read as a trunk too wide for the picture."""
+    sp = 0.5
+    n = 330                                           # 165 mm across
+    x = (np.arange(n) - n / 2) * sp
+    X, Y = np.meshgrid(x, x, indexing="ij")
+    head = np.hypot(X / 82.0, Y / 95.0) <= 1.0        # wider than the picture both ways
+    s = np.where(head, 300.0, 0.0).astype(np.float32)
+    data = np.repeat(s[:, :, None], int(100 / 0.7), axis=2)
+    scan = ScanVolume(data, np.diag([sp, sp, 0.7, 1.0]))
+    r = region.detect_region(scan)
+    assert r.regions == ("head",) and r.basis == "picture"
+
+
 def test_mr_uses_the_header_when_it_speaks():
     scan = _phantom([("head", 170)], modality="MR")
     scan.data = np.where(scan.data > -500, 300.0, 0.0).astype(np.float32)
@@ -1013,9 +1083,9 @@ def test_a_different_scan_in_the_same_folder_is_not_served_the_cached_labels(tmp
         return labels
 
     monkeypatch.setattr(segmenters, "run_body", run_body)
-    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None: scan)
+    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None, **_: scan)
     pipeline.import_scan(tmp_path / "a.nii.gz", tmp_path / "out", say=lambda *_: None)
-    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None: other)
+    monkeypatch.setattr("lumen.scan.io.read_scan", lambda path, series=None, **_: other)
     pipeline.import_scan(tmp_path / "b.nii.gz", tmp_path / "out", say=lambda *_: None)
     assert len(seen) == 2                                          # the second scan was not reused
 
@@ -1136,3 +1206,40 @@ def test_an_unreachable_vessel_reads_as_unreachable():
               "vessels": {"left vertebral": {"target_node": None, "route_mm": -1}}}
     text = "\n".join(pipeline.summary_lines(report, "out"))
     assert "not reachable" in text and "None" not in text
+
+
+def test_label_names_live_in_the_sidecar_only(tmp_path):
+    nib = pytest.importorskip("nibabel")
+    vol = LabelVolume(np.ones((3, 3, 3), np.int32), np.eye(4), {1: "x" * 200})
+    f = tmp_path / "labels.nii.gz"
+    sc.save_label_volume(vol, f)
+    assert (tmp_path / "labels.names.json").exists()
+    assert nib.load(str(f)).header["descrip"].tobytes().strip(b"\x00") == b""
+    assert sc.load_label_volume(f).names == {1: "x" * 200}
+
+
+@pytest.mark.parametrize("text", ["[1, 2]", "\"aorta\"", "{ truncated"])
+def test_a_names_sidecar_that_is_not_an_object_means_no_names(tmp_path, text):
+    pytest.importorskip("nibabel")
+    f = tmp_path / "labels.nii.gz"
+    sc.save_label_volume(LabelVolume(np.ones((3, 3, 3), np.int32), np.eye(4), {1: "aorta"}), f)
+    (tmp_path / "labels.names.json").write_text(text)
+    assert sc.load_label_volume(f).names == {}
+
+
+def test_a_mask_that_fails_to_load_leaves_no_output_folder(tmp_path):
+    out = tmp_path / "out"
+    with pytest.raises(ValueError, match="no such mask file"):
+        pipeline.import_scan(None, out, mask=tmp_path / "missing.nii.gz", say=lambda *_: None)
+    assert not out.exists()
+
+
+def test_a_temp_folder_that_cannot_hold_a_socket_is_swapped_for_the_model(tmp_path, monkeypatch):
+    long_tmp = tmp_path / ("d" * 120)                # past the Unix socket path limit
+    long_tmp.mkdir()
+    monkeypatch.setenv("TMPDIR", str(long_tmp))
+    env = segmenters._torch_env()
+    assert env["TMPDIR"] != str(long_tmp) and segmenters._holds_a_socket(env["TMPDIR"])
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    if segmenters._holds_a_socket(str(tmp_path)):
+        assert segmenters._torch_env()["TMPDIR"] == str(tmp_path)    # a working one is kept
