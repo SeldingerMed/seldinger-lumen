@@ -42,8 +42,9 @@ All notable changes to this project are documented here. The format follows
   entry end of a scanned artery now holds its width like every other cut end.
 - `FollowPolicy` (used by `lumen view --run`) judges each push by its own progress, backs off
   to 5 mm short of the branch point it stuck at, turns the shaped tip 30 degrees and tries
-  again. Over the shipped real cases a wire now reaches 10 of 24 wire routes (5 before) with
-  mean progress 0.82 (0.67 before) and at most 0.47 mm into the wall.
+  again. On the same 24 wire routes of the shipped real cases, a wire steered this way now
+  reaches 10 (5 with the earlier physics and a scripted push-and-retry operator), with mean
+  progress 0.82 (0.67) and at most 0.47 mm into the wall (0.30).
 - These change `TreeNavEnv` dynamics, so the benchmark suites move to `lumen-bench/5` and
   `lumen-bench/heldout/3`.
 - The wire stays in the vessel on imported anatomy. Five causes, each fixed: past the open far
