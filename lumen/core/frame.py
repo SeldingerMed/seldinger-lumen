@@ -70,6 +70,8 @@ class Projection:
     r: float          # radial distance from the centerline
     e_r: np.ndarray   # unit radial direction in world space
     edge_param: float  # nearest-segment parameter u in [0, 1] (debug/blending)
+    d: float = float("nan")   # distance to the nearest point of the centerline (r drops the
+                              # part along the tangent; past an end, and at bends, d > r)
 
 
 class CenterlineFrame:
@@ -117,7 +119,8 @@ class CenterlineFrame:
         m1 = _unit(self.m1[j] - np.dot(self.m1[j], t) * t)
         m2 = np.cross(t, m1)
         theta = float(np.arctan2(np.dot(radial, m2), np.dot(radial, m1)))
-        return Projection(s=s, theta=theta, r=r, e_r=e_r, edge_param=uj)
+        return Projection(s=s, theta=theta, r=r, e_r=e_r, edge_param=uj,
+                          d=float(np.sqrt(d2[j])))
 
     def project_s(self, points: np.ndarray) -> np.ndarray:
         """Arc-length ``s`` for many points at once: (N, 3) -> (N,).

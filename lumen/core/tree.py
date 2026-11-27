@@ -154,6 +154,28 @@ class VascularTree:
                     best = max(best, cand)                # bulge wins if two junctions overlap
         return best
 
+    def blended_R_grid(self, ei: int, s, theta) -> np.ndarray:
+        """``blended_R`` on every (s, theta) pair of two 1-D arrays: (len(s), len(theta)).
+        The contact baker samples the wall this way, densely, in one pass."""
+        e = self.edges[ei]
+        s = np.asarray(s, float)
+        R = e.lf.eval_grid(s, theta)
+        for end_s, ref_s in self._caps[ei]:
+            near = np.abs(s - end_s) < abs(ref_s - end_s)
+            if near.any():
+                R[near] = np.maximum(R[near], e.lf.eval_grid([ref_s], theta)[0][None, :])
+        if self.blend_len <= 0:
+            return R
+        best = R
+        for end_s, nid in ((0.0, e.node_a), (e.frame.length, e.node_b)):
+            if self._degree.get(nid, 0) > 1:
+                d = np.abs(s - end_s)
+                near = d < self.blend_len
+                w = (d / self.blend_len)[:, None]
+                cand = w * R + (1.0 - w) * self._junction_R(nid)
+                best = np.where(near[:, None], np.maximum(best, cand), best)
+        return best
+
     def _edge_R(self, ei: int, s: float, theta: float) -> float:
         """Edge ei's own radius at (s, theta), held open over a free end's cap."""
         lf = self.edges[ei].lf
@@ -186,13 +208,11 @@ class VascularTree:
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)
             # the owner is chosen by the distance to the nearest point of each vessel's axis,
-            # as in the contact kernel: past an end that is the distance to the end point,
-            # not across the axis carried on beyond it (issue #153). The gap and the wall
-            # direction stay measured across the axis, as the kernel's force is.
-            d = pr.r
-            if pr.s <= 1e-6 or pr.s >= e.frame.length - 1e-6:
-                d = float(np.linalg.norm(p - np.asarray(
-                    e.frame.points[0 if pr.s <= 1e-6 else -1], float)))
+            # as in the contact kernel, for every vessel: past an end that is the distance to
+            # the end point, and at a bend it keeps its part along the tangent (issue #153).
+            # The gap and the wall direction stay measured across the axis, as the kernel's
+            # force is.
+            d = pr.d
             if d - self._R_bound[i] > best_need:
                 continue                       # cannot beat the current owner
             R = self.blended_R(i, pr.s, pr.theta)   # the radius the gap and the wall force use

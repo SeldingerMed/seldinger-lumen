@@ -255,3 +255,78 @@ def test_tree_deformable_wall_steps_stably():
         sim.step(dt=2.5e-2, substeps=5, preload=(80.0, 0.0, 0.0))
     assert np.isfinite(sim.node_radii()).all()
     assert sim.node_radii().max() <= 2.0 + 0.3 + 0.4       # held within the (deformed) band
+
+
+
+def _tapered_tree(n_s, n_th, R0=2.0, R1=4.0, L=80.0):
+    """One straight 80 mm vessel whose radius widens linearly from R0 to R1, its wall baked
+    into the tree-contact grid at n_s x n_th samples."""
+    from lumen.assets.schema import Asset, DeviceSpawn, Frame, Node
+    from lumen.core.lumen_field import LumenField
+    from lumen.newton.tube_vbd import TubeVBDSolver  # noqa: F401  (needs warp + newton)
+
+    pts = _straight_vessel(M=81, L=L)
+    lf = LumenField(np.array([0.0, L]), np.array([0.0]), np.array([[R0], [R1]]))
+    edge = procedural._edge_from_polyline("e0", "in", "out", pts, lf)
+    asset = Asset(frame=Frame(), nodes=[Node("in", tuple(pts[0])), Node("out", tuple(pts[-1]))],
+                  edges=[edge], device_spawn=DeviceSpawn(node_id="in"))
+    return VascularTree(asset)
+
+
+def _wall_force(tree, p, n_s=None, n_th=None):
+    """The tree barrier's force on one node of radius 0.2 at p (kappa 2e3, d_hat 0.3)."""
+    import warp as wp
+
+    from lumen.newton.tube_barrier_kernel import accumulate_tree_barrier
+
+    sim = NewtonGuidewireSim(_straight_vessel(), 2.0, _device(), radius=0.2, kappa=2e3,
+                             d_hat=0.3, device="cpu", tree=tree)
+    s = sim.solver
+    if n_s is not None:
+        s.set_tree_contact(tree, sim._contact_bodies, kappa=2e3, d_hat=0.3, n_s=n_s, n_th=n_th,
+                           body_radii=[0.2] * len(sim._contact_bodies))
+    bid = sim._contact_bodies[3]
+    q = sim.state_0.body_q.numpy()
+    q[bid, :3] = p
+    bq = wp.array(q, dtype=wp.transform, device="cpu")
+    bf = wp.zeros(len(q), dtype=wp.vec3, device="cpu")
+    bh = wp.zeros(len(q), dtype=wp.mat33, device="cpu")
+    load = wp.zeros_like(s._tree_wall_load)
+    cg = wp.array(np.array([bid], np.int32), dtype=wp.int32, device="cpu")
+    wp.launch(accumulate_tree_barrier, dim=1,
+              inputs=[cg, s._tree_wire_mask, s._tree_body_radius, bq, sim.state_0.body_qd,
+                      s._tree_P, s._tree_Tg, s._tree_M1, s._tree_cum_s, s._tree_vstart,
+                      s._tree_vcount, s._tree_smax, s._tree_start_junc, s._tree_end_junc,
+                      s._tree_n_edges, s._tree_R0, s._tree_w, s._tree_ns, s._tree_nth,
+                      s._tree_n_per_env, s._tree_kappa, s._tree_d_hat, s._tree_mode,
+                      0.0, 0.0, 0.0, 5e-3],
+              outputs=[bf, bh, load], device="cpu")
+    return bf.numpy()[bid]
+
+
+@pytest.mark.parametrize("n_s", [None, 5])
+def test_the_contact_kernel_feels_the_wall_between_its_samples(n_s):
+    """On a vessel that widens from 2 to 4 mm the wall at s = 30 mm is 2.75 mm. A 0.2 mm node
+    2.35 mm off the axis is 0.2 mm from that wall, inside the 0.3 mm barrier, and is pushed
+    back with kappa * (0.3 - 0.2). The kernel read the wall at the nearest of 40 samples
+    (one per 2 mm here, 10 mm on a 400 mm aorta); with samples 20 mm apart (n_s = 5) the
+    nearest one says 3.0 mm and the node would feel nothing."""
+    tree = _tapered_tree(n_s, 1)
+    assert tree.blended_R(0, 30.0, 0.0) == pytest.approx(2.75)
+    f = _wall_force(tree, np.array([2.35, 0.0, 30.0]), n_s=n_s, n_th=16 if n_s else None)
+    assert f[0] == pytest.approx(-2e3 * (0.3 - 0.2), rel=0.02)
+    assert abs(f[1]) < 1e-3 and abs(f[2]) < 1e-3
+
+
+def test_the_wall_is_sampled_finely_along_a_long_vessel():
+    """By default the baked wall has a sample at least every millimetre along the longest
+    vessel, and twice as many angles as the finest lumen field (at most 64)."""
+    from lumen import cases
+
+    tree = VascularTree(cases.load("aorta-cta")[0])
+    longest = max(e.frame.length for e in tree.edges)
+    sim = NewtonGuidewireSim(np.asarray(tree.edges[0].frame.points), 2.0,
+                             np.asarray(tree.edges[0].frame.points[:8]), radius=0.2,
+                             device="cpu", tree=tree)
+    assert longest / (sim.solver._tree_ns - 1) <= 1.0
+    assert sim.solver._tree_nth == min(64, 2 * max(len(e.lf.theta) for e in tree.edges))

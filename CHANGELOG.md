@@ -23,9 +23,16 @@ All notable changes to this project are documented here. The format follows
   from its neighbours. Aneurysms, stenoses and a vessel widening into the aorta are kept.
 
 ### Fixed
+- The wall the wire feels on a scanned vessel is the scanned wall. The contact kernel read
+  the radius at the nearest of 40 samples along each vessel and 16 around it, so on a 400 mm
+  aorta the wall stepped every 10 mm and differed from the measured lumen by up to 3.2 mm
+  (95th percentile 1.1 mm). The wall is now sampled at least every millimetre and at twice the
+  lumen field's angles, and read between samples; on the shipped cases the 95th percentile
+  difference is below 0.1 mm.
 - Which vessel holds a point near a junction is decided as the contact physics decides it:
   by the distance to the nearest point of each vessel's axis, so past a vessel's end, the
-  distance to the end point (it was measured across the axis carried on beyond the end).
+  distance to the end point, and at a sharp bend, the distance to the bend (it was measured
+  across the axis, carried on beyond the end).
   On the aortic arch the two agreed for 42 of 100 points near the junctions and now agree
   for all. The wall gap and direction are unchanged. Wall contact near junctions changes,
   so the benchmark suites move to `lumen-bench/6` and `lumen-bench/heldout/4` (#153).
