@@ -171,8 +171,9 @@ def test_replay_reset_entry_matches_known_initial_state():
     out = ps.replay(_straight_insertion_samples(4), {"wire": [1, 1], "catheter": [1, 1]})
     x0, z0 = out[0]["wire"]
     # Pinned bifurcation: trunk runs along +z from the origin, so the reset tip
-    # sits at x ~ 0 with z ~ the shaped-tip length (>= 0, small vs the route).
-    assert x0 == pytest.approx(1.45, abs=0.3)
+    # sits near x ~ 0, leaning off the axis by its 45 degree shaped tip (1.45 mm with the
+    # earlier 19 degree tip), with z ~ the wire length (>= 0, small vs the route).
+    assert x0 == pytest.approx(2.0, abs=0.3)
     assert 0.0 <= z0 < 25.0
 
 

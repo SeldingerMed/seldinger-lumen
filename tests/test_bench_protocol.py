@@ -15,7 +15,7 @@ from lumen.bench_protocol import (
 def test_scaled_suite_has_frozen_disjoint_case_manifest():
     suite = make_scaled_suite()
 
-    assert suite.version == "lumen-bench/heldout/2"
+    assert suite.version == "lumen-bench/heldout/3"
     assert [task.episodes for task in suite.train] == [100, 100, 100]
     assert [task.episodes for task in suite.heldout] == [100, 100, 100]
     assert [task.seed for task in suite.train] == [10_000, 11_000, 12_000]

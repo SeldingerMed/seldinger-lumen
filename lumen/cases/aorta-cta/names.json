@@ -11,6 +11,9 @@
   "e8": "aorta",
   "e9": "aorta"
  },
+ "access": [
+  "inlet"
+ ],
  "vessels": {
   "aorta": {
    "edges": [
@@ -19,28 +22,32 @@
     "e9"
    ],
    "target_node": "end0",
-   "route_mm": 786.4
+   "route_mm": 786.4,
+   "start_node": "inlet"
   },
   "brachiocephalic trunk": {
    "edges": [
     "e1"
    ],
    "target_node": "end1",
-   "route_mm": 726.6
+   "route_mm": 726.6,
+   "start_node": "inlet"
   },
   "left common carotid artery": {
    "edges": [
     "e2"
    ],
    "target_node": "end2",
-   "route_mm": 688.0
+   "route_mm": 688.0,
+   "start_node": "inlet"
   },
   "left subclavian artery": {
    "edges": [
     "e3"
    ],
    "target_node": "end3",
-   "route_mm": 682.7
+   "route_mm": 682.7,
+   "start_node": "inlet"
   },
   "right iliac artery": {
    "edges": [
@@ -49,14 +56,16 @@
     "e7"
    ],
    "target_node": "end4",
-   "route_mm": 485.5
+   "route_mm": 485.5,
+   "start_node": "inlet"
   },
   "left iliac artery": {
    "edges": [
     "e6"
    ],
    "target_node": "j0",
-   "route_mm": 233.1
+   "route_mm": 233.1,
+   "start_node": "inlet"
   }
  }
 }

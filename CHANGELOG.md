@@ -23,6 +23,48 @@ All notable changes to this project are documented here. The format follows
   from its neighbours. Aneurysms, stenoses and a vessel widening into the aorta are kept.
 
 ### Fixed
+- A pushed wire now carries the push to its tip on real anatomy. The rod solver ran 8
+  iterations for a 16-node wire and a push travels about one node per iteration, so the tip
+  got about a third of each push and the wire bowed and prolapsed; `TreeNavEnv` now runs
+  twice as many iterations as nodes (`vbd_iterations`), passing about 0.8 of a push. The
+  solver has no damping, so after a pull-back the wire coasted and folded round its held
+  end; with `quasi_static` (default on) the wire stops when the hand stops or reverses, as in
+  blood. The solver substep is 2.5 ms (`substep_ms`), with lighter bend damping, a 45 degree
+  shaped tip and the wire's rest shape laid in its starting vessel, which together pass 0.99 of
+  a push through a carotid-siphon S-bend.
+- The tip's place along the route is tracked inside the vessels, and progress, reward and
+  success use it: a tip in the wrong branch that happens to lie near the route's centreline
+  earns nothing (`info["tip_mm"]`, `info["furthest_mm"]`). On a real scan with junctions every
+  few millimetres, a point just past a join no longer counts as the end of the vessel before.
+- A head scan whose carotids or vertebrals were cut at the bottom of the picture offers those
+  cut ends as ways in: each named vessel records the start the wire is brought up from, so the
+  right middle cerebral artery is reached up the right carotid (`names.json` `access`). The
+  entry end of a scanned artery now holds its width like every other cut end.
+- `FollowPolicy` (used by `lumen view --run`) judges each push by its own progress, backs off
+  to 5 mm short of the branch point it stuck at, turns the shaped tip 30 degrees and tries
+  again. On the same 24 wire routes of the shipped real cases, a wire steered this way now
+  reaches 10 (5 with the earlier physics and a scripted push-and-retry operator), with mean
+  progress 0.82 (0.67) and at most 0.47 mm into the wall (0.30).
+- The benchmark bifurcation (`make_tree_nav`) starts the wire with its shaped tip turned
+  toward the target branch (`TreeNavEnv(aim_tip=True)`), as an operator turns it before the
+  fork, so a wire that is only pushed enters either branch with no wall penetration. Elsewhere
+  the tip starts in one fixed direction (`aim_tip=False`, the default) and a policy chooses the
+  branch by turning the wire.
+- Scoring no longer flatters the wire. The deepest wall penetration of each step is counted
+  before containment puts a node back (it was measured after, so a node 0.6 mm through the
+  wall could be scored as safe). A tip read further along the route than one step can carry it
+  is believed only if the wire itself lies along the route back to where the tip was;
+  waiting there no longer makes the reading count. A point past the end of a vessel is no
+  longer inside it. The benchmark's clinical target check uses the tracked tip and
+  requires it to be in the route.
+- A named vessel's route runs through that vessel: the left anterior cerebral artery of the
+  shipped aneurysm CTA was reached up the right carotid through the right one, and is now
+  reached up the left. A target that is itself a way in is reached from another, a target no
+  way in reaches raises `ValueError`, `lumen import --entry` makes the given entry the only
+  way in, and an older `names.json` keeps its hand-edited targets and names.
+- A route shorter than the default 30 mm wire gets a shorter wire instead of failing.
+- These change `TreeNavEnv` dynamics, so the benchmark suites move to `lumen-bench/5` and
+  `lumen-bench/heldout/3`.
 - The wire stays in the vessel on imported anatomy. Five causes, each fixed: past the open far
   end of a scanned artery the wall force switched off (the wall now continues past it); where
   a thin branch left a wide vessel, a wire node inside the wide vessel was judged against the

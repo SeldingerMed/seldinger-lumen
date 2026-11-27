@@ -43,39 +43,125 @@ def name_edges(asset: Asset, volume, min_fraction: float = 0.3) -> dict:
     return out
 
 
-def _distances(asset: Asset) -> dict:
-    """Route length (mm) from the device entry to every node."""
+# Arteries a wire is brought up through. Where the scan cut one of them, the cut end is a way in.
+ACCESS_VESSELS = ("internal carotid", "common carotid", "vertebral")
+
+
+def access_nodes(asset: Asset, edge_names: dict, caudal_mm: float = 12.0) -> list[str]:
+    """Where a wire can come into the scanned anatomy: the device entry first, then every free
+    end of a carotid or vertebral artery at the bottom of the scanned region, where the scan cut
+    the artery on its way up from the heart. A head scan holds both carotids and often the
+    vertebrals; an operator reaches the right middle cerebral artery up the right carotid, not
+    across the circle of Willis from the left. A short labelled spur inside the head, or a
+    carotid cut at the top of a body scan (blood leaves there), is not a way in. Needs a patient
+    frame (+z toward the head); other frames keep only the device entry."""
+    deg: dict = {}
+    for e in asset.edges:
+        for n in (e.node_a, e.node_b):
+            deg[n] = deg.get(n, 0) + 1
+    out = [asset.device_spawn.node_id]
+    frame = str(getattr(asset.frame, "name", "")).lower()
+    if "lps" not in frame and "ras" not in frame:
+        return out
+    z_low = min(float(np.min(np.asarray(e.centerline_mm, float)[:, 2])) for e in asset.edges)
+    pos = {n.id: np.asarray(n.position_mm, float) for n in asset.nodes}
+    for e in asset.edges:
+        name = " ".join(str(edge_names.get(e.id, "")).lower().replace("_", " ").split())
+        if not any(w in name for w in ACCESS_VESSELS):
+            continue
+        for n in (e.node_a, e.node_b):
+            if deg.get(n) == 1 and n not in out and pos[n][2] - z_low < caudal_mm:
+                out.append(n)
+    return out
+
+
+def _shortest(asset: Asset, sources=None) -> tuple[dict, dict, dict]:
+    """Route length (mm) to every node from the nearest of ``sources`` (default: the device
+    entry), which source that is, and the edge each node is reached by."""
+    import heapq
+
     adj: dict = {}
     for e in asset.edges:
         L = float(e.s_grid[-1])
-        adj.setdefault(e.node_a, []).append((e.node_b, L))
-        adj.setdefault(e.node_b, []).append((e.node_a, L))
-    dist = {asset.device_spawn.node_id: 0.0}
-    todo = [asset.device_spawn.node_id]
-    for n in todo:
-        for m, L in adj.get(n, []):
+        adj.setdefault(e.node_a, []).append((e.node_b, L, e.id))
+        adj.setdefault(e.node_b, []).append((e.node_a, L, e.id))
+    sources = list(sources) if sources else [asset.device_spawn.node_id]
+    dist, src, via = {}, {}, {}
+    heap = [(0.0, i, n, None) for i, n in enumerate(sources)]
+    heapq.heapify(heap)
+    while heap:
+        d, i, n, e_in = heapq.heappop(heap)
+        if n in dist:
+            continue
+        dist[n], src[n], via[n] = d, sources[i], e_in
+        for m, L, eid in adj.get(n, []):
             if m not in dist:
-                dist[m] = dist[n] + L
-                todo.append(m)
-    return dist
+                heapq.heappush(heap, (d + L, i, m, eid))
+    return dist, src, via
 
 
-def vessel_table(asset: Asset, edge_names: dict) -> dict:
-    """For each named vessel: its edges, and the node at its far end (the natural target)."""
-    dist = _distances(asset)
+def _distances(asset: Asset, sources=None) -> tuple[dict, dict]:
+    """Route length (mm) to every node from the nearest of ``sources`` (default: the device
+    entry), and which source that is."""
+    dist, src, _ = _shortest(asset, sources)
+    return dist, src
+
+
+def vessel_table(asset: Asset, edge_names: dict, access: list | None = None) -> dict:
+    """For each named vessel: its edges, a target node at its far end and the way in
+    (``start_node``) a wire is brought up from, with the route length from there. The route
+    must run through the vessel itself: from each way in, the target is the vessel's farthest
+    end reached through one of its own edges, and the way in with the shortest such route is
+    taken. (The nearest end of the nearest way in can lie across the circle of Willis: the
+    left anterior cerebral artery's far end reached up the right carotid, through the right
+    one.)"""
+    access = list(access or access_nodes(asset, edge_names))
+    trees = {a: _shortest(asset, [a]) for a in access}
+    nearest, nearest_src = _distances(asset, access)
+    edge_ends = {e.id: (e.node_a, e.node_b) for e in asset.edges}
     table: dict = {}
     for e in asset.edges:
         name = edge_names.get(e.id)
-        if not name:
-            continue
-        row = table.setdefault(name, {"edges": [], "target_node": None, "_far": -1.0})
-        row["edges"].append(e.id)
-        for n in (e.node_a, e.node_b):
-            if dist.get(n, -1.0) > row["_far"]:
-                row["_far"], row["target_node"] = dist[n], n
+        if name:
+            table.setdefault(name, {"edges": []})["edges"].append(e.id)
     for row in table.values():
-        row["route_mm"] = round(row.pop("_far"), 1)
+        own = set(row["edges"])
+        ends = {n for eid in own for n in edge_ends[eid]}
+        best = None                                    # (route length, way in, target)
+        for a, (dist, _, via) in trees.items():
+            far = None
+            for n in ends:
+                if n not in dist or dist[n] <= 0.0:
+                    continue
+                # does the way from a to n pass through one of the vessel's own edges?
+                m, through = n, False
+                while via.get(m) is not None and not through:
+                    eid = via[m]
+                    through = eid in own
+                    u, v = edge_ends[eid]
+                    m = u if v == m else v
+                if through and (far is None or dist[n] > dist[far]):
+                    far = n
+            if far is not None and (best is None or dist[far] < best[0]):
+                best = (dist[far], a, far)
+        if best is None:                               # not reached through itself: nearest end
+            far = max((n for n in ends if n in nearest), key=lambda n: nearest[n], default=None)
+            best = (nearest.get(far, -1.0), nearest_src.get(far), far)
+        row["target_node"] = best[2]
+        row["route_mm"] = round(best[0], 1)
+        row["start_node"] = best[1]
     return table
+
+
+def route_start(asset: Asset, names: dict, target_node: str) -> str:
+    """The way in nearest ``target_node`` (the device entry when the scan has only one). A
+    target that is itself a way in is reached from another one."""
+    access = names.get("access") or [asset.device_spawn.node_id]
+    others = [a for a in access if a != target_node]
+    _, src = _distances(asset, others or access)
+    if target_node not in src:
+        raise ValueError(f"no way in reaches {target_node!r} (ways in: {', '.join(access)})")
+    return src[target_node]
 
 
 def resolve_target(names: dict, asset: Asset, target: str) -> str:
@@ -110,7 +196,25 @@ def load_imported(folder: str | Path) -> tuple[Asset, dict]:
     try:
         names = json.loads((folder / "names.json").read_text())
     except (OSError, ValueError):                         # missing or damaged: no names
-        names = {"edges": {}, "vessels": {}}
+        return asset, {"edges": {}, "vessels": {}}
+    if not isinstance(names, dict):                       # valid JSON of the wrong shape
+        return asset, {"edges": {}, "vessels": {}}
+    if "access" not in names:          # written before scans had several ways in: work them out
+        edges = names.get("edges") if isinstance(names.get("edges"), dict) else {}
+        names["access"] = access_nodes(asset, edges)
+        worked = vessel_table(asset, edges, names["access"])
+        saved = names.get("vessels") if isinstance(names.get("vessels"), dict) else {}
+        # rows saved by hand keep their targets and their names; they gain a way in
+        for name, row in saved.items():
+            if isinstance(row, dict) and row.get("target_node"):
+                fresh = dict(worked.get(name, {}))
+                fresh.update(row)
+                try:
+                    fresh["start_node"] = route_start(asset, names, row["target_node"])
+                except ValueError:
+                    fresh["start_node"] = asset.device_spawn.node_id
+                worked[name] = fresh
+        names["vessels"] = worked
     return asset, names
 
 
@@ -258,7 +362,10 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
     say("Building the vessel tree ...")
     asset, conv, tris = sc.asset_from_vessel_mask(volume, entry_mm=entry_mm)
     edge_names = name_edges(asset, volume)
-    names = {"edges": edge_names, "vessels": vessel_table(asset, edge_names)}
+    # an entry chosen on the command line is the way in; otherwise every cut carotid or
+    # vertebral end at the bottom of a head scan is one
+    access = [asset.device_spawn.node_id] if entry_mm is not None else access_nodes(asset, edge_names)
+    names = {"edges": edge_names, "access": access, "vessels": vessel_table(asset, edge_names, access)}
     asset.save(str(out / "asset.json"))
     si.write_stl(out / "surface.stl", tris)
     (out / "names.json").write_text(json.dumps(names, indent=1))
@@ -301,4 +408,14 @@ def make_env(folder: str | Path, target: str, **kwargs):
     from lumen.envs.tree_nav import TreeNavEnv
 
     asset, names = load_imported(folder)
-    return TreeNavEnv(asset, target_node=resolve_target(names, asset, target), **kwargs)
+    node = resolve_target(names, asset, target)
+    if "start_node" not in kwargs:
+        # a vessel asked for by name is reached the way its row says (through the vessel);
+        # a node id from the nearest way in
+        row = next((r for r in names.get("vessels", {}).values() if isinstance(r, dict)
+                    and r.get("target_node") == node and r.get("start_node") not in (None, node)),
+                   None)
+        by_name = target not in {n.id for n in asset.nodes}
+        kwargs["start_node"] = (row["start_node"] if by_name and row
+                                else route_start(asset, names, node))
+    return TreeNavEnv(asset, target_node=node, **kwargs)

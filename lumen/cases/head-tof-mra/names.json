@@ -41,13 +41,18 @@
   "e38": "right middle cerebral artery",
   "e39": "right middle cerebral artery"
  },
+ "access": [
+  "inlet",
+  "end0"
+ ],
  "vessels": {
   "right infraclinoid internal carotid artery": {
    "edges": [
     "e0"
    ],
-   "target_node": "end0",
-   "route_mm": 263.1
+   "target_node": "j14",
+   "route_mm": 92.5,
+   "start_node": "end0"
   },
   "right middle cerebral artery": {
    "edges": [
@@ -62,7 +67,8 @@
     "e39"
    ],
    "target_node": "end1",
-   "route_mm": 245.6
+   "route_mm": 190.0,
+   "start_node": "end0"
   },
   "left middle cerebral artery": {
    "edges": [
@@ -81,7 +87,8 @@
     "e30"
    ],
    "target_node": "end3",
-   "route_mm": 235.5
+   "route_mm": 235.5,
+   "start_node": "inlet"
   },
   "left anterior cerebral artery": {
    "edges": [
@@ -92,7 +99,8 @@
     "e24"
    ],
    "target_node": "end6",
-   "route_mm": 195.1
+   "route_mm": 169.1,
+   "start_node": "end0"
   },
   "right supraclinoid internal carotid artery": {
    "edges": [
@@ -103,14 +111,16 @@
     "e36"
    ],
    "target_node": "end10",
-   "route_mm": 183.2
+   "route_mm": 105.0,
+   "start_node": "end0"
   },
   "right posterior communicating artery": {
    "edges": [
     "e12"
    ],
    "target_node": "end12",
-   "route_mm": 178.0
+   "route_mm": 108.2,
+   "start_node": "end0"
   },
   "right anterior cerebral artery": {
    "edges": [
@@ -120,21 +130,24 @@
     "e32"
    ],
    "target_node": "end13",
-   "route_mm": 169.8
+   "route_mm": 143.8,
+   "start_node": "end0"
   },
   "left infraclinoid internal carotid artery": {
    "edges": [
     "e21"
    ],
    "target_node": "j0",
-   "route_mm": 122.0
+   "route_mm": 122.0,
+   "start_node": "inlet"
   },
   "anterior communicating artery": {
    "edges": [
     "e27"
    ],
-   "target_node": "j6",
-   "route_mm": 144.5
+   "target_node": "j3",
+   "route_mm": 123.7,
+   "start_node": "end0"
   }
  }
 }

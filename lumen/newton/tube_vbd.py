@@ -683,6 +683,22 @@ class TubeVBDSolver(SolverVBD):
         self._tube_M = len(fa.points)
         self._tube_s_max = float(fa.length)
 
+    def set_actuation_rail(self, points) -> None:
+        """Replace the polyline the kinematic base is moved along (insertion + twist). The base
+        is projected onto it at each actuation, so it may change between steps. Tree contact
+        only: with single-tube contact the same arrays are the tube's centreline."""
+        if not getattr(self, "_tree_enabled", False):
+            raise RuntimeError("set_actuation_rail needs tree contact (set_tree_contact); "
+                               "single-tube contact uses the rail as the vessel centreline")
+        from lumen.core.frame import CenterlineFrame
+        fa = CenterlineFrame(_np.asarray(points, float))
+        dev = self.device
+        self._tube_P = _wp.array(fa.points.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_Tg = _wp.array(fa.tangents.astype(_np.float32), dtype=_wp.vec3, device=dev)
+        self._tube_cum_s = _wp.array(fa.cum_s.astype(_np.float32), dtype=_wp.float32, device=dev)
+        self._tube_M = len(fa.points)
+        self._tube_s_max = float(fa.length)
+
     def step(self, state_in, state_out, control, contacts, dt):
         super().step(state_in, state_out, control, contacts, dt)
         self._record_wall_load_stats(dt)

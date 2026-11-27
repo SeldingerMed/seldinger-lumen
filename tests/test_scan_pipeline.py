@@ -1243,3 +1243,109 @@ def test_a_temp_folder_that_cannot_hold_a_socket_is_swapped_for_the_model(tmp_pa
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     if segmenters._holds_a_socket(str(tmp_path)):
         assert segmenters._torch_env()["TMPDIR"] == str(tmp_path)    # a working one is kept
+
+
+def test_a_head_scan_brings_the_wire_up_the_carotid_on_the_targets_side():
+    """A cut carotid at the bottom of a head scan is a way in: the right middle cerebral artery
+    is reached up the right carotid, not across the circle of Willis from the left."""
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    assert names["access"][0] == asset.device_spawn.node_id and len(names["access"]) == 2
+    assert pipeline.access_nodes(asset, names["edges"]) == names["access"]
+    right = names["vessels"]["right middle cerebral artery"]
+    assert right["start_node"] == names["access"][1]
+    assert all(v["start_node"] in names["access"] for v in names["vessels"].values())
+
+
+def test_a_body_scan_keeps_its_one_way_in():
+    from lumen import cases
+
+    asset, names = cases.load("aorta-cta")
+    assert pipeline.access_nodes(asset, names["edges"]) == [asset.device_spawn.node_id]
+
+
+def _route_edges(asset, start, target):
+    from lumen.core.tree import VascularTree
+
+    tree = VascularTree(asset)
+    return {tree.edges[i].id for i in tree.route(target, start)}
+
+
+@pytest.mark.parametrize("case", ["head-tof-mra", "head-cta-aneurysm", "head-neck-cta",
+                                  "aorta-cta", "abdomen-cta"])
+def test_every_named_route_runs_through_its_own_vessel(case):
+    from lumen import cases
+
+    asset, names = cases.load(case)
+    for name, row in names["vessels"].items():
+        if row["start_node"] == row["target_node"]:
+            continue
+        assert set(row["edges"]) & _route_edges(asset, row["start_node"], row["target_node"]), name
+
+
+@pytest.mark.parametrize("case,node", [("head-tof-mra", "end0"), ("head-cta-aneurysm", "end2")])
+def test_a_target_that_is_a_way_in_is_reached_from_another(case, node):
+    from lumen import cases
+
+    asset, names = cases.load(case)
+    start = pipeline.route_start(asset, names, node)
+    assert start != node and _route_edges(asset, start, node)
+    assert pipeline.route_start(asset, {"access": [node]}, node) == node   # only one way in
+
+
+def test_an_unreachable_target_says_so():
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    with pytest.raises(ValueError, match="no way in"):
+        pipeline.route_start(asset, {"access": ["no-such-node"]}, "end0")
+
+
+@pytest.mark.parametrize("text", ["null", "[]", "3"])
+def test_names_of_the_wrong_shape_load_as_no_names(tmp_path, text):
+    from lumen import cases
+
+    asset, _ = cases.load("aorta-cta")
+    asset.save(str(tmp_path / "asset.json"))
+    (tmp_path / "names.json").write_text(text)
+    _, names = pipeline.load_imported(tmp_path)
+    assert names == {"edges": {}, "vessels": {}}
+
+
+def test_an_older_names_file_keeps_its_hand_edited_rows(tmp_path):
+    import json
+
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    asset.save(str(tmp_path / "asset.json"))
+    legacy = {"edges": names["edges"], "vessels": {
+        "right middle cerebral artery": {"target_node": "end0", "edges": [], "note": "mine"},
+        "my alias": {"target_node": names["vessels"]["right middle cerebral artery"]["target_node"]},
+    }}
+    (tmp_path / "names.json").write_text(json.dumps(legacy))
+    _, loaded = pipeline.load_imported(tmp_path)
+    assert loaded["access"] == names["access"]
+    row = loaded["vessels"]["right middle cerebral artery"]
+    assert row["target_node"] == "end0" and row["note"] == "mine"
+    assert row["start_node"] != "end0"
+    assert "my alias" in loaded["vessels"] and loaded["vessels"]["my alias"]["start_node"]
+    assert set(names["vessels"]) <= set(loaded["vessels"])     # the rest are worked out
+
+
+@pytest.mark.parametrize("entry", [None, (40.0, 30.0, 6.0)])
+def test_an_entry_given_on_the_command_line_is_the_only_way_in(tmp_path, lumen_home, monkeypatch, entry):
+    scan, labels, _ = _fork_scan()
+    nib.save(nib.Nifti1Image(scan.data, np.diag([-1.0, -1.0, 1.0, 1.0]) @ scan.affine),
+             str(tmp_path / "scan.nii.gz"))
+    monkeypatch.setattr(segmenters, "_install", _fake_install([]))
+    monkeypatch.setattr(segmenters, "run_body", lambda s, work, say=print: labels)
+    monkeypatch.setattr(region, "detect_region", lambda s: region.RegionReport(("body",), True, "picture"))
+    # as on a head scan with cut carotids: another way in besides the entry
+    monkeypatch.setattr(pipeline, "access_nodes",
+                        lambda asset, names, caudal_mm=12.0: [asset.device_spawn.node_id, "elsewhere"])
+    pipeline.import_scan(tmp_path / "scan.nii.gz", tmp_path / "out", assume_yes=True,
+                         say=lambda *_: None, entry_mm=entry)
+    names = json.loads((tmp_path / "out" / "names.json").read_text())
+    assert ("elsewhere" in names["access"]) == (entry is None)

@@ -71,7 +71,7 @@ class VascularTree:
     edge's own R near a shared node (mm). Set 0 to disable blending (sharp junctions).
     """
 
-    def __init__(self, asset, blend_len: float = 4.0):
+    def __init__(self, asset, blend_len: float = 4.0, entry_node: str | None = None):
         if not asset.edges:
             raise ValueError("asset has no edges")
         self.edges = [_Edge(e, asset) for e in asset.edges]
@@ -81,7 +81,10 @@ class VascularTree:
         self.blend_len = blend_len
         self._node_pos = {n.id: np.asarray(n.position_mm, float) for n in asset.nodes}
         spawn = getattr(asset, "device_spawn", None)
-        self.entry_node = getattr(spawn, "node_id", None)   # where the wire comes in
+        # where the wire comes in: the asset's spawn unless the caller enters elsewhere
+        self.entry_node = entry_node if entry_node is not None else getattr(spawn, "node_id", None)
+        if entry_node is not None and entry_node not in self._node_pos:
+            raise ValueError(f"entry node {entry_node!r} is not in the asset")
         # degree = how many edges touch a node; >1 marks a junction
         self._degree: dict[str, int] = {}
         for e in self.edges:
@@ -93,14 +96,15 @@ class VascularTree:
         # at its value just before it. Only an end that really closes is held (by more than
         # CAP_CLOSING over that stretch): on the shipped scans most ends close by 25-98%, while
         # generated anatomy's tapered outlets narrow by under 5% there and stay as built. The
-        # entry end is left alone: the wire starts there, and it is open (no wall past it).
+        # entry end is held too: it is open (no wall past it, see is_open_entry), and the wire
+        # starts there, so a closing cap would squeeze it out of the vessel.
         self._caps: list[list[tuple[float, float]]] = []
         for e in self.edges:
             caps = []
             r_med = float(np.median(np.asarray(e.lf.R, float)))
             span = min(1.5 * r_med, 0.3 * float(e.frame.length))
             for end_s, nid, sign in ((0.0, e.node_a, 1.0), (float(e.frame.length), e.node_b, -1.0)):
-                if self._degree.get(nid, 0) == 1 and span > 0 and nid != self.entry_node:
+                if self._degree.get(nid, 0) == 1 and span > 0:
                     ref_s = end_s + sign * span
                     if _mean_R(e, end_s) < (1.0 - CAP_CLOSING) * _mean_R(e, ref_s):
                         caps.append((end_s, ref_s))

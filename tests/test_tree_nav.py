@@ -55,26 +55,36 @@ def test_env_rejects_target_equal_start():
         TreeNavEnv(procedural.bifurcation(), target_node="trunk_in", device="cpu")
 
 
-def test_tree_nav_success_boundary_is_inclusive_when_on_route():
+def _stub_env(tip_s, prev, max_pen=0.0):
+    """A TreeNavEnv with no solver: the tip is read inside the route at ``tip_s``."""
+
     class Sim:
         def step(self, **_):
             pass
 
+        def body_positions(self):
+            return np.zeros((3, 3))
+
     env = object.__new__(TreeNavEnv)
     env.sim = Sim()
-    env.substeps = 1
-    env.max_insertion = 1.0
-    env.max_twist = 1.0
-    env.steps = 0
-    env.target_s = 10.0
-    env._prev = 5.0
-    env.success_tol = 2.5
-    env.max_steps = 5
-    env._features = lambda: {"s": 7.5, "r": 0.0, "theta": 0.0, "R_loc": 2.0,
-                             "max_r": 2.0, "max_pen": 0.0, "on_route": True,
-                             "edge": "left"}
+    env.substeps, env.substep_ms = 1, 5.0
+    env.max_insertion = env.max_twist = 1.0
+    env.feed_stop_pen_mm = None
+    env.quasi_static, env._feed, env._branch_mm = False, 0.0, ()
+    env.steps, env.max_steps = 0, 5
+    env.target_s, env.success_tol, env.safety_max_pen = 10.0, 2.5, 0.3
+    env._prev = prev
+    env._tip_s, env._tip_s_age, env._tip_best, env._progress_cap = tip_s, 0, tip_s, 10.0
+    env._route_s = lambda p, near=None: tip_s
+    env._features = lambda: {"s": tip_s, "r": 0.0, "theta": 0.0, "R_loc": 2.0,
+                             "max_r": 2.0 + max_pen, "max_pen": max_pen, "edge": "left"}
     env._obs = lambda _: np.zeros(5, dtype=np.float32)
     env._tip_roll = lambda: 0.0
+    return env
+
+
+def test_tree_nav_success_boundary_is_inclusive_when_on_route():
+    env = _stub_env(7.5, prev=5.0)
 
     _, _, terminated, _, info = env.step([0.0, 0.0])
 
@@ -85,26 +95,7 @@ def test_tree_nav_success_boundary_is_inclusive_when_on_route():
 
 
 def test_tree_nav_reports_unsafe_target_reach_as_unsafe_success():
-    class Sim:
-        def step(self, **_):
-            pass
-
-    env = object.__new__(TreeNavEnv)
-    env.sim = Sim()
-    env.substeps = 1
-    env.max_insertion = 1.0
-    env.max_twist = 1.0
-    env.steps = 0
-    env.target_s = 10.0
-    env._prev = 2.0
-    env.success_tol = 2.5
-    env.max_steps = 5
-    env.safety_max_pen = 0.3
-    env._features = lambda: {"s": 10.0, "r": 3.0, "theta": 0.0, "R_loc": 2.0,
-                             "max_r": 3.0, "max_pen": 0.6, "on_route": True,
-                             "edge": "left"}
-    env._obs = lambda _: np.zeros(5, dtype=np.float32)
-    env._tip_roll = lambda: 0.0
+    env = _stub_env(10.0, prev=2.0, max_pen=0.6)
 
     _, reward, terminated, truncated, info = env.step([0.0, 0.0])
 
@@ -115,6 +106,20 @@ def test_tree_nav_reports_unsafe_target_reach_as_unsafe_success():
     assert info["unsafe"] is True
     assert info["max_pen"] == pytest.approx(0.6)
     assert reward < 10.0
+
+
+def test_a_tip_outside_the_route_vessels_is_off_route_and_not_paid():
+    """Near the target's centreline but not inside a route vessel (the wrong branch, or across
+    a coil): no success, no progress reward."""
+    env = _stub_env(9.0, prev=5.0)
+    env._route_s = lambda p, near=None: None
+    env._tip_s = 5.0
+
+    _, reward, terminated, _, info = env.step([0.0, 0.0])
+
+    assert info["off_route"] is True
+    assert info["success"] is False and terminated is False
+    assert reward < 0.0
 
 
 # ---- the env (needs the Layer-0 tree sim) ------------------------------------
@@ -142,3 +147,81 @@ def test_tree_nav_env_builds_steps_and_progresses():
     assert last["max_r"] <= env.R + 0.3 + 0.15             # held within the lumen band
     # honest: this pins the route pipeline + route-following actuation; it does NOT claim
     # learned branch SELECTION (the route is prescribed; the policy controls insertion).
+
+
+def test_a_reading_far_ahead_is_not_believed_however_long_the_tip_waits_there():
+    env = _stub_env(30.0, prev=40.0)
+    env._route_s = lambda p, near=None: 70.0     # read at the target, 40 mm on, every step
+    env.target_s, env.max_steps = 70.0, 10
+    for _ in range(6):
+        _, _, terminated, _, info = env.step([0.0, 0.0])
+        assert not info["success"] and not terminated
+        assert info["tip_mm"] == pytest.approx(30.0) and info["off_route"]
+
+
+def test_a_reading_far_ahead_is_believed_when_the_wire_lies_along_the_way():
+    env = _stub_env(30.0, prev=40.0)
+    # the tip is read at 70 mm and the wire behind it at 2 mm steps back to the last place
+    places = iter([70.0] + [70.0 - 2.0 * k for k in range(1, 30)])
+    env._route_s = lambda p, near=None: next(places)
+
+    class Sim:
+        def step(self, **_):
+            pass
+
+        def body_positions(self):
+            return np.zeros((25, 3))
+
+    env.sim = Sim()
+    env.target_s = 70.0
+    _, _, _, _, info = env.step([0.0, 0.0])
+    assert info["tip_mm"] == pytest.approx(70.0) and not info["off_route"]
+
+
+def test_a_wall_breach_put_back_by_containment_is_still_reported():
+    env = _stub_env(5.0, prev=6.0)
+    env.feed_stop_pen_mm, env.terminate_on_unsafe = 0.2, True
+    env.L, env.success_tol, env._support_gap = 100.0, 2.5, 20.0
+    env._contain = lambda: 0.6                   # a node 0.6 mm through, then moved back
+    env._set_rail_along_wire = env._record_base_path = lambda: None
+    env._solver_substeps = lambda dt: 1
+    env.route_frame = type("F", (), {"project": staticmethod(
+        lambda p: type("P", (), {"s": 0.0})())})()
+    _, _, terminated, _, info = env.step([0.0, 0.0])
+    assert info["max_pen"] == pytest.approx(0.6)
+    assert info["unsafe"] and terminated
+
+
+def test_a_point_past_the_end_of_the_route_is_not_in_it():
+    env = TreeNavEnv(procedural.bifurcation(), target_node="apex", device="cpu")
+    trunk = env.tree.edges[env.route[-1]].frame
+    end, t = np.asarray(trunk.points[-1]), np.asarray(trunk.tangents[-1])
+    assert env._route_s(end - 1.0 * t) == pytest.approx(env.L - 1.0, abs=0.2)
+    assert env._route_s(end + 8.0 * t) is None
+
+
+def test_a_short_route_gets_a_wire_that_fits_it():
+    env = TreeNavEnv(procedural.straight_tube(24.0, 2.0), device="cpu")
+    assert (env.wire_nodes - 1) * 2.0 <= env.L
+    with pytest.raises(ValueError, match="does not fit"):
+        TreeNavEnv(procedural.straight_tube(24.0, 2.0), device="cpu", wire_nodes=16)
+
+
+@pytest.mark.parametrize("kw", [{"tip_deg": float("nan")}, {"contain_tol_mm": -1.0},
+                                {"settle_steps": -1}, {"quasi_static": "false"}])
+def test_bad_wire_settings_are_refused(kw):
+    with pytest.raises((ValueError, TypeError)):
+        TreeNavEnv(procedural.bifurcation(), target_node="left_out", device="cpu", **kw)
+
+
+def test_a_benchmark_tip_off_the_route_is_not_a_clinical_target_reach():
+    from types import SimpleNamespace
+
+    from lumen.data.metrics import _tip_target
+
+    def ep(on_route):
+        step = SimpleNamespace(kinematics={"tip_s": 70.0, "on_route": on_route})
+        return SimpleNamespace(steps=[step], outcome=SimpleNamespace(final_dist=0.0, success=False))
+    notes = {"target_s": 70.0, "success_tol": 2.5}
+    assert _tip_target(ep(1.0), notes)["success"] is True
+    assert _tip_target(ep(0.0), notes)["success"] is False

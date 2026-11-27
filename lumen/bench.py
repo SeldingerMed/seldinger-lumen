@@ -47,7 +47,7 @@ from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_
 
 # 4: tree navigation changed (wall stiffness, the feed limit at the wall, branch ownership by
 # room), so lumen-bench/3 scores and replays are not comparable and are refused
-SUITE_VERSION = "lumen-bench/4"
+SUITE_VERSION = "lumen-bench/5"
 REPLAY_PROTOCOL_VERSION = "lumen-bench-replay/1"
 SAFETY_MAX_PEN = 0.3
 STAT_METRICS = (
@@ -219,7 +219,9 @@ def run_episode(env, policy, seed, *, record_replay: bool = False) -> dict:
                 curve.append(float(value))
         success = success or bool(info.get("success", False))
         kin = {
-            "tip_s": float(info.get("route_s", info.get("tip_s", 0.0))),
+            # the tip's tracked place in the route vessels where the env tracks it (a tip in a
+            # wrong branch near the route's centreline is not on it)
+            "tip_s": float(info.get("tip_mm", info.get("route_s", info.get("tip_s", 0.0)))),
             "max_penetration": float(
                 info.get("max_pen", max(0.0, float(info.get("max_r", 0.0)) - R))
             ),
@@ -232,6 +234,8 @@ def run_episode(env, policy, seed, *, record_replay: bool = False) -> dict:
             kin["wall_load_impulse"] = float(info["wall_load_impulse"])
         if info.get("edge") is not None:
             kin["edge"] = info["edge"]
+        if "off_route" in info:
+            kin["on_route"] = 0.0 if info["off_route"] else 1.0
         trace.append(Step(
             t=float(steps),
             action={"policy_action": np.asarray(action).reshape(-1).tolist()},

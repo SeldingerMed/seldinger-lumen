@@ -41,6 +41,7 @@ def make_tree_nav(target_node="left_out", angle_deg=45.0, **kw):
     from lumen.assets import procedural
     from lumen.envs.tree_nav import TreeNavEnv
     kw.setdefault("max_insertion", 1.8)
+    kw.setdefault("aim_tip", True)   # the tip is turned toward the target branch at the start
     asset = procedural.bifurcation(trunk=50.0, branch=50.0, radius=2.0, angle_deg=angle_deg)
     return TreeNavEnv(asset, target_node=target_node, **kw)
 

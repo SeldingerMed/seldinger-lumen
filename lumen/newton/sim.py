@@ -44,7 +44,8 @@ class NewtonGuidewireSim:
                  catheter_bend_stiffness: float = 1.5e2,
                  couple_coaxial: bool = True, catheter_inner_radius: float = 0.5,
                  coax_kappa: float = 2.0e3, coax_d_hat: float = 0.1,
-                 coax_two_way: bool = True, tree=None, route_centerline=None):
+                 coax_two_way: bool = True, tree=None, route_centerline=None, *,
+                 rest_points=None):
         from lumen.hardware import configure_backend_logging, detect_device
         configure_backend_logging()
         self.device = device or detect_device()      # cuda if available, else cpu
@@ -105,7 +106,11 @@ class NewtonGuidewireSim:
         self.bodies, self.bases = [], []
         self.cath_bodies, self.cath_bases = [], []
         for _ in range(self.n_envs):
-            gw = _add_rod(device_points, radius, stretch_stiffness, bend_stiffness)
+            # built in its rest shape (rest_points), then laid into its starting pose below
+            if rest_points is not None and len(rest_points) != len(device_points):
+                raise ValueError("rest_points must have as many points as device_points")
+            gw = _add_rod(device_points if rest_points is None else rest_points, radius,
+                          stretch_stiffness, bend_stiffness)
             self.bodies.extend(gw)
             self.bases.append(gw[0])
             if self.coaxial:
@@ -303,6 +308,24 @@ class NewtonGuidewireSim:
             self._tang_d = wp.zeros(n_node, dtype=wp.vec3, device=self.device)
             self._zero_occ_d = wp.zeros(self.n_envs * w.n_s, dtype=wp.float32,
                                         device=self.device)
+        if rest_points is not None:
+            # the rod was built in its REST shape (a straight wire with its shaped tip); now lay it
+            # in its starting pose. Building it in the pose would make the pose its rest shape:
+            # a wire laid along a curving vessel would then keep that curve as it advances.
+            q = self.state_0.body_q.numpy()
+            pts = [wp.vec3(*map(float, p)) for p in np.asarray(device_points, float)]
+            quats = newton.utils.create_parallel_transport_cable_quaternions(pts)
+            mids = 0.5 * (np.asarray(device_points, float)[1:] + np.asarray(device_points, float)[:-1])
+            per = len(mids)
+            for e in range(self.n_envs):
+                for k in range(per):
+                    b = self.bodies[e * per + k]
+                    q[b, :3] = mids[k]
+                    q[b, 3:7] = np.asarray(quats[k], float)
+            self.state_0.body_q.assign(q)
+            self.state_1.body_q.assign(q)
+            if getattr(self.solver, "body_q_prev", None) is not None:
+                self.solver.body_q_prev.assign(q)
         # snapshot for fast reset (avoid rebuilding the model/solver each episode)
         self._init_body_q = self.state_0.body_q.numpy().copy()
 
