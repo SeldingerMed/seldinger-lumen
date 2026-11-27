@@ -30,6 +30,7 @@ class NewtonGuidewireSim:
     def __init__(self, vessel_centerline: np.ndarray, R: float,
                  device_points: np.ndarray, radius: float = 0.2,
                  stretch_stiffness: float = 1.0e4, bend_stiffness: float = 5.0e1,
+                 rest_points=None,
                  bend_damping: float = 1.0, density: float = 1.0,
                  kappa: float = 2.0e3, d_hat: float = 0.3,
                  barrier_mode: str = "compliant",
@@ -105,7 +106,9 @@ class NewtonGuidewireSim:
         self.bodies, self.bases = [], []
         self.cath_bodies, self.cath_bases = [], []
         for _ in range(self.n_envs):
-            gw = _add_rod(device_points, radius, stretch_stiffness, bend_stiffness)
+            # built in its rest shape (rest_points), then laid into its starting pose below
+            gw = _add_rod(device_points if rest_points is None else rest_points, radius,
+                          stretch_stiffness, bend_stiffness)
             self.bodies.extend(gw)
             self.bases.append(gw[0])
             if self.coaxial:
@@ -303,6 +306,24 @@ class NewtonGuidewireSim:
             self._tang_d = wp.zeros(n_node, dtype=wp.vec3, device=self.device)
             self._zero_occ_d = wp.zeros(self.n_envs * w.n_s, dtype=wp.float32,
                                         device=self.device)
+        if rest_points is not None:
+            # the rod was built in its REST shape (a straight wire with its shaped tip); now lay it
+            # in its starting pose. Building it in the pose would make the pose its rest shape:
+            # a wire laid along a curving vessel would then keep that curve as it advances.
+            q = self.state_0.body_q.numpy()
+            pts = [wp.vec3(*map(float, p)) for p in np.asarray(device_points, float)]
+            quats = newton.utils.create_parallel_transport_cable_quaternions(pts)
+            mids = 0.5 * (np.asarray(device_points, float)[1:] + np.asarray(device_points, float)[:-1])
+            per = len(mids)
+            for e in range(self.n_envs):
+                for k in range(per):
+                    b = self.bodies[e * per + k]
+                    q[b, :3] = mids[k]
+                    q[b, 3:7] = np.asarray(quats[k], float)
+            self.state_0.body_q.assign(q)
+            self.state_1.body_q.assign(q)
+            if getattr(self.solver, "body_q_prev", None) is not None:
+                self.solver.body_q_prev.assign(q)
         # snapshot for fast reset (avoid rebuilding the model/solver each episode)
         self._init_body_q = self.state_0.body_q.numpy().copy()
 

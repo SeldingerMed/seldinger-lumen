@@ -55,26 +55,36 @@ def test_env_rejects_target_equal_start():
         TreeNavEnv(procedural.bifurcation(), target_node="trunk_in", device="cpu")
 
 
-def test_tree_nav_success_boundary_is_inclusive_when_on_route():
+def _stub_env(tip_s, prev, max_pen=0.0):
+    """A TreeNavEnv with no solver: the tip is read inside the route at ``tip_s``."""
+
     class Sim:
         def step(self, **_):
             pass
 
+        def body_positions(self):
+            return np.zeros((3, 3))
+
     env = object.__new__(TreeNavEnv)
     env.sim = Sim()
-    env.substeps = 1
-    env.max_insertion = 1.0
-    env.max_twist = 1.0
-    env.steps = 0
-    env.target_s = 10.0
-    env._prev = 5.0
-    env.success_tol = 2.5
-    env.max_steps = 5
-    env._features = lambda: {"s": 7.5, "r": 0.0, "theta": 0.0, "R_loc": 2.0,
-                             "max_r": 2.0, "max_pen": 0.0, "on_route": True,
-                             "edge": "left"}
+    env.substeps, env.substep_ms = 1, 5.0
+    env.max_insertion = env.max_twist = 1.0
+    env.feed_stop_pen_mm = None
+    env.quasi_static, env._feed, env._branch_mm = False, 0.0, ()
+    env.steps, env.max_steps = 0, 5
+    env.target_s, env.success_tol, env.safety_max_pen = 10.0, 2.5, 0.3
+    env._prev = prev
+    env._tip_s, env._tip_s_age, env._tip_best, env._progress_cap = tip_s, 0, tip_s, 10.0
+    env._route_s = lambda p, near=None: tip_s
+    env._features = lambda: {"s": tip_s, "r": 0.0, "theta": 0.0, "R_loc": 2.0,
+                             "max_r": 2.0 + max_pen, "max_pen": max_pen, "edge": "left"}
     env._obs = lambda _: np.zeros(5, dtype=np.float32)
     env._tip_roll = lambda: 0.0
+    return env
+
+
+def test_tree_nav_success_boundary_is_inclusive_when_on_route():
+    env = _stub_env(7.5, prev=5.0)
 
     _, _, terminated, _, info = env.step([0.0, 0.0])
 
@@ -85,26 +95,7 @@ def test_tree_nav_success_boundary_is_inclusive_when_on_route():
 
 
 def test_tree_nav_reports_unsafe_target_reach_as_unsafe_success():
-    class Sim:
-        def step(self, **_):
-            pass
-
-    env = object.__new__(TreeNavEnv)
-    env.sim = Sim()
-    env.substeps = 1
-    env.max_insertion = 1.0
-    env.max_twist = 1.0
-    env.steps = 0
-    env.target_s = 10.0
-    env._prev = 2.0
-    env.success_tol = 2.5
-    env.max_steps = 5
-    env.safety_max_pen = 0.3
-    env._features = lambda: {"s": 10.0, "r": 3.0, "theta": 0.0, "R_loc": 2.0,
-                             "max_r": 3.0, "max_pen": 0.6, "on_route": True,
-                             "edge": "left"}
-    env._obs = lambda _: np.zeros(5, dtype=np.float32)
-    env._tip_roll = lambda: 0.0
+    env = _stub_env(10.0, prev=2.0, max_pen=0.6)
 
     _, reward, terminated, truncated, info = env.step([0.0, 0.0])
 
@@ -115,6 +106,20 @@ def test_tree_nav_reports_unsafe_target_reach_as_unsafe_success():
     assert info["unsafe"] is True
     assert info["max_pen"] == pytest.approx(0.6)
     assert reward < 10.0
+
+
+def test_a_tip_outside_the_route_vessels_is_off_route_and_not_paid():
+    """Near the target's centreline but not inside a route vessel (the wrong branch, or across
+    a coil): no success, no progress reward."""
+    env = _stub_env(9.0, prev=5.0)
+    env._route_s = lambda p, near=None: None
+    env._tip_s = 5.0
+
+    _, reward, terminated, _, info = env.step([0.0, 0.0])
+
+    assert info["off_route"] is True
+    assert info["success"] is False and terminated is False
+    assert reward < 0.0
 
 
 # ---- the env (needs the Layer-0 tree sim) ------------------------------------

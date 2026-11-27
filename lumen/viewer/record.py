@@ -17,16 +17,34 @@ ENV_DEFAULTS = {"max_insertion": 2.0}
 
 
 class FollowPolicy:
-    """Push; when the tip leaves the route or stops gaining, pull back until it is on the route
-    again, rotate the shaped tip about a third of a turn, and push again. Crude, but it is how
-    a person probes a branch point, and it gives replays that show real navigation."""
+    """How a person probes a branch point: push; when the tip leaves the route or stops gaining,
+    pull back until it is on the route a few millimetres short of the branch point it stuck at
+    (or of where it stuck, away from a branch), turn the shaped tip a little (about 30
+    degrees), and push again. Successive tries sweep the tip round the full circle from the
+    same approach, so a branch that opens only at one roll is found.
 
-    def __init__(self, stall_steps: int = 10, max_back: int = 15, turn_steps: int = 2):
+    It reads the env's ``tip_mm`` (the tip's place along the route, tracked inside the vessels)
+    and ``branch_mm`` (the roadmap's branch points along the route) when present; otherwise it
+    falls back to the distance to the target."""
+
+    def __init__(self, stall_steps: int = 6, max_back: int = 15, turn_steps: int = 2,
+                 back_mm: float = 3.0, approach_mm: float = 5.0):
         self.stall_steps, self.max_back, self.turn_steps = stall_steps, max_back, turn_steps
+        self.back_mm, self.approach_mm = float(back_mm), float(approach_mm)
         self.reset()
 
     def reset(self):
         self.phase, self.count, self.best, self.since = "push", 0, np.inf, 0
+        self.back_to = None
+
+    def _pullback_target(self, info) -> float:
+        """Where to pull back to: ``approach_mm`` short of a branch point the tip is stuck at
+        (from the roadmap, ``branch_mm``), else ``back_mm`` short of where it stuck."""
+        tip = float(info["tip_mm"])
+        for b in info.get("branch_mm", ()):
+            if b - 2.0 * self.approach_mm <= tip <= b + self.approach_mm:
+                return b - self.approach_mm
+        return tip - self.back_mm
 
     def __call__(self, info: dict) -> np.ndarray:
         if info:
@@ -35,18 +53,27 @@ class FollowPolicy:
                 "turn": np.array([0.0, 1.0])}[self.phase].astype(np.float32)
 
     def _update(self, info):
+        tracked = "tip_mm" in info
         if self.phase == "push":
-            d = float(info.get("dist", np.inf))
+            # progress of this push, from where it began (not the furthest point ever reached,
+            # which a push after a pull-back must first re-cover)
+            d = -float(info["tip_mm"]) if tracked else float(info.get("dist", np.inf))
             if d < self.best - 0.3:
                 self.best, self.since = d, 0
             else:
                 self.since += 1
             if info.get("off_route") or self.since >= self.stall_steps:
                 self.phase, self.count = "back", 0
+                self.back_to = self._pullback_target(info) if tracked else None
         elif self.phase == "back":
             self.count += 1
-            if (not info.get("off_route") and self.count >= 3) or self.count >= self.max_back:
+            if self.back_to is not None:
+                short = float(info.get("tip_mm", self.back_to)) <= self.back_to
+            else:
+                short = self.count >= 3
+            if (not info.get("off_route") and short) or self.count >= self.max_back:
                 self.phase, self.count = "turn", 0
+                self.best, self.since = np.inf, 0
         else:
             self.count += 1
             if self.count >= self.turn_steps:

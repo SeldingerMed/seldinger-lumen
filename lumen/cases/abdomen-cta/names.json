@@ -6,6 +6,9 @@
   "e3": "right iliac artery",
   "e4": "left iliac artery"
  },
+ "access": [
+  "inlet"
+ ],
  "vessels": {
   "aorta": {
    "edges": [
@@ -13,7 +16,8 @@
     "e2"
    ],
    "target_node": "end0",
-   "route_mm": 440.5
+   "route_mm": 440.5,
+   "start_node": "inlet"
   },
   "left iliac artery": {
    "edges": [
@@ -21,14 +25,16 @@
     "e4"
    ],
    "target_node": "end1",
-   "route_mm": 401.3
+   "route_mm": 401.3,
+   "start_node": "inlet"
   },
   "right iliac artery": {
    "edges": [
     "e3"
    ],
    "target_node": "j0",
-   "route_mm": 195.3
+   "route_mm": 195.3,
+   "start_node": "inlet"
   }
  }
 }

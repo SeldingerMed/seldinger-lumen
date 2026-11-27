@@ -1243,3 +1243,23 @@ def test_a_temp_folder_that_cannot_hold_a_socket_is_swapped_for_the_model(tmp_pa
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     if segmenters._holds_a_socket(str(tmp_path)):
         assert segmenters._torch_env()["TMPDIR"] == str(tmp_path)    # a working one is kept
+
+
+def test_a_head_scan_brings_the_wire_up_the_carotid_on_the_targets_side():
+    """A cut carotid at the bottom of a head scan is a way in: the right middle cerebral artery
+    is reached up the right carotid, not across the circle of Willis from the left."""
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    assert names["access"][0] == asset.device_spawn.node_id and len(names["access"]) == 2
+    assert pipeline.access_nodes(asset, names["edges"]) == names["access"]
+    right = names["vessels"]["right middle cerebral artery"]
+    assert right["start_node"] == names["access"][1]
+    assert all(v["start_node"] in names["access"] for v in names["vessels"].values())
+
+
+def test_a_body_scan_keeps_its_one_way_in():
+    from lumen import cases
+
+    asset, names = cases.load("aorta-cta")
+    assert pipeline.access_nodes(asset, names["edges"]) == [asset.device_spawn.node_id]

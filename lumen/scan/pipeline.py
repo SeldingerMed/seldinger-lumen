@@ -43,26 +43,67 @@ def name_edges(asset: Asset, volume, min_fraction: float = 0.3) -> dict:
     return out
 
 
-def _distances(asset: Asset) -> dict:
-    """Route length (mm) from the device entry to every node."""
+# Arteries a wire is brought up through. Where the scan cut one of them, the cut end is a way in.
+ACCESS_VESSELS = ("internal carotid", "common carotid", "vertebral")
+
+
+def access_nodes(asset: Asset, edge_names: dict, caudal_mm: float = 12.0) -> list[str]:
+    """Where a wire can come into the scanned anatomy: the device entry first, then every free
+    end of a carotid or vertebral artery at the bottom of the scanned region, where the scan cut
+    the artery on its way up from the heart. A head scan holds both carotids and often the
+    vertebrals; an operator reaches the right middle cerebral artery up the right carotid, not
+    across the circle of Willis from the left. A short labelled spur inside the head, or a
+    carotid cut at the top of a body scan (blood leaves there), is not a way in. Needs a patient
+    frame (+z toward the head); other frames keep only the device entry."""
+    deg: dict = {}
+    for e in asset.edges:
+        for n in (e.node_a, e.node_b):
+            deg[n] = deg.get(n, 0) + 1
+    out = [asset.device_spawn.node_id]
+    frame = str(getattr(asset.frame, "name", "")).lower()
+    if "lps" not in frame and "ras" not in frame:
+        return out
+    z_low = min(float(np.min(np.asarray(e.centerline_mm, float)[:, 2])) for e in asset.edges)
+    pos = {n.id: np.asarray(n.position_mm, float) for n in asset.nodes}
+    for e in asset.edges:
+        name = " ".join(str(edge_names.get(e.id, "")).lower().replace("_", " ").split())
+        if not any(w in name for w in ACCESS_VESSELS):
+            continue
+        for n in (e.node_a, e.node_b):
+            if deg.get(n) == 1 and n not in out and pos[n][2] - z_low < caudal_mm:
+                out.append(n)
+    return out
+
+
+def _distances(asset: Asset, sources=None) -> tuple[dict, dict]:
+    """Route length (mm) to every node from the nearest of ``sources`` (default: the device
+    entry), and which source that is."""
+    import heapq
+
     adj: dict = {}
     for e in asset.edges:
         L = float(e.s_grid[-1])
         adj.setdefault(e.node_a, []).append((e.node_b, L))
         adj.setdefault(e.node_b, []).append((e.node_a, L))
-    dist = {asset.device_spawn.node_id: 0.0}
-    todo = [asset.device_spawn.node_id]
-    for n in todo:
+    sources = list(sources) if sources else [asset.device_spawn.node_id]
+    dist, src = {}, {}
+    heap = [(0.0, i, n) for i, n in enumerate(sources)]
+    heapq.heapify(heap)
+    while heap:
+        d, i, n = heapq.heappop(heap)
+        if n in dist:
+            continue
+        dist[n], src[n] = d, sources[i]
         for m, L in adj.get(n, []):
             if m not in dist:
-                dist[m] = dist[n] + L
-                todo.append(m)
-    return dist
+                heapq.heappush(heap, (d + L, i, m))
+    return dist, src
 
 
-def vessel_table(asset: Asset, edge_names: dict) -> dict:
-    """For each named vessel: its edges, and the node at its far end (the natural target)."""
-    dist = _distances(asset)
+def vessel_table(asset: Asset, edge_names: dict, access: list | None = None) -> dict:
+    """For each named vessel: its edges, the node at its far end (the natural target), and the
+    way in nearest that target (``start_node``), with the route length from there."""
+    dist, src = _distances(asset, access or access_nodes(asset, edge_names))
     table: dict = {}
     for e in asset.edges:
         name = edge_names.get(e.id)
@@ -75,7 +116,14 @@ def vessel_table(asset: Asset, edge_names: dict) -> dict:
                 row["_far"], row["target_node"] = dist[n], n
     for row in table.values():
         row["route_mm"] = round(row.pop("_far"), 1)
+        row["start_node"] = src.get(row["target_node"])
     return table
+
+
+def route_start(asset: Asset, names: dict, target_node: str) -> str:
+    """The way in nearest ``target_node`` (the device entry when the scan has only one)."""
+    _, src = _distances(asset, names.get("access") or [asset.device_spawn.node_id])
+    return src.get(target_node, asset.device_spawn.node_id)
 
 
 def resolve_target(names: dict, asset: Asset, target: str) -> str:
@@ -110,7 +158,10 @@ def load_imported(folder: str | Path) -> tuple[Asset, dict]:
     try:
         names = json.loads((folder / "names.json").read_text())
     except (OSError, ValueError):                         # missing or damaged: no names
-        names = {"edges": {}, "vessels": {}}
+        return asset, {"edges": {}, "vessels": {}}
+    if "access" not in names:          # written before scans had several ways in: work them out
+        names["access"] = access_nodes(asset, names.get("edges", {}))
+        names["vessels"] = vessel_table(asset, names.get("edges", {}), names["access"])
     return asset, names
 
 
@@ -258,7 +309,8 @@ def import_scan(scan_path=None, out_dir="lumen-import", *, mask=None, entry_mm=N
     say("Building the vessel tree ...")
     asset, conv, tris = sc.asset_from_vessel_mask(volume, entry_mm=entry_mm)
     edge_names = name_edges(asset, volume)
-    names = {"edges": edge_names, "vessels": vessel_table(asset, edge_names)}
+    access = access_nodes(asset, edge_names)
+    names = {"edges": edge_names, "access": access, "vessels": vessel_table(asset, edge_names, access)}
     asset.save(str(out / "asset.json"))
     si.write_stl(out / "surface.stl", tris)
     (out / "names.json").write_text(json.dumps(names, indent=1))
@@ -301,4 +353,6 @@ def make_env(folder: str | Path, target: str, **kwargs):
     from lumen.envs.tree_nav import TreeNavEnv
 
     asset, names = load_imported(folder)
-    return TreeNavEnv(asset, target_node=resolve_target(names, asset, target), **kwargs)
+    node = resolve_target(names, asset, target)
+    kwargs.setdefault("start_node", route_start(asset, names, node))
+    return TreeNavEnv(asset, target_node=node, **kwargs)
