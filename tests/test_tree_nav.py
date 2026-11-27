@@ -225,3 +225,40 @@ def test_a_benchmark_tip_off_the_route_is_not_a_clinical_target_reach():
     notes = {"target_s": 70.0, "success_tol": 2.5}
     assert _tip_target(ep(1.0), notes)["success"] is True
     assert _tip_target(ep(0.0), notes)["success"] is False
+
+
+def test_a_diverged_step_is_off_the_route_and_never_a_reach():
+    from types import SimpleNamespace
+
+    from lumen.data.metrics import _tip_target
+
+    env = _stub_env(10.0, prev=10.0)                   # at the target, then the state blows up
+    env._features = lambda: {"s": float("nan"), "r": 0.0, "theta": 0.0, "R_loc": 2.0,
+                             "max_r": 2.0, "max_pen": 0.0, "edge": "left"}
+    env._step_pen = 0.0
+    _, _, terminated, _, info = env.step([0.0, 0.0])
+    assert terminated and info["diverged"] and info["off_route"] and not info["success"]
+    step = SimpleNamespace(kinematics={"tip_s": info["tip_mm"], "on_route": 0.0})
+    ep = SimpleNamespace(steps=[step], outcome=SimpleNamespace(final_dist=0.0, success=False))
+    assert _tip_target(ep, {"target_s": 10.0, "success_tol": 2.5})["success"] is False
+
+
+def test_containment_works_before_the_solver_keeps_a_previous_state():
+    import types
+
+    env = TreeNavEnv(procedural.bifurcation(), target_node="left_out", device="cpu",
+                     contain_tol_mm=0.0)
+    sim = env.sim
+    pos = sim.state_0.body_q.numpy().copy()             # on the CPU numpy() is a view
+    b = sim.bodies[-1]
+    pos[b, 0] += 50.0                                   # far through the wall
+    sim.state_0.body_q.assign(pos)
+    real = sim.solver
+    sim.solver = types.SimpleNamespace(body_q_prev=None)
+    try:
+        pen = env._contain()
+    finally:
+        sim.solver = real
+    assert pen > 10.0
+    moved = np.linalg.norm(sim.state_0.body_q.numpy()[b, :3] - pos[b, :3])
+    assert moved == pytest.approx(pen, rel=0.05)        # put back by the breach depth

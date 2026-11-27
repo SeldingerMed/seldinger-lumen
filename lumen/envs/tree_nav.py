@@ -197,7 +197,7 @@ class TreeNavEnv:
         self.device = device or detect_device()
         self.device_radius_mm = float(device_radius_mm)
         self.density = 1.0e-2 if density is None else float(density)
-        if self.density is not None and not (np.isfinite(self.density) and self.density > 0):
+        if not (np.isfinite(self.density) and self.density > 0):
             raise ValueError("density must be finite and positive")
         self.feed_stop_pen_mm = None if feed_stop_pen_mm is None else float(feed_stop_pen_mm)
         # The wire is laid along the route at reset, so it must fit: 16 nodes (30 mm), or as
@@ -423,20 +423,23 @@ class TreeNavEnv:
         if moved:
             ids = [sim.bodies[i] for i in moved]
             q = sim.state_0.body_q.numpy()
-            qp = sim.solver.body_q_prev.numpy()
+            prev = getattr(sim.solver, "body_q_prev", None)    # absent before the first step
+            qp = None if prev is None else prev.numpy()
             qd = sim.state_0.body_qd.numpy()
             for b, (pen, n) in zip(ids, moved.values()):
                 # back onto the wall, without the outward part of its motion; sliding along the
                 # wall is kept (the wall is frictionless here)
-                v = q[b, :3] - qp[b, :3]
-                vn = max(0.0, float(v @ n))
                 q[b, :3] = q[b, :3] - pen * n
-                qp[b, :3] = q[b, :3] - (v - vn * n)
+                if qp is not None:
+                    v = q[b, :3] + pen * n - qp[b, :3]
+                    vn = max(0.0, float(v @ n))
+                    qp[b, :3] = q[b, :3] - (v - vn * n)
                 w = float(qd[b, :3] @ n) if qd.shape[1] >= 3 else 0.0
                 if w > 0:
                     qd[b, :3] = qd[b, :3] - w * n
             sim.state_0.body_q.assign(q)
-            sim.solver.body_q_prev.assign(qp)
+            if qp is not None:
+                prev.assign(qp)
             sim.state_0.body_qd.assign(qd)
         return max(0.0, worst)
 
@@ -620,7 +623,10 @@ class TreeNavEnv:
                 # place on the route: a caught tip that falls back stops the feed
                 tip = np.asarray(self.sim.body_positions()[-1], float)
                 ts = self._route_s(tip)
-                ts = self._tip_s if ts is None else ts     # off the route: where it was last
+                # off the route the tip's place is where it was last tracked: the catheter is
+                # held behind that, so a tip that left the route (into a side vessel or
+                # through a wall) is not followed further, and its return is fed from there
+                ts = self._tip_s if ts is None else ts
                 insertion = float(np.clip(ts - self._support_gap - base_s, 0.0, insertion))
         feed = float(np.sign(insertion))
         if self.quasi_static and feed != self._feed:
@@ -679,7 +685,7 @@ class TreeNavEnv:
                 "wall_load_max": 0.0, "wall_load_sum": 0.0,
                 "wall_pressure_max": 0.0, "wall_load_impulse": 0.0,
                 "wall_load_units": "sim_units",
-                "success": False, "diverged": True}
+                "success": False, "diverged": True, "off_route": True}
         # The tip is on the route when it is inside a route vessel (read and tracked this step).
         # Distance, reward and success use that tracked place, not the nearest point of the
         # route's centreline: a tip in the wrong branch or across a coil can lie close to the
