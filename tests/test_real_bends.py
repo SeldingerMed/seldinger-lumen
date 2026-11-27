@@ -121,6 +121,7 @@ def test_progress_counts_a_tip_in_the_route_vessel_where_a_wider_side_vessel_own
 
 
 def test_a_guide_catheter_starts_the_wire_beyond_the_wide_vessels():
+    _solver()
     asset = resolve("arch").asset
     env = TreeNavEnv(asset, target_node="carotid_out", guide_radius_mm=3.0)
     assert env.start_node != asset.device_spawn.node_id
@@ -152,3 +153,34 @@ def test_bad_wire_parameters_are_refused():
                {"wire_nodes": 3}):
         with pytest.raises(ValueError):
             TreeNavEnv(asset, **kw)
+
+
+@pytest.mark.parametrize("tiny", [0.6, 0.005])
+def test_a_very_short_route_vessel_still_tracks_the_tip(tiny):
+    """The route keeps every vessel's own points, so a vessel far shorter than a wire segment
+    (a junction split a hair apart by the skeleton) still has its stretch of the route."""
+    z = np.linspace(0.0, 40.0, 41)
+    a = np.c_[0 * z, 0 * z, z]
+    c = np.c_[0 * z, 0 * z, 40.0 + tiny + z]
+    asset = Asset(frame=Frame(),
+                  nodes=[Node("in", (0.0, 0.0, 0.0)), Node("j1", (0.0, 0.0, 40.0)),
+                         Node("j2", (0.0, 0.0, 40.0 + tiny)), Node("out", tuple(c[-1]))],
+                  edges=[_edge("a", "in", "j1", a, 2.0),
+                         _edge("t", "j1", "j2", [[0.0, 0.0, 40.0], [0.0, 0.0, 40.0 + tiny]], 2.0),
+                         _edge("c", "j2", "out", c, 2.0)],
+                  device_spawn=DeviceSpawn(node_id="in"))
+    _solver()
+    env = TreeNavEnv(asset, target_node="out", device="cpu")
+    env._tip_best = env._tip_s = 40.0
+    # tighter than the distance to the junction, so a reading snapped there fails
+    assert env._route_s(np.array([0.0, 0.0, 40.0 + tiny / 2])) == pytest.approx(40.0 + tiny / 2, abs=tiny / 10)
+    assert env._route_s(np.array([0.0, 0.0, 45.0])) == pytest.approx(45.0, abs=0.01)
+
+
+def test_a_spawn_node_missing_from_the_asset_is_refused():
+    from lumen.core.tree import VascularTree
+
+    asset = siphon()
+    asset.device_spawn = DeviceSpawn(node_id="nowhere")
+    with pytest.raises(ValueError, match="device spawn node 'nowhere'"):
+        VascularTree(asset)

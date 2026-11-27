@@ -1349,3 +1349,59 @@ def test_an_entry_given_on_the_command_line_is_the_only_way_in(tmp_path, lumen_h
                          say=lambda *_: None, entry_mm=entry)
     names = json.loads((tmp_path / "out" / "names.json").read_text())
     assert ("elsewhere" in names["access"]) == (entry is None)
+
+
+def test_a_vessel_no_way_in_reaches_is_not_listed():
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    assert pipeline.vessel_table(asset, names["edges"], ["no-such-node"]) == {}
+    table = pipeline.vessel_table(asset, names["edges"], names["access"])
+    assert all(r["target_node"] is not None and r["route_mm"] >= 0 for r in table.values())
+
+
+def test_an_older_names_file_gets_route_lengths_and_edges_for_its_kept_targets(tmp_path):
+    import json
+
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    asset.save(str(tmp_path / "asset.json"))
+    row = names["vessels"]["right middle cerebral artery"]
+    legacy = {"edges": names["edges"], "vessels": {
+        "right middle cerebral artery": {"target_node": row["target_node"], "edges": [],
+                                         "route_mm": 1.0},
+    }}
+    (tmp_path / "names.json").write_text(json.dumps(legacy))
+    _, loaded = pipeline.load_imported(tmp_path)
+    got = loaded["vessels"]["right middle cerebral artery"]
+    assert got["edges"] == row["edges"]
+    assert got["route_mm"] == pytest.approx(row["route_mm"], abs=0.1)
+
+
+
+def test_a_vessel_no_way_in_reaches_is_not_swapped_for_a_near_name():
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    edges = dict(names["edges"])
+    some = next(iter(edges))
+    edges[some] = "carotid"                         # named, but listed as unreachable below
+    table = {"internal carotid": {"target_node": "end0", "edges": [], "start_node": "end1"}}
+    with pytest.raises(ValueError, match="no way in reaches it"):
+        pipeline.resolve_target({"edges": edges, "vessels": table}, asset, "carotid")
+    assert pipeline.resolve_target({"edges": edges, "vessels": table}, asset, "internal") == "end0"
+
+
+def test_an_alias_row_kept_by_hand_gains_no_edge_list(tmp_path):
+    import json
+
+    from lumen import cases
+
+    asset, names = cases.load("head-tof-mra")
+    asset.save(str(tmp_path / "asset.json"))
+    target = names["vessels"]["right middle cerebral artery"]["target_node"]
+    (tmp_path / "names.json").write_text(json.dumps(
+        {"edges": names["edges"], "vessels": {"my alias": {"target_node": target}}}))
+    _, loaded = pipeline.load_imported(tmp_path)
+    assert "edges" not in loaded["vessels"]["my alias"]

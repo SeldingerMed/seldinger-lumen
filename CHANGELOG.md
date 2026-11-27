@@ -23,6 +23,13 @@ All notable changes to this project are documented here. The format follows
   from its neighbours. Aneurysms, stenoses and a vessel widening into the aorta are kept.
 
 ### Fixed
+- A tree-navigation step whose simulation blew up is marked off the route, so the benchmark's
+  clinical target check cannot count it as a reach. Containment works before the solver keeps
+  a previous state. An asset whose device spawn names a node it does not have is refused when
+  its vessel tree is built.
+- Imported vessels no way in reaches are left out of `names.json` instead of being listed with
+  no target. An older `names.json` row kept by hand gets the route length of its own target
+  and, when its edge list is empty, the vessel's named edges.
 - A pushed wire now carries the push to its tip on real anatomy. The rod solver ran 8
   iterations for a 16-node wire and a push travels about one node per iteration, so the tip
   got about a third of each push and the wire bowed and prolapsed; `TreeNavEnv` now runs

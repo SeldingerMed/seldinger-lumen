@@ -83,8 +83,9 @@ class VascularTree:
         spawn = getattr(asset, "device_spawn", None)
         # where the wire comes in: the asset's spawn unless the caller enters elsewhere
         self.entry_node = entry_node if entry_node is not None else getattr(spawn, "node_id", None)
-        if entry_node is not None and entry_node not in self._node_pos:
-            raise ValueError(f"entry node {entry_node!r} is not in the asset")
+        if self.entry_node is not None and self.entry_node not in self._node_pos:
+            what = "entry node" if entry_node is not None else "the asset's device spawn node"
+            raise ValueError(f"{what} {self.entry_node!r} is not in the asset")
         # degree = how many edges touch a node; >1 marks a junction
         self._degree: dict[str, int] = {}
         for e in self.edges:

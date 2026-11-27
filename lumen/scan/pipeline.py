@@ -124,7 +124,7 @@ def vessel_table(asset: Asset, edge_names: dict, access: list | None = None) -> 
         name = edge_names.get(e.id)
         if name:
             table.setdefault(name, {"edges": []})["edges"].append(e.id)
-    for row in table.values():
+    for name, row in list(table.items()):
         own = set(row["edges"])
         ends = {n for eid in own for n in edge_ends[eid]}
         best = None                                    # (route length, way in, target)
@@ -146,7 +146,10 @@ def vessel_table(asset: Asset, edge_names: dict, access: list | None = None) -> 
                 best = (dist[far], a, far)
         if best is None:                               # not reached through itself: nearest end
             far = max((n for n in ends if n in nearest), key=lambda n: nearest[n], default=None)
-            best = (nearest.get(far, -1.0), nearest_src.get(far), far)
+            if far is None:                            # no way in reaches it: not a target
+                del table[name]
+                continue
+            best = (nearest[far], nearest_src[far], far)
         row["target_node"] = best[2]
         row["route_mm"] = round(best[0], 1)
         row["start_node"] = best[1]
@@ -170,7 +173,12 @@ def resolve_target(names: dict, asset: Asset, target: str) -> str:
         return target
     vessels = names.get("vessels", {})
     want = " ".join(target.lower().replace("_", " ").split())
-    hits = [v for v in vessels if v.lower() == want] or [v for v in vessels if want in v.lower()]
+    exact = [v for v in vessels if v.lower() == want]
+    if not exact and any(isinstance(v, str) and v.lower() == want
+                         for v in (names.get("edges") or {}).values()):
+        # a named vessel in the scan that no way in reaches: never a near-match instead
+        raise ValueError(f"vessel {target!r} is in the scan but no way in reaches it")
+    hits = exact or [v for v in vessels if want in v.lower()]
     if len(hits) == 1:
         node = vessels[hits[0]].get("target_node")
         if node is None:
@@ -209,10 +217,18 @@ def load_imported(folder: str | Path) -> tuple[Asset, dict]:
             if isinstance(row, dict) and row.get("target_node"):
                 fresh = dict(worked.get(name, {}))
                 fresh.update(row)
+                if not row.get("edges") and name in worked:   # empty saved list: the named edges
+                    fresh["edges"] = list(worked.get(name, {}).get("edges", []))
                 try:
                     fresh["start_node"] = route_start(asset, names, row["target_node"])
                 except ValueError:
                     fresh["start_node"] = asset.device_spawn.node_id
+                # the route length is that of the kept target from its way in
+                dist, _ = _distances(asset, [fresh["start_node"]])
+                if row["target_node"] in dist:
+                    fresh["route_mm"] = round(dist[row["target_node"]], 1)
+                else:
+                    fresh.pop("route_mm", None)
                 worked[name] = fresh
         names["vessels"] = worked
     return asset, names
