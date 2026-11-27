@@ -411,6 +411,8 @@ class TreeNavEnv:
         wire through, so such a node is moved back to the wall and stopped there."""
         sim = self.sim
         pos = np.asarray(sim.body_positions(), float)
+        if not np.isfinite(pos).all():          # blown up: step() ends the episode as diverged
+            return 0.0
         worst, moved = 0.0, {}
         for i, p in enumerate(pos):
             pr = self.tree.project(p)
@@ -600,6 +602,16 @@ class TreeNavEnv:
         if np.linalg.norm(self._base_path[-1] - p) > 0.25:
             self._base_path.append(p)
 
+    def _diverged(self):
+        """The terminal step of an episode whose simulation blew up: off the route, no reach."""
+        return np.zeros(5, np.float32), -100.0, True, False, {
+            "route_s": 0.0, "tip_mm": float(self._tip_s), "furthest_mm": float(self._tip_best),
+            "dist": 1e6, "max_r": 0.0, "max_pen": 0.0,
+            "wall_load_max": 0.0, "wall_load_sum": 0.0,
+            "wall_pressure_max": 0.0, "wall_load_impulse": 0.0,
+            "wall_load_units": "sim_units",
+            "success": False, "diverged": True, "off_route": True}
+
     def step(self, action):
         a, twist = self._parse_action(action)
         insertion, turn = a * self.max_insertion, twist * self.max_twist
@@ -659,6 +671,8 @@ class TreeNavEnv:
         else:
             dt = 5e-3 * self.substeps
             self.sim.step(dt=dt, substeps=self._solver_substeps(dt), insertion=insertion, twist=turn)
+        if not np.isfinite(np.asarray(self.sim.body_positions(), float)).all():
+            return self._diverged()
         if self.quasi_static and insertion == 0.0 and turn == 0.0:
             self.sim.state_0.body_qd.zero_()
         if self.feed_stop_pen_mm is not None:
@@ -679,13 +693,7 @@ class TreeNavEnv:
         f["max_pen"] = max(f["max_pen"], self._step_pen)
         obs = self._obs(f)
         if not (np.isfinite(obs).all() and np.isfinite([f["s"], f["r"], f["max_r"]]).all()):
-            return np.zeros(5, np.float32), -100.0, True, False, {
-                "route_s": 0.0, "tip_mm": float(self._tip_s), "furthest_mm": float(self._tip_best),
-                "dist": 1e6, "max_r": 0.0, "max_pen": 0.0,
-                "wall_load_max": 0.0, "wall_load_sum": 0.0,
-                "wall_pressure_max": 0.0, "wall_load_impulse": 0.0,
-                "wall_load_units": "sim_units",
-                "success": False, "diverged": True, "off_route": True}
+            return self._diverged()
         # The tip is on the route when it is inside a route vessel (read and tracked this step).
         # Distance, reward and success use that tracked place, not the nearest point of the
         # route's centreline: a tip in the wrong branch or across a coil can lie close to the

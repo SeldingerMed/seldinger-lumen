@@ -169,9 +169,11 @@ def test_a_very_short_route_vessel_still_tracks_the_tip(tiny):
                          _edge("t", "j1", "j2", [[0.0, 0.0, 40.0], [0.0, 0.0, 40.0 + tiny]], 2.0),
                          _edge("c", "j2", "out", c, 2.0)],
                   device_spawn=DeviceSpawn(node_id="in"))
+    _solver()
     env = TreeNavEnv(asset, target_node="out", device="cpu")
     env._tip_best = env._tip_s = 40.0
-    assert env._route_s(np.array([0.0, 0.0, 40.0 + tiny / 2])) == pytest.approx(40.0 + tiny / 2, abs=0.01)
+    # tighter than the distance to the junction, so a reading snapped there fails
+    assert env._route_s(np.array([0.0, 0.0, 40.0 + tiny / 2])) == pytest.approx(40.0 + tiny / 2, abs=tiny / 10)
     assert env._route_s(np.array([0.0, 0.0, 45.0])) == pytest.approx(45.0, abs=0.01)
 
 

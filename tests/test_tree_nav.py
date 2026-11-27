@@ -246,6 +246,8 @@ def test_a_diverged_step_is_off_the_route_and_never_a_reach():
 def test_containment_works_before_the_solver_keeps_a_previous_state():
     import types
 
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
     env = TreeNavEnv(procedural.bifurcation(), target_node="left_out", device="cpu",
                      contain_tol_mm=0.0)
     sim = env.sim
@@ -262,3 +264,18 @@ def test_containment_works_before_the_solver_keeps_a_previous_state():
     assert pen > 10.0
     moved = np.linalg.norm(sim.state_0.body_q.numpy()[b, :3] - pos[b, :3])
     assert moved == pytest.approx(pen, rel=0.05)        # put back by the breach depth
+
+
+
+@pytest.mark.parametrize("contain", [0.3, None])
+def test_a_blown_up_wire_ends_the_episode_as_diverged(contain):
+    """The simulator's own positions turn NaN (no stubbed projection): the step ends as
+    diverged and off the route, with or without containment, instead of raising."""
+    pytest.importorskip("warp")
+    pytest.importorskip("newton")
+    env = TreeNavEnv(procedural.bifurcation(), target_node="left_out", device="cpu",
+                     contain_tol_mm=contain)
+    real = env.sim.body_positions
+    env.sim.body_positions = lambda: np.full_like(np.asarray(real(), float), np.nan)
+    _, _, terminated, _, info = env.step([1.0, 0.0])
+    assert terminated and info["diverged"] and info["off_route"] and not info["success"]

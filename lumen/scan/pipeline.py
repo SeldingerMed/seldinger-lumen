@@ -173,7 +173,12 @@ def resolve_target(names: dict, asset: Asset, target: str) -> str:
         return target
     vessels = names.get("vessels", {})
     want = " ".join(target.lower().replace("_", " ").split())
-    hits = [v for v in vessels if v.lower() == want] or [v for v in vessels if want in v.lower()]
+    exact = [v for v in vessels if v.lower() == want]
+    if not exact and any(isinstance(v, str) and v.lower() == want
+                         for v in (names.get("edges") or {}).values()):
+        # a named vessel in the scan that no way in reaches: never a near-match instead
+        raise ValueError(f"vessel {target!r} is in the scan but no way in reaches it")
+    hits = exact or [v for v in vessels if want in v.lower()]
     if len(hits) == 1:
         node = vessels[hits[0]].get("target_node")
         if node is None:
@@ -212,7 +217,7 @@ def load_imported(folder: str | Path) -> tuple[Asset, dict]:
             if isinstance(row, dict) and row.get("target_node"):
                 fresh = dict(worked.get(name, {}))
                 fresh.update(row)
-                if not row.get("edges"):               # an empty saved list: the named edges
+                if not row.get("edges") and name in worked:   # empty saved list: the named edges
                     fresh["edges"] = list(worked.get(name, {}).get("edges", []))
                 try:
                     fresh["start_node"] = route_start(asset, names, row["target_node"])
