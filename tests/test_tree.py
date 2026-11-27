@@ -267,3 +267,75 @@ def test_a_diverged_point_projects_to_nans_instead_of_crashing():
 
     pr = VascularTree(procedural.aortic_arch_tree()).project(np.array([np.nan, 0.0, 0.0]))
     assert not np.isfinite(pr.gap)
+
+
+def _contact_owner(tree, q):
+    """The edge the Newton contact kernel's rule gives a point (surface_import.contact_project,
+    an independent NumPy copy of tube_barrier_kernel), and its room there."""
+    from lumen.assets.surface_import import contact_project
+
+    c = contact_project(tree, np.atleast_2d(np.asarray(q, float)))
+    return int(c["edge"][0]), float(c["R"][0] - c["r"][0])
+
+
+@pytest.mark.parametrize("name", ["arch", "bifurcation"])
+def test_projection_and_the_contact_kernel_pick_the_same_vessel_near_junctions(name):
+    """Issue #153: past a vessel's end, project() measured across the axis carried on beyond
+    it while the kernel measured to the end point, so near junctions they disagreed on which
+    vessel held a wire node (42 of 100 points on the arch agreed)."""
+    from lumen.viewer.scene import resolve
+
+    tree = VascularTree(resolve(name).asset)
+    rng = np.random.default_rng(0)
+    checked = 0
+    for n in [n for n in tree._node_pos if tree.is_junction(n)]:
+        for q in tree._node_pos[n] + rng.normal(size=(60, 3)) * 5.0:
+            owner, room = _contact_owner(tree, q)
+            if room > 0.1:                        # inside the lumen by the kernel's reading
+                checked += 1
+                assert tree.project(q).edge_index == owner
+    assert checked >= 5
+
+
+def test_at_a_bend_the_owner_is_chosen_by_the_distance_to_the_axis_not_across_it():
+    """Two vessels of one radius leave a node; A bends sharply. Across A's axis the point is
+    0.800 mm away, but its nearest point on A is the bend 1.0 mm away; B's end is 0.802 mm away.
+    The kernel gives the point to B, and so must project()."""
+    from lumen.assets.schema import Asset, DeviceSpawn, Frame, Node
+    from lumen.core.lumen_field import LumenField
+
+    def edge(eid, b, pts):
+        pts = np.asarray(pts, float)
+        length = float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+        return procedural._edge_from_polyline(eid, "o", b, pts,
+                                              LumenField.cylinder(length, 0.9, n=len(pts)))
+
+    A = [(0.0, -0.75, 0.0), (0.0, 0.0, 0.0), (-1.0, 0.0, 0.0)]
+    B = [(0.0, -0.75, 0.0), (0.0, 0.0, 0.05), (0.0, 0.2, 0.05)]
+    asset = Asset(frame=Frame(), nodes=[Node("o", A[0]), Node("a", A[-1]), Node("b", B[-1])],
+                  edges=[edge("A", "a", A), edge("B", "b", B)], device_spawn=DeviceSpawn(node_id="o"))
+    tree = VascularTree(asset)
+    q = np.array([0.0, 1.0, 0.0])
+    owner, _ = _contact_owner(tree, q)
+    assert tree.edges[owner].id == "B"
+    assert tree.project(q).edge_id == "B"
+
+
+
+def test_the_wall_sampled_on_a_grid_equals_the_wall_point_by_point():
+    """blended_R_grid (what the contact baker samples) is blended_R on every pair, caps and
+    junction bulges included, on every shipped case and the synthetic trees."""
+    from lumen import cases
+    from lumen.viewer.scene import resolve
+
+    rng = np.random.default_rng(1)
+    assets = [cases.load(c)[0] for c in cases.names()] + [resolve(n).asset for n in ("arch", "bifurcation")]
+    for asset in assets:
+        tree = VascularTree(asset)
+        for i, e in enumerate(tree.edges):
+            ss = np.concatenate([[0.0, e.frame.length], rng.uniform(0, e.frame.length, 6),
+                                 rng.uniform(0, min(6.0, e.frame.length), 3)])
+            th = rng.uniform(-np.pi, np.pi, 4)
+            grid = tree.blended_R_grid(i, ss, th)
+            point = np.array([[tree.blended_R(i, float(a), float(b)) for b in th] for a in ss])
+            np.testing.assert_allclose(grid, point, atol=1e-9)

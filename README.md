@@ -39,6 +39,11 @@ It evaluates the same policy on frozen procedural train and held-out case IDs,
 reports raw/native-safe/crash rates for each split, and records the train-minus-held-out
 generalization gap in `forward-baseline-heldout.json`.
 
+The suite version moves whenever the simulated dynamics change: the current suites are
+`lumen-bench/6` and `lumen-bench/heldout/4`. Scorecards, replays and held-out reports
+written under an earlier version are refused by the current validators; run the benchmark
+again to produce them under the current version rather than relabelling old files.
+
 Canonical scorecards also include episode-level `lumen-stats/1` summaries: fractional
 interquartile means, ordinary means, and deterministic 95% percentile-bootstrap
 intervals with recorded seeds and resample counts.

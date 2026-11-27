@@ -45,9 +45,10 @@ from lumen.data import Episode, EpisodeMeta, Outcome, Step, compute_clinical_met
 from lumen.bench_stats import summarize_metrics, validate_statistics
 from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_nav
 
-# 4: tree navigation changed (wall stiffness, the feed limit at the wall, branch ownership by
-# room), so lumen-bench/3 scores and replays are not comparable and are refused
-SUITE_VERSION = "lumen-bench/5"
+# The version moves whenever tree navigation's dynamics change (4: wall stiffness, the feed
+# limit at the wall, ownership by room; 5: feed dynamics; 6: ownership near junctions and
+# bends as in the contact kernel). Scores and replays from an earlier version are refused.
+SUITE_VERSION = "lumen-bench/6"
 REPLAY_PROTOCOL_VERSION = "lumen-bench-replay/1"
 SAFETY_MAX_PEN = 0.3
 STAT_METRICS = (

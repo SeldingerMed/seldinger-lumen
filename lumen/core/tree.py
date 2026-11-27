@@ -154,6 +154,28 @@ class VascularTree:
                     best = max(best, cand)                # bulge wins if two junctions overlap
         return best
 
+    def blended_R_grid(self, ei: int, s, theta) -> np.ndarray:
+        """``blended_R`` on every (s, theta) pair of two 1-D arrays: (len(s), len(theta)).
+        The contact baker samples the wall this way, densely, in one pass."""
+        e = self.edges[ei]
+        s = np.asarray(s, float)
+        R = e.lf.eval_grid(s, theta)
+        for end_s, ref_s in self._caps[ei]:
+            near = np.abs(s - end_s) < abs(ref_s - end_s)
+            if near.any():
+                R[near] = np.maximum(R[near], e.lf.eval_grid([ref_s], theta)[0][None, :])
+        if self.blend_len <= 0:
+            return R
+        best = R
+        for end_s, nid in ((0.0, e.node_a), (e.frame.length, e.node_b)):
+            if self._degree.get(nid, 0) > 1:
+                d = np.abs(s - end_s)
+                near = d < self.blend_len
+                w = (d / self.blend_len)[:, None]
+                cand = w * R + (1.0 - w) * self._junction_R(nid)
+                best = np.where(near[:, None], np.maximum(best, cand), best)
+        return best
+
     def _edge_R(self, ei: int, s: float, theta: float) -> float:
         """Edge ei's own radius at (s, theta), held open over a free end's cap."""
         lf = self.edges[ei].lf
@@ -170,9 +192,8 @@ class VascularTree:
 
         Owner = the edge where the point has the most room (radius minus distance from the
         axis), so a point is inside the vessel when it is inside ANY branch. The Newton tree
-        kernel compares the same room with the same blended radius; past an edge's end the two
-        still differ (here r is measured across the end's extended axis, the kernel uses the
-        distance to the end point), see issue #153. Nearest-axis
+        kernel compares the same room with the same blended radius and the same distance (to
+        the nearest point of the axis, so past an edge's end, to the end point). Nearest-axis
         ownership got this wrong where a thin branch leaves a wide vessel: a point well inside
         the wide lumen could be nearer the thin axis and be judged against the thin wall.
         Near a junction the blended R keeps the gap MAGNITUDE continuous. Also, like CenterlineFrame, a point past an
@@ -186,10 +207,16 @@ class VascularTree:
         best_i, best_pr, best_need, best_R = 0, None, np.inf, 0.0
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)
-            if pr.r - self._R_bound[i] > best_need:
+            # the owner is chosen by the distance to the nearest point of each vessel's axis,
+            # as in the contact kernel, for every vessel: past an end that is the distance to
+            # the end point, and at a bend it keeps its part along the tangent (issue #153).
+            # The gap and the wall direction stay measured across the axis, as the kernel's
+            # force is.
+            d = pr.d
+            if d - self._R_bound[i] > best_need:
                 continue                       # cannot beat the current owner
             R = self.blended_R(i, pr.s, pr.theta)   # the radius the gap and the wall force use
-            need = pr.r - R
+            need = d - R
             if need < best_need:
                 best_i, best_pr, best_need, best_R = i, pr, need, R
         return TreeProjection(edge_id=self.edges[best_i].id, edge_index=best_i,

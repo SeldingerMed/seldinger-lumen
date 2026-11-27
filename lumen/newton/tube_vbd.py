@@ -35,6 +35,9 @@ from lumen.newton.tube_barrier_kernel import (
 )
 
 
+_WALL_CELL_MM = 2.0       # the longest spacing between tree-contact wall samples along a vessel
+
+
 def _entry_end(tree, node_id) -> bool:
     """True for the open vessel end the wire enters through: no wall past it. A tree that
     does not say where the wire enters keeps every open end open, as before."""
@@ -569,7 +572,7 @@ class TubeVBDSolver(SolverVBD):
         self._coax_two_way = 1 if two_way else 0
         self._coax_enabled = True
     def set_tree_contact(self, tree, wire_body_ids, kappa=2.0e3, d_hat=0.3,
-                         barrier_mode="compliant", n_s=40, n_th=16,
+                         barrier_mode="compliant", n_s=None, n_th=None,
                          mu_along=0.0, mu_across=0.0, gamma_fric_deg=40.0,
                          actuation_centerline=None, deformable_wall=False, hgo_params=None,
                          n_envs=1, n_per_env=None, body_radii=None):
@@ -588,10 +591,20 @@ class TubeVBDSolver(SolverVBD):
             raise RuntimeError("tube contact already set on this solver; cannot also enable tree "
                                "contact (the barriers would double up)")
         dev = self.device
+        # The kernel reads the wall between these samples, so they must follow the radius
+        # changes along a scanned vessel: by default at most _WALL_CELL_MM apart along the
+        # longest vessel (40 samples over a 400 mm aorta were 10 mm apart), and around it at
+        # the lumen fields' own angles (-pi + k 2 pi / n_th), so the angular reading is exact.
+        if n_s is None:
+            longest = max(float(e.frame.length) for e in tree.edges)
+            n_s = max(40, int(_np.ceil(longest / _WALL_CELL_MM)) + 1)
+        if n_th is None:
+            n_th = min(64, max([16] + [len(e.lf.theta) for e in tree.edges]))
+        n_s, n_th = int(n_s), int(n_th)
         P, Tg, M1, cum_s = [], [], [], []
         vstart, vcount, smax, sj, ej = [], [], [], [], []
         ss = _np.linspace(0.0, 1.0, n_s)              # fractional s; scaled per edge below
-        th = -_np.pi + (_np.arange(n_th) + 0.5) / n_th * 2.0 * _np.pi
+        th = -_np.pi + _np.arange(n_th) / n_th * 2.0 * _np.pi     # sample k at angle k step
         R0_blocks = []
         off = 0
         for i, e in enumerate(tree.edges):
@@ -605,8 +618,7 @@ class TubeVBDSolver(SolverVBD):
             ej.append(0 if _entry_end(tree, e.node_b) else 1)
             P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
             # bake the branch-blended R(s,θ) for this edge into its grid block
-            block = _np.array([[tree.blended_R(i, float(sf) * f.length, float(t)) for t in th]
-                               for sf in ss])
+            block = tree.blended_R_grid(i, ss * f.length, th)
             R0_blocks.append(block.ravel())
         self._tree_P = _wp.array(_np.concatenate(P).astype(_np.float32), dtype=_wp.vec3, device=dev)
         self._tree_Tg = _wp.array(_np.concatenate(Tg).astype(_np.float32), dtype=_wp.vec3, device=dev)

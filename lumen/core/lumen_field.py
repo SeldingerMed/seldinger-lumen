@@ -86,6 +86,26 @@ class LumenField:
         r1 = self.R[i1, j0] * (1 - ft) + self.R[i1, j1] * ft
         return float(r0 * (1 - fs) + r1 * fs)
 
+    def eval_grid(self, s, theta) -> np.ndarray:
+        """``eval`` on every (s, theta) pair of two 1-D arrays at once: (len(s), len(theta))."""
+        s = np.asarray(s, float)
+        theta = np.asarray(theta, float)
+        si = np.interp(s, self.s, np.arange(len(self.s)))
+        i0 = np.clip(np.floor(si), 0, len(self.s) - 1).astype(int)
+        i1 = np.minimum(i0 + 1, len(self.s) - 1)
+        fs = (si - i0)[:, None]
+        if len(self.theta) == 1:
+            col = self.R[i0, 0][:, None] * (1 - fs) + self.R[i1, 0][:, None] * fs
+            return np.repeat(col, len(theta), axis=1)
+        step = (self.theta[-1] - self.theta[0]) / (len(self.theta) - 1)
+        tj = ((theta - self.theta[0]) % (2 * np.pi)) / step
+        j0 = np.floor(tj).astype(int) % len(self.theta)
+        j1 = (j0 + 1) % len(self.theta)
+        ft = (tj - np.floor(tj))[None, :]
+        r0 = self.R[i0][:, j0] * (1 - ft) + self.R[i0][:, j1] * ft
+        r1 = self.R[i1][:, j0] * (1 - ft) + self.R[i1][:, j1] * ft
+        return r0 * (1 - fs) + r1 * fs
+
     def gap(self, s: float, theta: float, r: float) -> float:
         """Contact gap g = R - r. Positive = clearance, <= 0 = penetration."""
         return self.eval(s, theta) - r
