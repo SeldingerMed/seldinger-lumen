@@ -14,8 +14,9 @@ def test_pixels_decide_between_two_actions_or_no_exposure():
     assert run.choose(image + np.fliplr(image)) == "stop"
 
 
-# case-b is the fast insertion (6 mm a push, open-loop). It crossed the wall when the wall
-# let the wire through; with the wire held in the lumen it enters the branch.
+# case-b is the fast insertion (6 mm a push, open-loop, with containment and the feed stop
+# off). On the earlier rod dynamics it crossed the wall; with the push now carried to the tip
+# (more solver iterations, shorter substeps) it enters the branch.
 @pytest.mark.parametrize("cid,expected", [("case-a", "reach"), ("case-b", "reach"), ("case-c", "abstain")])
 def test_actual_cpu_rollouts(cid, expected):
     pytest.importorskip("newton")

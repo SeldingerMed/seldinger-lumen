@@ -63,9 +63,10 @@ def _tip_target(ep: Episode, notes: dict) -> dict:
     target_s = _finite(notes.get("target_s")) if isinstance(notes, dict) else None
     tol = _threshold(notes, "success_tol", 2.5)
     final_tip_s = _last_value(ep, "tip_s", "route_s")
+    on_route = _last_value(ep, "on_route")      # recorded by tree navigation; absent elsewhere
     if target_s is not None and final_tip_s is not None:
         final_dist = abs(final_tip_s - target_s)
-        success = bool(final_dist <= tol)
+        success = bool(final_dist <= tol and (on_route is None or on_route > 0.5))
     else:
         final_dist = _finite(ep.outcome.final_dist)
         success = bool(ep.outcome.success)

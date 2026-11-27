@@ -38,12 +38,15 @@ class FollowPolicy:
         self.back_to = None
 
     def _pullback_target(self, info) -> float:
-        """Where to pull back to: ``approach_mm`` short of a branch point the tip is stuck at
-        (from the roadmap, ``branch_mm``), else ``back_mm`` short of where it stuck."""
+        """Where to pull back to: ``approach_mm`` short of the branch point the tip is stuck at
+        (the nearest on the roadmap, ``branch_mm``), and at least ``approach_mm`` behind the
+        tip; else ``back_mm`` short of where it stuck."""
         tip = float(info["tip_mm"])
-        for b in info.get("branch_mm", ()):
-            if b - 2.0 * self.approach_mm <= tip <= b + self.approach_mm:
-                return b - self.approach_mm
+        near = [b for b in info.get("branch_mm", ())
+                if b - 2.0 * self.approach_mm <= tip <= b + self.approach_mm]
+        if near:
+            b = min(near, key=lambda b: abs(b - tip))
+            return min(b - self.approach_mm, tip - self.approach_mm)
         return tip - self.back_mm
 
     def __call__(self, info: dict) -> np.ndarray:

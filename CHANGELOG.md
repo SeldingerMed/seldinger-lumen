@@ -50,6 +50,19 @@ All notable changes to this project are documented here. The format follows
   fork, so a wire that is only pushed enters either branch with no wall penetration. Elsewhere
   the tip starts in one fixed direction (`aim_tip=False`, the default) and a policy chooses the
   branch by turning the wire.
+- Scoring no longer flatters the wire. The deepest wall penetration of each step is counted
+  before containment puts a node back (it was measured after, so a node 0.6 mm through the
+  wall could be scored as safe). A tip read further along the route than one step can carry it
+  is believed only if the wire itself lies along the route back to where the tip was;
+  waiting there no longer makes the reading count. A point past the end of a vessel is no
+  longer inside it. The benchmark's clinical target check uses the tracked tip and
+  requires it to be in the route.
+- A named vessel's route runs through that vessel: the left anterior cerebral artery of the
+  shipped aneurysm CTA was reached up the right carotid through the right one, and is now
+  reached up the left. A target that is itself a way in is reached from another, a target no
+  way in reaches raises `ValueError`, `lumen import --entry` makes the given entry the only
+  way in, and an older `names.json` keeps its hand-edited targets and names.
+- A route shorter than the default 30 mm wire gets a shorter wire instead of failing.
 - These change `TreeNavEnv` dynamics, so the benchmark suites move to `lumen-bench/5` and
   `lumen-bench/heldout/3`.
 - The wire stays in the vessel on imported anatomy. Five causes, each fixed: past the open far

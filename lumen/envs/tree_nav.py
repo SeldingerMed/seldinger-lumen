@@ -52,6 +52,7 @@ def _route_polyline(tree: VascularTree, route: list[int], start_node: str):
     return np.concatenate(pts_all, axis=0)
 
 
+WIRE_SEG_MM = 2.0            # the simulated wire's segment length
 AIM_MIN_TURN_DEG = 15.0      # a route join turning less than this is the vessel running on
 
 
@@ -84,14 +85,14 @@ class TreeNavEnv:
                  safety_max_pen=0.3, blend_len=4.0, terminate_on_unsafe: bool = False,
                  device=None, device_radius_mm=0.2, density: float | None = None,
                  feed_stop_pen_mm: float | None = 0.2, wall_stiffness: float = 6.0e3,
-                 wire_nodes: int = 16, guide_radius_mm: float | None = None,
+                 wire_nodes: int | None = None, guide_radius_mm: float | None = None,
                  substep_ms: float = 2.5, bend_damping: float = 0.05, tip_deg: float = 45.0,
                  support_gap_mm: float = 20.0, contain_tol_mm: float | None = 0.3,
                  settle_steps: int = 10, quasi_static: bool = True,
                  vbd_iterations: int | None = None, aim_tip: bool = False,
                  start_node: str | None = None):
         """``density`` is the wire's mass per cubic millimetre in the solver's units (None
-        keeps the solver default). ``feed_stop_pen_mm`` stops feeding, for the rest of a step,
+        gives 1e-2, see below). ``feed_stop_pen_mm`` stops feeding, for the rest of a step,
         once any part of the wire presses that far into the wall. The pushed end is driven
         kinematically, so without this a jammed wire is pushed with unlimited force and goes
         through the wall; with it, more push against a jam only loads the wire, as a hand on
@@ -199,17 +200,33 @@ class TreeNavEnv:
         if self.density is not None and not (np.isfinite(self.density) and self.density > 0):
             raise ValueError("density must be finite and positive")
         self.feed_stop_pen_mm = None if feed_stop_pen_mm is None else float(feed_stop_pen_mm)
+        # The wire is laid along the route at reset, so it must fit: 16 nodes (30 mm), or as
+        # many 2 mm segments as fit a shorter route.
+        fit = int((self.L - 1.0) // WIRE_SEG_MM) + 1
+        if wire_nodes is None:
+            wire_nodes = min(16, fit)
         self.wire_nodes = int(wire_nodes)
         if self.wire_nodes < 5:
-            raise ValueError("wire_nodes must be at least 5 (a shaft and a shaped tip)")
+            raise ValueError("wire_nodes must be at least 5 (a shaft and a shaped tip); a route "
+                             f"of {self.L:.1f} mm holds {fit}")
+        if self.wire_nodes > fit:
+            raise ValueError(f"a {self.wire_nodes}-node wire ({(self.wire_nodes - 1) * WIRE_SEG_MM:.0f}"
+                             f" mm) does not fit a {self.L:.1f} mm route; use at most {fit}")
         self.substep_ms = float(substep_ms)
         self.bend_damping = float(bend_damping)
         self.tip_deg = float(tip_deg)
+        if not (np.isfinite(self.tip_deg) and 0.0 <= self.tip_deg <= 90.0):
+            raise ValueError("tip_deg must be between 0 and 90")
         self.support_gap_mm = float(support_gap_mm)
         self.contain_tol_mm = None if contain_tol_mm is None else float(contain_tol_mm)
+        if self.contain_tol_mm is not None and not (np.isfinite(self.contain_tol_mm)
+                                                     and self.contain_tol_mm >= 0):
+            raise ValueError("contain_tol_mm must be finite and non-negative, or None")
         self.settle_steps = int(settle_steps)
-        self.quasi_static = bool(quasi_static)
-        self.aim_tip = bool(aim_tip)
+        if self.settle_steps < 0:
+            raise ValueError("settle_steps must be non-negative")
+        self.quasi_static = validate_boolean(quasi_static, "quasi_static")
+        self.aim_tip = validate_boolean(aim_tip, "aim_tip")
         # a push reaches about one node further down the wire per solver iteration
         self.vbd_iterations = 2 * self.wire_nodes if vbd_iterations is None else int(vbd_iterations)
         if self.vbd_iterations < 1:
@@ -218,6 +235,10 @@ class TreeNavEnv:
             v = getattr(self, name)
             if not (np.isfinite(v) and v >= 0) or (name == "substep_ms" and v == 0):
                 raise ValueError(f"{name} must be finite and {'positive' if name == 'substep_ms' else 'non-negative'}")
+        # a wire shorter than the gap could never be fed: the gap is held to the wire's span
+        # less two segments (20 mm of a 30 mm wire, as given)
+        span = (self.wire_nodes - 1) * WIRE_SEG_MM
+        self._support_gap = min(self.support_gap_mm, max(0.0, span - 2 * WIRE_SEG_MM))
         self.wall_stiffness = float(wall_stiffness)
         if not (np.isfinite(self.wall_stiffness) and self.wall_stiffness > 0):
             raise ValueError("wall_stiffness must be finite and positive")
@@ -326,11 +347,6 @@ class TreeNavEnv:
             raise ValueError("body_quaternions must contain at least one guidewire body")
         x, y, z, w = quats[-1]
         return float(2.0 * np.arctan2(z, w))
-
-    def _deepest_pen(self) -> float:
-        pos = self.sim.body_positions()
-        return max(0.0, max(float(pr.r + self.device_radius_mm - pr.R)
-                            for pr in (self.tree.project(p) for p in pos)))
 
     def _tip_aim(self, seed):
         """Where the shaped tip is set to point at the start: into the vessel the route turns
@@ -455,6 +471,7 @@ class TreeNavEnv:
         s0 = self._route_s(tip, near=0.0)
         self._tip_best = self._tip_s = self.route_frame.project(tip).s if s0 is None else s0
         self._tip_s_age = 0
+        self._step_pen = 0.0
         self._feed = 0.0
         self._prev = abs(self._tip_s - self.target_s)
         return self._obs(self._features()), {}
@@ -504,9 +521,10 @@ class TreeNavEnv:
                 rail[i] = rail[i] - over * np.asarray(tp.e_r, float)
         keep = np.r_[True, np.linalg.norm(np.diff(rail, axis=0), axis=1) > 1e-4]
         rail = rail[keep]
+        n_path = int(np.count_nonzero(keep[:len(path)]))   # the path's points left after merging
         seg = np.linalg.norm(np.diff(rail, axis=0), axis=1)
         cum = np.r_[0.0, np.cumsum(seg)]
-        end = max(cum[len(path) - 1], cum[-1] - 2.0)       # stop short of the tip
+        end = max(cum[n_path - 1], cum[-1] - 2.0)          # stop short of the tip
         k = int(np.searchsorted(cum, end))
         if k < len(rail) and cum[k] > end:
             u = (end - cum[k - 1]) / max(cum[k] - cum[k - 1], 1e-9)
@@ -529,7 +547,12 @@ class TreeNavEnv:
         for i, (a, b) in zip(self.route, self._route_ranges):
             e = self.tree.edges[i]
             pr = e.frame.project(p)
-            if not pr.r < self.tree.blended_R(i, pr.s, pr.theta) + WALL_TOL_MM:
+            end = e.node_a if pr.s <= 1e-6 else e.node_b if pr.s >= e.frame.length - 1e-6 else None
+            # past an end the projection stops at the end point: the point's distance is to
+            # that point, not to the centreline carried on beyond it
+            r = pr.r if end is None else float(np.linalg.norm(
+                p - np.asarray(e.frame.points[0 if pr.s <= 1e-6 else -1], float)))
+            if not r < self.tree.blended_R(i, pr.s, pr.theta) + WALL_TOL_MM:
                 continue
             idx = np.flatnonzero((f.cum_s >= a - 1e-6) & (f.cum_s <= b + 1e-6))
             if len(idx) < 2:
@@ -538,7 +561,6 @@ class TreeNavEnv:
             # Past an end where the route goes on into its next vessel, the point belongs to
             # that vessel: a projection clamped there only counts if no vessel holds the point
             # inside its own length (the outside of a sharp corner, past both ends).
-            end = e.node_a if pr.s <= 1e-6 else e.node_b if pr.s >= e.frame.length - 1e-6 else None
             weak = end is not None and end in self._route_joins
             cands.append((weak, float(f.cum_s[idx[0]] + sub.project(p).s)))
         if not cands:
@@ -546,6 +568,23 @@ class TreeNavEnv:
         strong = [s for weak, s in cands if not weak]
         ref = getattr(self, "_tip_s", self._tip_best) if near is None else near
         return min(strong or [s for _, s in cands], key=lambda s: abs(s - ref))
+
+    def _wire_lies_along_route(self, s_new: float) -> bool:
+        """Whether the wire itself shows the way from the last tracked place to ``s_new``.
+        A reading further on than one step can carry the tip is believed only if, walking back
+        from the tip along the wire, every node is inside a route vessel and each is a segment
+        or so behind the one before, down to one near the last tracked place. A tip that went
+        through a wall into a later stretch of the route, or that is read there while the wire
+        stays where it was, fails; waiting there does not make it pass."""
+        prev = float(s_new)
+        for p in np.asarray(self.sim.body_positions(), float)[-2::-1]:
+            s = self._route_s(p, near=prev)
+            if s is None or abs(s - prev) > 1.5 * WIRE_SEG_MM + WALL_TOL_MM:
+                return False
+            if abs(s - self._tip_s) <= self._progress_cap:
+                return True
+            prev = s
+        return False
 
     def _record_base_path(self) -> None:
         """Trim the path at the pushed end's place on it (after a pull-back) and extend it."""
@@ -562,6 +601,8 @@ class TreeNavEnv:
         a, twist = self._parse_action(action)
         insertion, turn = a * self.max_insertion, twist * self.max_twist
         split = None
+        # deepest wall penetration seen in this step, before containment puts nodes back
+        self._step_pen = 0.0
         if insertion > 0.0 and self.feed_stop_pen_mm is not None:
             # the route ends where the scan's vessel ends: a tip already there gets no more
             # push, and the pushed end never runs past the end of the route. The stop sits
@@ -569,7 +610,7 @@ class TreeNavEnv:
             stop = self.L - min(1.0, 0.5 * float(self.success_tol))
             pos = self.sim.body_positions()
             base_s = self.route_frame.project(pos[0]).s
-            if self.route_frame.project(pos[-1]).s >= stop:
+            if self._tip_s >= stop:
                 insertion = 0.0
             insertion = float(np.clip(stop - base_s, 0.0, insertion))
         if self.feed_stop_pen_mm is not None:
@@ -579,8 +620,8 @@ class TreeNavEnv:
                 # place on the route: a caught tip that falls back stops the feed
                 tip = np.asarray(self.sim.body_positions()[-1], float)
                 ts = self._route_s(tip)
-                ts = self.route_frame.project(tip).s if ts is None else ts
-                insertion = float(np.clip(ts - self.support_gap_mm - base_s, 0.0, insertion))
+                ts = self._tip_s if ts is None else ts     # off the route: where it was last
+                insertion = float(np.clip(ts - self._support_gap - base_s, 0.0, insertion))
         feed = float(np.sign(insertion))
         if self.quasi_static and feed != self._feed:
             # the hand changed direction (or started or stopped feeding): the wire's motion
@@ -594,7 +635,9 @@ class TreeNavEnv:
             n = max(1, int(self.substeps))
             split = {"load": 0.0, "pressure": 0.0, "impulse": 0.0, "sum": 0.0}
             for _ in range(n):
-                free = self._contain() <= self.feed_stop_pen_mm
+                pen = self._contain()
+                self._step_pen = max(self._step_pen, pen)
+                free = pen <= self.feed_stop_pen_mm
                 piece = insertion / n if free or insertion < 0 else 0.0
                 dt = 5e-3 * self.substeps / n
                 self.sim.step(dt=dt, substeps=self._solver_substeps(dt),
@@ -613,18 +656,21 @@ class TreeNavEnv:
         if self.quasi_static and insertion == 0.0 and turn == 0.0:
             self.sim.state_0.body_qd.zero_()
         if self.feed_stop_pen_mm is not None:
-            self._contain()
+            self._step_pen = max(self._step_pen, self._contain())
             self._record_base_path()
         # route progress: tracked step to step, so a reading that jumped further than the tip
         # can travel since it was last seen in the route went through a wall
         tip = np.asarray(self.sim.body_positions()[-1], float)
         s_tip = self._route_s(tip)
-        self._tip_s_age += 1
-        if s_tip is not None and abs(s_tip - self._tip_s) <= self._progress_cap * self._tip_s_age:
+        if s_tip is not None and (abs(s_tip - self._tip_s) <= self._progress_cap
+                                  or self._wire_lies_along_route(s_tip)):
             self._tip_s, self._tip_s_age = s_tip, 0
             self._tip_best = max(self._tip_best, s_tip)
+        else:
+            self._tip_s_age += 1
         self.steps += 1
         f = self._features()
+        f["max_pen"] = max(f["max_pen"], self._step_pen)
         obs = self._obs(f)
         if not (np.isfinite(obs).all() and np.isfinite([f["s"], f["r"], f["max_r"]]).all()):
             return np.zeros(5, np.float32), -100.0, True, False, {

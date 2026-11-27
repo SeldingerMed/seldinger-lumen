@@ -122,8 +122,8 @@
     "e19"
    ],
    "target_node": "j3",
-   "route_mm": 78.4,
-   "start_node": "inlet"
+   "route_mm": 89.6,
+   "start_node": "end2"
   }
  }
 }

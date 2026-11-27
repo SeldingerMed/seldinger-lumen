@@ -219,7 +219,9 @@ def run_episode(env, policy, seed, *, record_replay: bool = False) -> dict:
                 curve.append(float(value))
         success = success or bool(info.get("success", False))
         kin = {
-            "tip_s": float(info.get("route_s", info.get("tip_s", 0.0))),
+            # the tip's tracked place in the route vessels where the env tracks it (a tip in a
+            # wrong branch near the route's centreline is not on it)
+            "tip_s": float(info.get("tip_mm", info.get("route_s", info.get("tip_s", 0.0)))),
             "max_penetration": float(
                 info.get("max_pen", max(0.0, float(info.get("max_r", 0.0)) - R))
             ),
@@ -232,6 +234,8 @@ def run_episode(env, policy, seed, *, record_replay: bool = False) -> dict:
             kin["wall_load_impulse"] = float(info["wall_load_impulse"])
         if info.get("edge") is not None:
             kin["edge"] = info["edge"]
+        if "off_route" in info:
+            kin["on_route"] = 0.0 if info["off_route"] else 1.0
         trace.append(Step(
             t=float(steps),
             action={"policy_action": np.asarray(action).reshape(-1).tolist()},

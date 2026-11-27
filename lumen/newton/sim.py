@@ -30,7 +30,6 @@ class NewtonGuidewireSim:
     def __init__(self, vessel_centerline: np.ndarray, R: float,
                  device_points: np.ndarray, radius: float = 0.2,
                  stretch_stiffness: float = 1.0e4, bend_stiffness: float = 5.0e1,
-                 rest_points=None,
                  bend_damping: float = 1.0, density: float = 1.0,
                  kappa: float = 2.0e3, d_hat: float = 0.3,
                  barrier_mode: str = "compliant",
@@ -45,7 +44,8 @@ class NewtonGuidewireSim:
                  catheter_bend_stiffness: float = 1.5e2,
                  couple_coaxial: bool = True, catheter_inner_radius: float = 0.5,
                  coax_kappa: float = 2.0e3, coax_d_hat: float = 0.1,
-                 coax_two_way: bool = True, tree=None, route_centerline=None):
+                 coax_two_way: bool = True, tree=None, route_centerline=None, *,
+                 rest_points=None):
         from lumen.hardware import configure_backend_logging, detect_device
         configure_backend_logging()
         self.device = device or detect_device()      # cuda if available, else cpu
@@ -107,6 +107,8 @@ class NewtonGuidewireSim:
         self.cath_bodies, self.cath_bases = [], []
         for _ in range(self.n_envs):
             # built in its rest shape (rest_points), then laid into its starting pose below
+            if rest_points is not None and len(rest_points) != len(device_points):
+                raise ValueError("rest_points must have as many points as device_points")
             gw = _add_rod(device_points if rest_points is None else rest_points, radius,
                           stretch_stiffness, bend_stiffness)
             self.bodies.extend(gw)

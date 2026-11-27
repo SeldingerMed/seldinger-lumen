@@ -355,3 +355,14 @@ def test_a_copied_case_folder_opens_by_path(tmp_path):
     shutil.copytree(cases.case_folder(name), copy)
     a = resolve(str(copy))
     assert a.asset.edges and a.surface is not None
+
+
+def test_follow_policy_pulls_back_behind_the_tip_toward_the_nearest_branch():
+    from lumen.viewer.record import FollowPolicy
+
+    pol = FollowPolicy()
+    # stuck at 91 mm with branches at 85 and 100: back off from the nearer (100), and never to
+    # a point ahead of the tip
+    target = pol._pullback_target({"tip_mm": 91.0, "branch_mm": (85.0, 100.0)})
+    assert target <= 91.0 - pol.approach_mm
+    assert pol._pullback_target({"tip_mm": 104.0, "branch_mm": (100.0,)}) == 100.0 - pol.approach_mm

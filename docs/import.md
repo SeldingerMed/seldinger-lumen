@@ -97,8 +97,14 @@ obs, _ = env.reset()
 ## Where the device enters
 
 By default the device enters at the lowest end of the vessel tree: the groin end of an
-aorto-iliac scan, the bottom of a neck or head scan. `--entry x,y,z` sets another point, in
-patient millimetres (LPS).
+aorto-iliac scan, the bottom of a neck or head scan. A head scan usually cuts both carotids
+(and often the vertebrals) at the bottom of the picture, and each cut end is a way in, as the
+artery an operator would bring the wire up: a run aimed at a named vessel starts from the way
+in whose route to it is shortest and runs through the vessel itself, so the right middle
+cerebral artery is reached up the right carotid. `names.json` records the ways in (`access`)
+and each vessel's start (`start_node`).
+
+`--entry x,y,z` sets the entry point, in patient millimetres (LPS). It is then the only way in.
 
 ## What is not supported
 
