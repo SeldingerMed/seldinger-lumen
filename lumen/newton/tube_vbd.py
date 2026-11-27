@@ -35,7 +35,7 @@ from lumen.newton.tube_barrier_kernel import (
 )
 
 
-_WALL_CELL_MM = 1.0       # the longest spacing between tree-contact wall samples along a vessel
+_WALL_CELL_MM = 2.0       # the longest spacing between tree-contact wall samples along a vessel
 
 
 def _entry_end(tree, node_id) -> bool:
@@ -591,20 +591,20 @@ class TubeVBDSolver(SolverVBD):
             raise RuntimeError("tube contact already set on this solver; cannot also enable tree "
                                "contact (the barriers would double up)")
         dev = self.device
-        # The kernel reads the wall from this grid at the nearest cell, so the cells must be
-        # finer than the radius changes along a scanned vessel: by default at most
-        # _WALL_CELL_MM apart along the longest vessel (40 cells over a 400 mm aorta were
-        # 10 mm apart), and as many angles as the finest lumen field has (at least 16).
+        # The kernel reads the wall between these samples, so they must follow the radius
+        # changes along a scanned vessel: by default at most _WALL_CELL_MM apart along the
+        # longest vessel (40 samples over a 400 mm aorta were 10 mm apart), and around it at
+        # the lumen fields' own angles (-pi + k 2 pi / n_th), so the angular reading is exact.
         if n_s is None:
             longest = max(float(e.frame.length) for e in tree.edges)
             n_s = max(40, int(_np.ceil(longest / _WALL_CELL_MM)) + 1)
         if n_th is None:
-            n_th = min(64, 2 * max([8] + [len(e.lf.theta) for e in tree.edges]))
+            n_th = min(64, max([16] + [len(e.lf.theta) for e in tree.edges]))
         n_s, n_th = int(n_s), int(n_th)
         P, Tg, M1, cum_s = [], [], [], []
         vstart, vcount, smax, sj, ej = [], [], [], [], []
         ss = _np.linspace(0.0, 1.0, n_s)              # fractional s; scaled per edge below
-        th = -_np.pi + (_np.arange(n_th) + 0.5) / n_th * 2.0 * _np.pi
+        th = -_np.pi + _np.arange(n_th) / n_th * 2.0 * _np.pi     # sample k at angle k step
         R0_blocks = []
         off = 0
         for i, e in enumerate(tree.edges):

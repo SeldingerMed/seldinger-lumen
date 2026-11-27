@@ -319,8 +319,8 @@ def test_the_contact_kernel_feels_the_wall_between_its_samples(n_s):
 
 
 def test_the_wall_is_sampled_finely_along_a_long_vessel():
-    """By default the baked wall has a sample at least every millimetre along the longest
-    vessel, and twice as many angles as the finest lumen field (at most 64)."""
+    """By default the baked wall has a sample at least every 2 mm along the longest vessel,
+    and the lumen fields' own angles."""
     from lumen import cases
 
     tree = VascularTree(cases.load("aorta-cta")[0])
@@ -328,5 +328,5 @@ def test_the_wall_is_sampled_finely_along_a_long_vessel():
     sim = NewtonGuidewireSim(np.asarray(tree.edges[0].frame.points), 2.0,
                              np.asarray(tree.edges[0].frame.points[:8]), radius=0.2,
                              device="cpu", tree=tree)
-    assert longest / (sim.solver._tree_ns - 1) <= 1.0
-    assert sim.solver._tree_nth == min(64, 2 * max(len(e.lf.theta) for e in tree.edges))
+    assert longest / (sim.solver._tree_ns - 1) <= 2.0
+    assert sim.solver._tree_nth == max(len(e.lf.theta) for e in tree.edges) == 32

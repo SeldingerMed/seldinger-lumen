@@ -220,13 +220,13 @@ def _grid_R(R0_grid: wp.array(dtype=wp.float32), w_field: wp.array(dtype=wp.floa
             block: int, n_s: int, n_th: int, s01: float, th01: float):
     """The wall radius (base plus deformation) of one edge's [n_s][n_th] block at a fractional
     arc length s01 and angle th01 (both 0..1), read bilinearly: linear between the samples
-    along s (clamped at the ends) and periodic around the angle (cell k is centred at
-    (k + 0.5) / n_th), so the wall a node feels does not step from one sample to the next."""
+    along s (clamped at the ends) and periodic around the angle (sample k at th01 = k / n_th),
+    so the wall a node feels does not step from one sample to the next."""
     x = wp.clamp(s01, 0.0, 1.0) * float(n_s - 1)
     i0 = wp.clamp(int(wp.floor(x)), 0, wp.max(n_s - 2, 0))
     i1 = wp.min(i0 + 1, n_s - 1)
     fs = wp.clamp(x - float(i0), 0.0, 1.0)
-    y = th01 * float(n_th) - 0.5
+    y = th01 * float(n_th)
     jf = wp.floor(y)
     ft = y - jf
     j0 = ((int(jf) % n_th) + n_th) % n_th
@@ -351,7 +351,7 @@ def accumulate_tree_barrier(
     m2 = wp.cross(tang, m1)
     theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
     th01 = (theta + wp.pi) / (2.0 * wp.pi)
-    i_th = int(th01 * float(n_th)) % n_th
+    i_th = int(th01 * float(n_th) + 0.5) % n_th                    # the nearest sample
     cell = (env * n_edges + be) * edge_cells + i_s * n_th + i_th   # the load lands on this cell
     # SHARED radius: blended base R0 + HGO deformation, read between the samples
     R_eff = _grid_R(R0_grid, w_field, (env * n_edges + be) * edge_cells, n_s, n_th,
