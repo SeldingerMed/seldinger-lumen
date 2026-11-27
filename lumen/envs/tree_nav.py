@@ -52,6 +52,9 @@ def _route_polyline(tree: VascularTree, route: list[int], start_node: str):
     return np.concatenate(pts_all, axis=0)
 
 
+AIM_MIN_TURN_DEG = 15.0      # a route join turning less than this is the vessel running on
+
+
 def guide_start(tree: VascularTree, route: list[int], start_node: str, guide_radius_mm: float):
     """Where a guide catheter parked in the route leaves the wire: the far end of the last route
     vessel at least ``guide_radius_mm`` wide (mean lumen radius). A microwire is delivered
@@ -85,7 +88,7 @@ class TreeNavEnv:
                  substep_ms: float = 2.5, bend_damping: float = 0.05, tip_deg: float = 45.0,
                  support_gap_mm: float = 20.0, contain_tol_mm: float | None = 0.3,
                  settle_steps: int = 10, quasi_static: bool = True,
-                 vbd_iterations: int | None = None,
+                 vbd_iterations: int | None = None, aim_tip: bool = False,
                  start_node: str | None = None):
         """``density`` is the wire's mass per cubic millimetre in the solver's units (None
         keeps the solver default). ``feed_stop_pen_mm`` stops feeding, for the rest of a step,
@@ -128,6 +131,13 @@ class TreeNavEnv:
         ``wire_nodes``). A push reaches about one node further down the wire per iteration, so
         with fewer the pushed end runs ahead of the tip and the wire bows in a wide vessel
         (16 nodes at 8 iterations pass a third of a push to the tip, at 32 about 0.8).
+
+        ``aim_tip`` turns the shaped tip at the start toward the branch the route turns into at
+        the next junction (``_tip_aim``), as an operator does before reaching it; a wire that
+        is only pushed then enters it. Off (the default), the tip starts in one fixed direction
+        whatever the target, so a policy or an experiment has to choose the branch by turning
+        the wire. On the arch the probing ``FollowPolicy`` reaches the left subclavian from the
+        fixed start and not from the aimed one, so aiming is no help to a policy that turns.
 
         ``support_gap_mm`` is how close the microcatheter behind the wire may come to the
         wire's tip, measured along the route: the pushed end stops there, so a tip that
@@ -199,6 +209,7 @@ class TreeNavEnv:
         self.contain_tol_mm = None if contain_tol_mm is None else float(contain_tol_mm)
         self.settle_steps = int(settle_steps)
         self.quasi_static = bool(quasi_static)
+        self.aim_tip = bool(aim_tip)
         # a push reaches about one node further down the wire per solver iteration
         self.vbd_iterations = 2 * self.wire_nodes if vbd_iterations is None else int(vbd_iterations)
         if self.vbd_iterations < 1:
@@ -254,11 +265,12 @@ class TreeNavEnv:
 
         1. **Symmetric seed** — offset the shaft *out of the bifurcation plane* (not toward
            a branch), so neither branch is favoured by the initial pose.
-        2. **Pre-shaped tip** — a distal bend (a rest shape, so it persists as the wire
-           advances) that makes the tip *enter* the target branch by contact. Empirically
-           the wire enters the branch *opposite* the bend (a lever off the crotch), so we
-           bend away from the target; the wire then agrees with the route rail and avoids
-           unsafe septum crossing on the canonical branch benchmark.
+        2. **Pre-shaped tip** — a distal bend (the rest shape, ``_rest_points``, so it
+           persists as the wire advances) turned toward the branch the route takes, as an
+           operator turns the tip before reaching a junction. The seed offsets its tip the
+           other way, so the shaft starts against the far wall as the tip swings round: on
+           the benchmark bifurcation a seed bent toward the branch jams in the crotch, this
+           one enters the branch with no wall penetration.
 
         The shaft follows the route centerline at reset time, so tortuous entries start
         inside the vessel instead of cutting through the first curve."""
@@ -283,7 +295,8 @@ class TreeNavEnv:
             vn = float(np.linalg.norm(v))
             oop_local.append(v / vn if vn > 1e-6 else fallback)
         seed = route_pts + 0.3 * self.R * np.asarray(oop_local)
-        bend = -branch_lat                                             # bend away from the branch
+        aim = self._tip_aim(seed)
+        bend = -(branch_lat if aim is None else aim)                   # away (see 2. above)
         for k in range(1, min(int(tip_bend_nodes), n - 1) + 1):
             seed[-k] = seed[-k] + bend * tip_bend_mm * (tip_bend_nodes - k + 1)
         return self._clamp_seed_inside_lumen(seed)
@@ -319,15 +332,58 @@ class TreeNavEnv:
         return max(0.0, max(float(pr.r + self.device_radius_mm - pr.R)
                             for pr in (self.tree.project(p) for p in pos)))
 
-    def _rest_points(self, sp=2.0, tip_bend_nodes=3):
-        """The wire's rest shape: straight, with an angled distal tip (the shaped tip)."""
+    def _tip_aim(self, seed):
+        """Where the shaped tip is set to point at the start: into the vessel the route turns
+        into at the next junction ahead of the tip (by at least ``AIM_MIN_TURN_DEG``), as an
+        operator turns the tip toward a branch before reaching it. None when the route runs on
+        straight there: a side branch leaves at that junction, and a tip turned toward a later
+        branch would take this one."""
+        if not self.aim_tip:
+            return None
+        f = self.route_frame
+        s_tip = float(f.project(np.asarray(seed[-1], float)).s)
+
+        def tangent(s):
+            return f.tangents[min(int(np.searchsorted(f.cum_s, s, side="right")) - 1,
+                                  len(f.tangents) - 1)]
+        ahead = [b for b in self._branch_mm if b > s_tip]
+        if not ahead:
+            return None
+        s_b = ahead[0]
+        t_in, t_out = tangent(max(s_b - 3.0, 0.0)), tangent(min(s_b + 5.0, float(f.length)))
+        lat = t_out - float(t_out @ t_in) * t_in
+        n = float(np.linalg.norm(lat))
+        return lat / n if n >= np.sin(np.radians(AIM_MIN_TURN_DEG)) else None
+
+    def _rest_points(self, seed=None, sp=2.0, tip_bend_nodes=3):
+        """The wire's rest shape: straight, with an angled distal tip (the shaped tip). Given
+        the starting pose (``seed``), the tip is bent toward ``_tip_aim``: the rest shape sets
+        each segment's bend relative to the one before it, and the wire is laid in along the
+        seed's parallel-transport frames, so the bend is turned to the aim in the frame of the
+        segment the bend starts from."""
         n = self.wire_nodes
         deg = self.tip_deg
+        k = min(int(tip_bend_nodes), n - 1)
+        phi = 0.0
+        aim = None if seed is None else self._tip_aim(seed)
+        if aim is not None and n - k - 2 >= 0:
+            import newton
+            import warp as wp
+
+            pts = [wp.vec3(*map(float, p)) for p in np.asarray(seed, float)]
+            x, y, z, w = (float(c) for c in newton.utils.create_parallel_transport_cable_quaternions(
+                pts)[n - k - 2])
+            rot = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+            local = rot.T @ aim
+            phi = float(np.arctan2(local[1], local[0]))
         pts = np.zeros((n, 3))
         pts[:, 2] = np.arange(n) * sp
-        k = min(int(tip_bend_nodes), n - 1)
         for j in range(1, k + 1):                    # the last k nodes leave the axis at `deg`
-            pts[n - k - 1 + j, 0] = j * sp * np.sin(np.radians(deg))
+            off = j * sp * np.sin(np.radians(deg))
+            pts[n - k - 1 + j, 0] = off * np.cos(phi)
+            pts[n - k - 1 + j, 1] = off * np.sin(phi)
             pts[n - k - 1 + j, 2] = pts[n - k - 1, 2] + j * sp * np.cos(np.radians(deg))
         return pts
 
@@ -374,14 +430,15 @@ class TreeNavEnv:
     def reset(self, *, seed=None, options=None):           # seed accepted for the Gym contract
         from lumen.newton.sim import NewtonGuidewireSim
         if getattr(self, "sim", None) is None:
+            seed = self._device_points(n=self.wire_nodes)
             # the base follows the WHOLE route polyline so insertion can push past the
             # junction into the target branch (not just up the trunk).
             self.sim = NewtonGuidewireSim(np.asarray(self.route_frame.points), self.R,
-                                          self._device_points(n=self.wire_nodes),
+                                          seed,
                                           radius=self.device_radius_mm,
                                           kappa=self.wall_stiffness, d_hat=0.3,
                                           vbd_iterations=self.vbd_iterations,
-                                          rest_points=self._rest_points(),
+                                          rest_points=self._rest_points(seed),
                                           bend_damping=self.bend_damping,
                                           device=self.device, tree=self.tree,
                                           route_centerline=np.asarray(self.route_frame.points),

@@ -91,7 +91,8 @@ class PhantomReplayInterface:
     """In-process DeploymentInterface; there is no hardware backend selection."""
 
     def __init__(self, coaxial=False):
-        env = TreeNavEnv(bifurcation(), target_node="left_out", device="cpu")
+        # The phantom protocol and its fixtures were built on a 10-node (18 mm) distal wire.
+        env = TreeNavEnv(bifurcation(), target_node="left_out", device="cpu", wire_nodes=10)
         self.sim = env.sim
         wire = env._device_points()
         self.wire_half = np.linalg.norm(wire[-1] - wire[-2]) / 2

@@ -45,6 +45,11 @@ All notable changes to this project are documented here. The format follows
   again. On the same 24 wire routes of the shipped real cases, a wire steered this way now
   reaches 10 (5 with the earlier physics and a scripted push-and-retry operator), with mean
   progress 0.82 (0.67) and at most 0.47 mm into the wall (0.30).
+- The benchmark bifurcation (`make_tree_nav`) starts the wire with its shaped tip turned
+  toward the target branch (`TreeNavEnv(aim_tip=True)`), as an operator turns it before the
+  fork, so a wire that is only pushed enters either branch with no wall penetration. Elsewhere
+  the tip starts in one fixed direction (`aim_tip=False`, the default) and a policy chooses the
+  branch by turning the wire.
 - These change `TreeNavEnv` dynamics, so the benchmark suites move to `lumen-bench/5` and
   `lumen-bench/heldout/3`.
 - The wire stays in the vessel on imported anatomy. Five causes, each fixed: past the open far
