@@ -46,6 +46,15 @@ def _entry_end(tree, node_id) -> bool:
     return is_open_entry(tree, node_id)
 
 
+def _end_flag(tree, node_id) -> int:
+    """The contact kernel's flag for an edge end: 0 the open end the wire enters through (no
+    wall past it), 2 a junction (past it the wall is measured from the end point), 1 any other
+    open end (the wall continues as a straight tube)."""
+    if _entry_end(tree, node_id):
+        return 0
+    return 2 if tree.is_junction(node_id) else 1
+
+
 class TubeVBDSolver(SolverVBD):
     """SolverVBD with the tube-intrinsic barrier injected into the AVBD solve."""
 
@@ -613,9 +622,10 @@ class TubeVBDSolver(SolverVBD):
             vcount.append(len(f.points))
             off += len(f.points)
             smax.append(float(f.length))
-            # 0 only at the open end the wire enters through (see the tree barrier kernel)
-            sj.append(0 if _entry_end(tree, e.node_a) else 1)
-            ej.append(0 if _entry_end(tree, e.node_b) else 1)
+            # 0 at the open end the wire enters through, 2 at a junction, 1 at any other open
+            # end (see the tree barrier kernel)
+            sj.append(_end_flag(tree, e.node_a))
+            ej.append(_end_flag(tree, e.node_b))
             P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
             # bake the branch-blended R(s,θ) for this edge into its grid block
             block = tree.blended_R_grid(i, ss * f.length, th)

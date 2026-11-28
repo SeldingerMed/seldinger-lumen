@@ -322,6 +322,46 @@ def test_at_a_bend_the_owner_is_chosen_by_the_distance_to_the_axis_not_across_it
 
 
 
+def _elbow_tree():
+    """A 2.0 mm vessel P runs up z into junction j, where a 2.6 mm vessel C turns off along x
+    (no branch blending, so each vessel keeps its own radius)."""
+    from lumen.assets.schema import Asset, DeviceSpawn, Frame, Node
+    from lumen.core.lumen_field import LumenField
+
+    def edge(eid, a, b, pts, R):
+        pts = np.asarray(pts, float)
+        length = float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+        return procedural._edge_from_polyline(eid, a, b, pts,
+                                              LumenField.cylinder(length, R, n=len(pts)))
+
+    zs = np.linspace(-20.0, 0.0, 41)
+    P = [(0.0, 0.0, z) for z in zs]
+    C = [(x, 0.0, 0.0) for x in np.linspace(0.0, 20.0, 41)]
+    asset = Asset(frame=Frame(), nodes=[Node("o", P[0]), Node("j", P[-1]), Node("c", C[-1])],
+                  edges=[edge("P", "o", "j", P, 2.0), edge("C", "j", "c", C, 2.6)],
+                  device_spawn=DeviceSpawn(node_id="o"))
+    return VascularTree(asset, blend_len=0.0)
+
+
+def test_past_a_junction_end_the_room_is_measured_from_the_end_point():
+    """A point behind C's start, outside P's wall, belongs to C by the distance to C's axis
+    (its end point). Its room there is C's radius minus that distance, not minus the distance
+    across C's axis: measured across, a point 0.24 mm outside both vessels and the junction
+    read 2.1 mm of room. project() and the contact kernel's rule agree."""
+    tree = _elbow_tree()
+    for q, room in (((-2.8, 0.0, -0.5), 2.6 - np.hypot(2.8, 0.5)),     # in the wall
+                    ((-2.3, 0.0, -0.5), 2.6 - np.hypot(2.3, 0.5))):    # in the junction
+        pr = tree.project(np.array(q))
+        assert pr.edge_id == "C"
+        assert abs(pr.gap - room) < 1e-6
+        owner, croom = _contact_owner(tree, q)
+        assert tree.edges[owner].id == "C" and abs(croom - room) < 1e-6
+    assert tree.project(np.array((-2.8, 0.0, -0.5))).gap < -0.2
+    # away from the ends nothing changes: across the axis
+    assert abs(tree.project(np.array((0.0, 1.0, -5.0))).gap - 1.0) < 1e-6
+    assert abs(tree.project(np.array((10.0, 0.0, 1.5))).gap - 1.1) < 1e-6
+
+
 def test_the_wall_sampled_on_a_grid_equals_the_wall_point_by_point():
     """blended_R_grid (what the contact baker samples) is blended_R on every pair, caps and
     junction bulges included, on every shipped case and the synthetic trees."""

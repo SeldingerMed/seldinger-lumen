@@ -323,6 +323,23 @@ def test_tree_contact_friction_resists_sliding_not_spinning():
     assert abs(spin[2]) < 1e-3 * normal
 
 
+def test_a_node_past_a_junction_end_in_the_wall_is_pushed_back():
+    """A node behind the start of a wider vessel at a junction, 0.24 mm outside both vessels'
+    walls, is owned by that vessel by its distance to the end point. The force is measured by
+    the same distance and pushes the node back toward the junction. Measured across the
+    owner's axis, it had 2.1 mm of room and felt no force at all."""
+    from test_tree import _elbow_tree
+
+    tree = _elbow_tree()
+    q = np.array([-2.8, 0.0, -0.5])
+    f = _wall_force(tree, q)
+    back = -q / np.linalg.norm(q)
+    assert float(np.dot(f, back)) > 100.0
+    assert np.linalg.norm(f - np.dot(f, back) * back) < 1e-3 * np.linalg.norm(f)
+    # inside the junction, more than d_hat from the wall: no force
+    assert np.linalg.norm(_wall_force(tree, np.array([-1.5, 0.0, -0.5]))) < 1e-9
+
+
 @pytest.mark.parametrize("n_s", [None, 5])
 def test_the_contact_kernel_feels_the_wall_between_its_samples(n_s):
     """On a vessel that widens from 2 to 4 mm the wall at s = 30 mm is 2.75 mm. A 0.2 mm node

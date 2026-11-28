@@ -806,9 +806,9 @@ def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
     On every edge a point's foot is the nearest point of that edge's centerline; the point
     belongs to the edge where it has the most room there (3D distance to the foot minus the
     branch-blended radius R(s, theta) at the foot). As in the kernel, only a point beyond the
-    open end the wire enters through gets no contact (``culled``); past any other end the
-    wall continues as a straight tube; r is the radial distance at the foot and R the
-    blended radius there. This is the rule that produces wall forces in simulation, so wall
+    open end the wire enters through gets no contact (``culled``); past a junction end r is
+    the distance to the end point, past any other end the wall continues as a straight tube;
+    elsewhere r is the radial distance at the foot. R is the blended radius there. This is the rule that produces wall forces in simulation, so wall
     error is measured under it.
     """
     A, B, T0, T1, CS, slices = [], [], [], [], [], []
@@ -854,7 +854,14 @@ def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
                 R = tree.blended_R(int(i), float(sk), float(theta))
                 if dn[k, i] - R < best:
                     best = dn[k, i] - R
-                    ej[k], r[k], s[k], Rb[k] = i, np.linalg.norm(rad), sk, R
+                    s0, s1 = slices[i]
+                    e = tree.edges[int(i)]
+                    # past a junction end: measured from the end point, as the owner was
+                    at_junction_end = ((j == s0 and u[k, j] <= 0.0 and tree.is_junction(e.node_a))
+                                       or (j == s1 - 1 and u[k, j] >= 1.0
+                                           and tree.is_junction(e.node_b)))
+                    ej[k], s[k], Rb[k] = i, sk, R
+                    r[k] = dn[k, i] if at_junction_end else np.linalg.norm(rad)
             e = tree.edges[ej[k]]
             f = e.frame
             if _open_entry(tree, e.node_a) and np.dot(q[k] - f.points[0], f.tangents[0]) < 0:

@@ -331,8 +331,8 @@ def accumulate_tree_barrier(
             be = e
     v0 = edge_vstart[be]
     vend = v0 + edge_vcount[be] - 1
-    # The flags mark which edge ends are "held" (1): junctions, where a node transits edges, and
-    # every vessel end except the one the wire enters through. Past the entry end there is no
+    # The flags mark each edge end: 0 the open end the wire enters through, 2 a junction, where a
+    # node transits edges, 1 every other open vessel end. Past the entry end there is no
     # contact (the wire comes in from outside). Past any other open end the wall continues as a
     # straight tube along the last tangent: a scanned artery stops only where the segmentation
     # stopped, and a wire node there must still be held, not set free to swing out of the vessel.
@@ -344,6 +344,13 @@ def accumulate_tree_barrier(
     foot = a + bu * (P[bj + 1] - a)
     tang = wp.normalize(Tg[bj] + bu * (Tg[bj + 1] - Tg[bj]))
     radial = (p - foot) - wp.dot(p - foot, tang) * tang
+    # Past an end that is a junction the node is measured from the end point, by the same
+    # distance the owner was chosen by: the space there belongs to the vessels that meet, not
+    # to a tube continued past the end, so dropping the part along the tangent would give the
+    # node room it does not have (it could sit in the wall of the vessel it came from).
+    if (bj == v0 and bu <= 0.0 and edge_start_junc[be] == 2) or (
+            bj == vend - 1 and bu >= 1.0 and edge_end_junc[be] == 2):
+        radial = p - foot
     r = wp.length(radial)
     er = radial / (r + 1.0e-9)
     s = cum_s[bj] + bu * (cum_s[bj + 1] - cum_s[bj])
