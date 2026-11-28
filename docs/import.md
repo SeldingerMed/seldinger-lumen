@@ -99,6 +99,9 @@ obs, _ = env.reset()
 ```
 
 `target` takes a vessel name (any unique part of it, any case) or a node id from `asset.json`.
+The wire is the one an operator would use on the route: a stiff 0.035 inch wire when every
+vessel on it is at least 6 mm across (aorta, iliacs, the arch vessels), a microwire anywhere
+narrower. `wire="micro"` or `wire="0.035"` chooses it yourself.
 
 ## Where the device enters
 

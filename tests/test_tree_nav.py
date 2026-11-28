@@ -5,7 +5,7 @@ import pytest
 
 from lumen.assets import procedural
 from lumen.core import VascularTree
-from lumen.envs.tree_nav import _HAS_GYM, TreeNavEnv, _route_polyline
+from lumen.envs.tree_nav import _HAS_GYM, WIRES, TreeNavEnv, _route_polyline, pick_wire
 
 
 # ---- route graph helpers (pure numpy) ----------------------------------------
@@ -208,10 +208,40 @@ def test_a_short_route_gets_a_wire_that_fits_it():
 
 
 @pytest.mark.parametrize("kw", [{"tip_deg": float("nan")}, {"contain_tol_mm": -1.0},
-                                {"settle_steps": -1}, {"quasi_static": "false"}])
+                                {"settle_steps": -1}, {"quasi_static": "false"},
+                                {"wire": "0.018"}, {"bend_stiffness": 0.0}])
 def test_bad_wire_settings_are_refused(kw):
     with pytest.raises((ValueError, TypeError)):
         TreeNavEnv(procedural.bifurcation(), target_node="left_out", device="cpu", **kw)
+
+
+def _bend_stiffnesses(env):
+    ke = np.asarray(env.sim.model.joint_target_ke.numpy(), float)
+    return set(np.round(ke[ke < 1.0e3], 6))
+
+
+def test_a_route_of_wide_vessels_is_navigated_on_a_0035_wire():
+    """``wire="auto"`` takes the stiff 0.035 inch wire through vessels all at least 6 mm across
+    (an aorta, an iliac) and the microwire anywhere narrower; the choice reaches the solver."""
+    wide = TreeNavEnv(procedural.straight_tube(60.0, 4.0), device="cpu", wire="auto")
+    assert wide.wire == "0.035" and wide.device_radius_mm == WIRES["0.035"][0]
+    assert _bend_stiffnesses(wide) == {WIRES["0.035"][1]}
+    narrow = TreeNavEnv(procedural.straight_tube(60.0, 2.0), device="cpu", wire="auto")
+    assert narrow.wire == "micro" and narrow.device_radius_mm == WIRES["micro"][0]
+    assert _bend_stiffnesses(narrow) == {WIRES["micro"][1]}
+    # one narrow vessel on the route is enough for the microwire
+    tree = VascularTree(procedural.bifurcation(radius=4.0))
+    assert pick_wire(tree, tree.route("left_out", tree.edges[0].node_a)) == "0.035"
+    tree = VascularTree(procedural.bifurcation(radius=2.0))
+    assert pick_wire(tree, tree.route("left_out", tree.edges[0].node_a)) == "micro"
+
+
+def test_the_default_wire_is_the_microwire_and_its_settings_can_be_overridden():
+    env = TreeNavEnv(procedural.straight_tube(60.0, 4.0), device="cpu")
+    assert env.wire == "micro" and env.device_radius_mm == 0.2 and env.bend_stiffness == 50.0
+    env = TreeNavEnv(procedural.straight_tube(60.0, 4.0), device="cpu", wire="0.035",
+                     device_radius_mm=0.3, bend_stiffness=400.0)
+    assert env.device_radius_mm == 0.3 and _bend_stiffnesses(env) == {400.0}
 
 
 def test_a_benchmark_tip_off_the_route_is_not_a_clinical_target_reach():

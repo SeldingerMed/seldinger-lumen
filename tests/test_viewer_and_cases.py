@@ -61,6 +61,18 @@ def test_a_shipped_case_drives_like_an_import():
     assert np.isfinite(info["dist"])
 
 
+def test_a_shipped_case_picks_the_wire_an_operator_would_use():
+    """An iliac route is crossed on a 0.035 inch wire; an intracranial one on the microwire."""
+    _solver()
+    iliac = cases.make_env("aorta-cta", "left iliac artery", max_steps=3, settle_steps=0)
+    assert iliac.wire == "0.035"
+    mca = cases.make_env("head-tof-mra", "right middle cerebral artery", max_steps=3,
+                         settle_steps=0)
+    assert mca.wire == "micro"
+    assert cases.make_env("aorta-cta", "left iliac artery", max_steps=3, settle_steps=0,
+                          wire="micro").wire == "micro"
+
+
 # ------------------------------------------------------------------ meshes
 def test_compact_surface_round_trips_within_storage_precision(tmp_path):
     rng = np.random.default_rng(0)
@@ -152,6 +164,7 @@ def test_a_recorded_run_replays_and_reloads(tmp_path):
     env = TreeNavEnv(a.asset, target_node="carotid_out", max_steps=12)
     run = record.record(env, steps=12, anatomy="arch", target="carotid")
     assert run["frames"][0]["step"] == 0 and len(run["frames"]) == 13
+    assert run["wire"] == "micro" and run["device_radius_mm"] == 0.2
     assert np.asarray(run["frames"][-1]["nodes"]).shape[1] == 3
     p = record.save(run, tmp_path / "run.json")
     again = record.load(p)

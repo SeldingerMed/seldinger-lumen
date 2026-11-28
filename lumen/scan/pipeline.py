@@ -419,7 +419,8 @@ def summary_lines(report: dict, out_dir) -> list[str]:
 def make_env(folder: str | Path, target: str, **kwargs):
     """A navigation environment on imported anatomy, aimed at a vessel by name or a node id.
 
-    ``kwargs`` go to ``lumen.envs.tree_nav.TreeNavEnv`` (``max_steps``, ``device``, ...).
+    ``kwargs`` go to ``lumen.envs.tree_nav.TreeNavEnv`` (``max_steps``, ``device``, ...). The
+    wire is the one an operator would use on the route (``wire="auto"``) unless given.
     """
     from lumen.envs.tree_nav import TreeNavEnv
 
@@ -434,4 +435,5 @@ def make_env(folder: str | Path, target: str, **kwargs):
         by_name = target not in {n.id for n in asset.nodes}
         kwargs["start_node"] = (row["start_node"] if by_name and row
                                 else route_start(asset, names, node))
+    kwargs.setdefault("wire", "auto")
     return TreeNavEnv(asset, target_node=node, **kwargs)
