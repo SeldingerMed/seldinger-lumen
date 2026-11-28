@@ -218,6 +218,26 @@ def test_run_without_the_solver_is_a_clear_error_not_a_traceback(monkeypatch, ca
     assert "--run needs the solver" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("anatomy,target,wire", [
+    ("arch", "carotid", "micro"), ("aorta-cta", "left iliac artery", "auto")])
+def test_a_viewer_run_on_real_anatomy_gets_the_wire_an_operator_would_use(
+        monkeypatch, anatomy, target, wire):
+    import lumen.envs.tree_nav as tree_nav
+    from lumen.cli import view_main
+
+    seen = {}
+
+    class _Env:
+        def __init__(self, *a, **k):
+            seen.update(k)
+            raise ModuleNotFoundError("stop here")
+
+    monkeypatch.setattr(tree_nav, "TreeNavEnv", _Env)
+    with pytest.raises(SystemExit):
+        view_main([anatomy, "--run", "--target", target, "--steps", "2"])
+    assert seen["wire"] == wire
+
+
 def test_a_damaged_replay_is_refused(tmp_path):
     p = tmp_path / "bad.json"
     p.write_text(json.dumps({"version": record.REPLAY_VERSION,

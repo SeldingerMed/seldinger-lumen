@@ -24,8 +24,8 @@ All notable changes to this project are documented here. The format follows
 - A choice of guidewire: `TreeNavEnv(wire="micro" | "0.035" | "auto")`. The 0.035 inch wire is
   thicker (0.45 mm radius) and eighteen times as stiff in bending as the microwire. `"auto"`
   takes it when every vessel of the route is at least 6 mm across and the microwire
-  otherwise; shipped cases and imported scans use `"auto"`, generated anatomy keeps the
-  microwire. On its own in a 12 mm iliac the microwire bowed under a push and its tip slid
+  otherwise; shipped cases and imported scans use `"auto"` (from `cases.make_env`,
+  `lumen.scan.make_env` and `lumen view --run`), generated anatomy keeps the microwire. On its own in a 12 mm iliac the microwire bowed under a push and its tip slid
   along the wall; the aorta case's left iliac route now reaches its end. Recorded runs note
   the wire.
 

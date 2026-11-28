@@ -1176,7 +1176,11 @@ def view_main(argv=None, prog=None) -> None:
             parser.error(str(exc))
         print(f"Driving a wire to {args.target} ...", flush=True)
         try:
-            env = TreeNavEnv(anatomy.asset, target_node=node, max_steps=args.steps, **record.ENV_DEFAULTS)
+            # real anatomy gets the wire an operator would use on the route, as cases.make_env
+            # and lumen.scan.make_env give it; generated anatomy keeps the microwire
+            wire = "micro" if anatomy.source.get("kind") == "generated" else "auto"
+            env = TreeNavEnv(anatomy.asset, target_node=node, max_steps=args.steps, wire=wire,
+                             **record.ENV_DEFAULTS)
             replay = record.record(env, steps=args.steps, anatomy=args.anatomy, target=args.target)
         except ImportError as exc:
             parser.error(f"--run needs the solver: pip install -e '.[solver]' ({exc})")
