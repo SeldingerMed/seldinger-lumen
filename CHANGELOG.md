@@ -23,6 +23,10 @@ All notable changes to this project are documented here. The format follows
   from its neighbours. Aneurysms, stenoses and a vessel widening into the aorta are kept.
 
 ### Fixed
+- Wall friction resists the wire's sliding. Both contact kernels read the angular half of
+  Newton's body velocity (linear, angular) as the node's slide, so with friction on, a spin
+  about the vessel axis was resisted as a slide along it and a real slide was not resisted.
+  Friction is off by default, so default runs are unchanged (#157).
 - The wall the wire feels on a scanned vessel is the scanned wall. The contact kernel read
   the radius at the nearest of 40 samples along each vessel and 16 around it, so on a 400 mm
   aorta the wall stepped every 10 mm and differed from the measured lumen by up to 3.2 mm

@@ -14,8 +14,9 @@ import warp as wp
 from lumen.newton.tube_barrier_kernel import accumulate_tube_barrier
 
 
-def _friction_force(gamma_deg, mu_along=0.1, mu_across=0.8):
-    """Run the contact kernel for one wall-penetrating body sliding +z; return force."""
+def _friction_force(gamma_deg, mu_along=0.1, mu_across=0.8, qd=(0, 0, 1.0, 0, 0, 0)):
+    """Run the contact kernel for one wall-penetrating body; return force. ``qd`` is Newton's
+    spatial velocity (linear, angular): by default the body slides +z and does not spin."""
     from lumen.core.frame import CenterlineFrame
     M = 10
     cl = np.stack([np.zeros(M), np.zeros(M), np.linspace(0, 80, M)], axis=1)
@@ -27,7 +28,7 @@ def _friction_force(gamma_deg, mu_along=0.1, mu_across=0.8):
     n_s, n_th = 4, 4
     r0 = wp.array(np.full(n_s * n_th, 2.0, dtype=np.float32), dtype=wp.float32)
     bq = wp.array(np.array([[1.8, 0, 40, 0, 0, 0, 1]], dtype=np.float32), dtype=wp.transform)
-    bqd = wp.array(np.array([[0, 0, 0, 0, 0, 1.0]], dtype=np.float32), dtype=wp.spatial_vector)
+    bqd = wp.array(np.array([qd], dtype=np.float32), dtype=wp.spatial_vector)
     cg = wp.array(np.array([0], dtype=np.int32), dtype=wp.int32)
     wm = wp.array(np.array([1], dtype=np.int32), dtype=wp.int32)
     body_radius = wp.zeros(1, dtype=wp.float32)
@@ -56,6 +57,18 @@ def test_anisotropic_friction_matches_coulomb_and_fiber_orientation():
     assert abs(abs(f_across[2]) - 0.8 * fn) < 1e-1
     # anisotropy: across-fiber sliding is grippier than along-fiber
     assert abs(f_across[2]) > 4.0 * abs(f_along[2])
+
+
+def test_friction_resists_sliding_not_spinning():
+    """Newton's body_qd is (linear, angular). A node sliding along the wall feels friction
+    against the slide; a node spinning in place, with no slide, feels no axial friction. The
+    kernel read the angular half as the slide: a spin about the axis was resisted as a slide
+    along it, and a real slide was not resisted at all."""
+    fn = 2e3 * (0.3 - (2.0 - 1.8))
+    slide = _friction_force(90.0, qd=(0, 0, 1.0, 0, 0, 0))
+    spin = _friction_force(90.0, qd=(0, 0, 0, 0, 0, 1.0))
+    assert abs(slide[2] + 0.1 * fn) < 1e-1               # opposes the +z slide, mu_along * fn
+    assert abs(spin[2]) < 1e-6                           # no slide, no axial friction
 
 
 def test_friction_off_by_default():
