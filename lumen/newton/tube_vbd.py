@@ -36,6 +36,36 @@ from lumen.newton.tube_barrier_kernel import (
 
 
 _WALL_CELL_MM = 2.0       # the longest spacing between tree-contact wall samples along a vessel
+_WALL_CHECK_MM = 0.1      # how finely the baked wall is checked against the scanned wall
+
+
+def _wall_samples_inside(tree, i: int, n_s: int, theta) -> _np.ndarray:
+    """Edge ``i``'s wall samples for the contact kernel, ``(n_s, len(theta))``: the blended
+    radius at ``n_s`` points evenly along the edge, lowered where needed so that the kernel's
+    reading, linear between samples along the edge, never stands outside the scanned wall.
+
+    Read linearly between samples a couple of millimetres apart, a wall that steps in over a
+    millimetre (a carotid narrowing past its bulb) was smoothed away: the kernel felt a wall
+    0.6 mm further out than the one the wire is checked against, and a wire could rest in
+    the step. Each stretch between two samples is checked every ``_WALL_CHECK_MM``; where the
+    linear reading stands out by up to E, both its samples are lowered by E. A wall that
+    changes linearly (a taper) is read exactly, as before."""
+    length = float(tree.edges[i].frame.length)
+    th = _np.asarray(theta, float)
+    if n_s < 2 or length <= 0.0:
+        return tree.blended_R_grid(i, _np.linspace(0.0, length, max(n_s, 1)), th)
+    m = max(1, int(_np.ceil(length / (n_s - 1) / _WALL_CHECK_MM)))
+    dense = tree.blended_R_grid(i, _np.linspace(0.0, length, (n_s - 1) * m + 1), th)
+    g = dense[::m]
+    t = (_np.arange(m + 1) / m)[None, :, None]
+    lines = (1.0 - t) * g[:-1, None, :] + t * g[1:, None, :]       # (n_s-1, m+1, n_th)
+    true = _np.lib.stride_tricks.sliding_window_view(dense, m + 1, axis=0)[::m]
+    true = _np.moveaxis(true, -1, 1)                                  # (n_s-1, m+1, n_th)
+    out = _np.clip((lines - true).max(axis=1), 0.0, None)             # (n_s-1, n_th)
+    drop = _np.zeros_like(g)
+    drop[:-1] = out
+    drop[1:] = _np.maximum(drop[1:], out)
+    return g - drop
 
 
 def _entry_end(tree, node_id) -> bool:
@@ -612,7 +642,6 @@ class TubeVBDSolver(SolverVBD):
         n_s, n_th = int(n_s), int(n_th)
         P, Tg, M1, cum_s = [], [], [], []
         vstart, vcount, smax, sj, ej = [], [], [], [], []
-        ss = _np.linspace(0.0, 1.0, n_s)              # fractional s; scaled per edge below
         th = -_np.pi + _np.arange(n_th) / n_th * 2.0 * _np.pi     # sample k at angle k step
         R0_blocks = []
         off = 0
@@ -628,7 +657,7 @@ class TubeVBDSolver(SolverVBD):
             ej.append(_end_flag(tree, e.node_b))
             P.append(f.points); Tg.append(f.tangents); M1.append(f.m1); cum_s.append(f.cum_s)
             # bake the branch-blended R(s,θ) for this edge into its grid block
-            block = tree.blended_R_grid(i, ss * f.length, th)
+            block = _wall_samples_inside(tree, i, n_s, th)
             R0_blocks.append(block.ravel())
         self._tree_P = _wp.array(_np.concatenate(P).astype(_np.float32), dtype=_wp.vec3, device=dev)
         self._tree_Tg = _wp.array(_np.concatenate(Tg).astype(_np.float32), dtype=_wp.vec3, device=dev)
