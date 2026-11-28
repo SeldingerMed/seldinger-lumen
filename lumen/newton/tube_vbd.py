@@ -49,7 +49,7 @@ def _wall_samples_inside(tree, i: int, n_s: int, theta) -> _np.ndarray:
     0.6 mm further out than the one the wire is checked against, and a wire could rest in
     the step. Each stretch between two samples is checked every ``_WALL_CHECK_MM``; where the
     linear reading stands out by up to E, both its samples are lowered by E. A wall that
-    changes linearly (a taper) is read exactly, as before."""
+    changes linearly (a taper) is read exactly, as before. No sample goes below zero."""
     length = float(tree.edges[i].frame.length)
     th = _np.asarray(theta, float)
     if n_s < 2 or length <= 0.0:
@@ -65,7 +65,7 @@ def _wall_samples_inside(tree, i: int, n_s: int, theta) -> _np.ndarray:
     drop = _np.zeros_like(g)
     drop[:-1] = out
     drop[1:] = _np.maximum(drop[1:], out)
-    return g - drop
+    return _np.clip(g - drop, 0.0, None)    # a near-zero scanned radius stays a radius
 
 
 def _entry_end(tree, node_id) -> bool:
