@@ -189,8 +189,8 @@ def test_despike_keeps_a_stenosis_a_bulge_and_a_branch_opening_with_their_corner
 
 
 def test_import_sizes_the_despike_window_in_millimetres(monkeypatch):
-    """half_s counts sections; import passes 1 mm / step_mm, so the window stays 2 mm long and
-    a 1.5 mm feature is kept at a finer step too."""
+    """half_s counts sections; import sizes it from each edge's final section spacing, so the
+    window spans about 2 mm at any import step, and a 1.5 mm feature is kept at a fine step."""
     seen, real = [], pi.despike
 
     def spy(R, **kw):
@@ -200,10 +200,13 @@ def test_import_sizes_the_despike_window_in_millimetres(monkeypatch):
     monkeypatch.setattr(pi, "despike", spy)
     T = _tube([0, 0, 0], [0, 40, 0], 3.0, n_theta=64)
     side = pi.lumen_side(T, "solid")
-    for step, half in ((0.5, 2), (0.25, 4)):
+    for step in (0.5, 0.25):
         seen.clear()
-        pi.import_triangles(T, side, voxel_mm=0.4, root_mm=[0, 1.0, 0], step_mm=step)
-        assert seen and set(seen) == {half}
+        asset, _ = pi.import_triangles(T, side, voxel_mm=0.4, root_mm=[0, 1.0, 0], step_mm=step)
+        ds = np.median(np.concatenate([np.diff(e.s_grid) for e in asset.edges]))
+        assert seen and all(1.5 <= 2 * h * ds <= 2.5 for h in seen), (step, seen, ds)
+    assert pi.despike_half_window(np.arange(0, 20, 0.34)) == 3
+    assert pi.despike_half_window(np.arange(0, 20, 1.0)) == 1
     R = np.full((60, 32), 4.0)
     R[20:26, :] = 1.5                               # 1.5 mm long at a 0.25 mm step
     assert not real(R, half_s=4)[1].any()
@@ -234,6 +237,6 @@ def test_the_shipped_cases_carry_the_despiked_wall():
         n = total = 0
         for e in asset.edges:
             R = np.asarray(e.R, float)
-            n += int(pi.despike(R)[1].sum())
+            n += int(pi.despike(R, half_s=pi.despike_half_window(e.s_grid))[1].sum())
             total += R.size
         assert n / total < 0.002, (name, n / total)

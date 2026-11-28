@@ -602,6 +602,18 @@ def fill_ostia(R: np.ndarray, factor: float = 1.25, far: float = 40.0) -> tuple[
     return R, esc
 
 
+def despike_half_window(s, window_mm: float = 2.0) -> int:
+    """The despike half-window, in sections, that spans ``window_mm`` along a vessel whose
+    sections sit at arc lengths ``s``. Sections end up closer than the import's ``step_mm``
+    (smoothing and re-centring shorten the path; about 0.34 mm at the default 0.5), so the
+    window is sized from the final spacing."""
+    d = np.diff(np.asarray(s, float))
+    d = d[d > 0]
+    if len(d) == 0:
+        return 1
+    return max(1, int(round(0.5 * window_mm / float(np.median(d)))))
+
+
 def despike(R: np.ndarray, tol_mm: float = 0.3, half_s: int = 2) -> tuple[np.ndarray, np.ndarray]:
     """Replace blips along the vessel by the median of their ray. Returns (R, replaced mask).
 
@@ -611,8 +623,9 @@ def despike(R: np.ndarray, tol_mm: float = 0.3, half_s: int = 2) -> tuple[np.nda
     resolves, and the wire meets a wall where there is none or a pocket that is not there.
 
     Each sample is compared with the median of its own ray over the 2 x ``half_s`` + 1
-    sections around it. ``half_s`` counts sections; import passes 1 mm / ``step_mm``, so the
-    window is 2 mm along the vessel at any step (five sections at the default 0.5 mm). A
+    sections around it. ``half_s`` counts sections; import passes ``despike_half_window`` of
+    the edge's final arc lengths, so the window is 2 mm along the vessel at any step (seven
+    sections at the default import step, whose sections end about 0.34 mm apart). A
     sample further than ``tol_mm`` from that median is replaced by it, unless both sections
     next to it lean the same way from the window's ends: then it is the deepest point of a
     real narrowing or widening (a stenosis that tapers to its minimum), not a blip. Every
@@ -739,12 +752,11 @@ def import_triangles(tris: np.ndarray, side: np.ndarray, *, voxel_mm: float = 0.
         p[0], p[-1] = nodes[a], nodes[b]
         th, R, _ = cross_section(rays, p)
         R, esc = fill_ostia(R)
-        # the window is 2 mm along the vessel whatever the section step
-        R, spikes = despike(R, half_s=max(1, int(round(1.0 / step_mm))))
+        s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
+        R, spikes = despike(R, half_s=despike_half_window(s))
         n_clipped += int(esc.sum())
         n_spikes += int((spikes & ~esc).sum())
         n_rays += R.size
-        s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
         out_edges.append(Edge(id=f"e{k}", node_a=a, node_b=b, centerline_mm=p.tolist(), s_grid=s.tolist(),
                               theta_grid=th.tolist(), R=R.tolist()))
     asset = Asset(frame=Frame(name="world_mm", spacing_mm=(1.0, 1.0, 1.0), origin_mm=(0.0, 0.0, 0.0)),

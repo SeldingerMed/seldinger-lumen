@@ -31,9 +31,10 @@ All notable changes to this project are documented here. The format follows
   is 0.03 to 0.10 mm.
 - Scanned walls no longer carry half-millimetre notches and pockets. A ray that grazes a gap
   in the segmented surface reads a radius the sections either side of it do not share; on the
-  shipped scans 0.5 to 1.4% of radius samples were such blips, up to 11 mm off. Import now
-  replaces a sample more than 0.3 mm from the median of its ray over 2 mm by that median
-  (features 1.5 mm or longer, such as stenoses, bulges and branch openings, are kept), reports
+  shipped scans 0.4 to 1.0% of radius samples were such blips, up to 11 mm off. Import now
+  replaces a sample more than 0.3 mm from the median of its ray over 2 mm by that median,
+  unless the sections either side lean the same way (features 1.5 mm or longer, such as
+  stenoses, bulges and branch openings, and the tapering minimum of a stenosis are kept), reports
   the share as `rays_despiked_frac`, and the five shipped cases carry the despiked wall. On
   nine real-case routes, wall breaches by the wire fell from 15 to 2 and the deepest from 0.65
   to 0.44 mm; one more route reaches its target.
