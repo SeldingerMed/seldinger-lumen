@@ -40,7 +40,7 @@ reports raw/native-safe/crash rates for each split, and records the train-minus-
 generalization gap in `forward-baseline-heldout.json`.
 
 The suite version moves whenever the simulated dynamics change: the current suites are
-`lumen-bench/6` and `lumen-bench/heldout/4`. Scorecards, replays and held-out reports
+`lumen-bench/7` and `lumen-bench/heldout/5`. Scorecards, replays and held-out reports
 written under an earlier version are refused by the current validators; run the benchmark
 again to produce them under the current version rather than relabelling old files.
 

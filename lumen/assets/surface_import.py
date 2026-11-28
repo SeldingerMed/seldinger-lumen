@@ -806,18 +806,20 @@ def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
     On every edge a point's foot is the nearest point of that edge's centerline; the point
     belongs to the edge where it has the most room there (3D distance to the foot minus the
     branch-blended radius R(s, theta) at the foot). As in the kernel, only a point beyond the
-    open end the wire enters through gets no contact (``culled``); past any other end the
-    wall continues as a straight tube; r is the radial distance at the foot and R the
-    blended radius there. This is the rule that produces wall forces in simulation, so wall
+    open end the wire enters through gets no contact (``culled``); past a junction end r is
+    the distance to the end point, past any other end (an open outlet) the wall continues as
+    a straight tube and r, for ownership too, is the distance across the continued axis;
+    elsewhere r is the radial distance at the foot. R is the blended radius there. This is the rule that produces wall forces in simulation, so wall
     error is measured under it.
     """
-    A, B, T0, T1, CS, slices = [], [], [], [], [], []
+    A, B, T0, T1, CS, M1, slices = [], [], [], [], [], [], []
     for e in tree.edges:
         f = e.frame
         slices.append((sum(len(x) for x in A), sum(len(x) for x in A) + len(f.points) - 1))
         A.append(f.points[:-1]); B.append(f.points[1:])
         T0.append(f.tangents[:-1]); T1.append(f.tangents[1:]); CS.append(f.cum_s[:-1])
-    A, B, T0, T1, CS = (np.concatenate(x) for x in (A, B, T0, T1, CS))
+        M1.append(f.m1[:-1])
+    A, B, T0, T1, CS, M1 = (np.concatenate(x) for x in (A, B, T0, T1, CS, M1))
     AB = B - A
     L2 = np.maximum(np.einsum("ij,ij->i", AB, AB), 1e-18)
     bound = np.asarray([tree._R_bound[i] for i in range(len(tree.edges))])
@@ -834,7 +836,25 @@ def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
             k = np.argmin(d2[:, s0:s1], axis=1)
             jn[:, i] = s0 + k
             dn[:, i] = np.sqrt(d2[rows, s0 + k])
-        lower = dn - bound[None]                 # no edge can give more room than this
+        # the distance each vessel's contact rule measures: to the foot, except past an open
+        # outlet, where the wall continues as a tube and only the part across the axis counts
+        dc = dn.copy()
+        for i, (s0, s1) in enumerate(slices):
+            e = tree.edges[i]
+            j = jn[:, i]
+            past = np.zeros(len(q), bool)
+            if not tree.is_junction(e.node_a) and not _open_entry(tree, e.node_a):
+                past |= (j == s0) & (u[rows, j] <= 0.0)
+            if not tree.is_junction(e.node_b) and not _open_entry(tree, e.node_b):
+                past |= (j == s1 - 1) & (u[rows, j] >= 1.0)
+            if past.any():
+                jj = j[past]
+                tg = T0[jj] + u[rows[past], jj][:, None] * (T1[jj] - T0[jj])
+                tg /= np.linalg.norm(tg, axis=1)[:, None]
+                w = q[past] - foot[rows[past], jj]
+                dc[past, i] = np.linalg.norm(w - np.einsum("ij,ij->i", w, tg)[:, None] * tg,
+                                             axis=1)
+        lower = dc - bound[None]                 # no edge can give more room than this
         order = np.argsort(lower, axis=1)
         ej = np.zeros(len(q), int)
         r, s, Rb = np.empty(len(q)), np.empty(len(q)), np.empty(len(q))
@@ -850,11 +870,21 @@ def contact_project(tree, Q: np.ndarray, chunk: int = 256) -> dict:
                 tang = tang / np.linalg.norm(tang)
                 rad = (q[k] - ft) - np.dot(q[k] - ft, tang) * tang
                 sk = CS[j] + u[k, j] * np.sqrt(L2[j])
-                theta = tree.edges[i].frame.project(ft + rad).theta   # frame-consistent theta
+                # theta in this segment's frame, as the kernel and CenterlineFrame measure it
+                m1 = M1[j] - np.dot(M1[j], tang) * tang
+                m1 = m1 / np.linalg.norm(m1)
+                theta = np.arctan2(np.dot(rad, np.cross(tang, m1)), np.dot(rad, m1))
                 R = tree.blended_R(int(i), float(sk), float(theta))
-                if dn[k, i] - R < best:
-                    best = dn[k, i] - R
-                    ej[k], r[k], s[k], Rb[k] = i, np.linalg.norm(rad), sk, R
+                if dc[k, i] - R < best:
+                    best = dc[k, i] - R
+                    s0, s1 = slices[i]
+                    e = tree.edges[int(i)]
+                    # past a junction end: measured from the end point, as the owner was
+                    at_junction_end = ((j == s0 and u[k, j] <= 0.0 and tree.is_junction(e.node_a))
+                                       or (j == s1 - 1 and u[k, j] >= 1.0
+                                           and tree.is_junction(e.node_b)))
+                    ej[k], s[k], Rb[k] = i, sk, R
+                    r[k] = dn[k, i] if at_junction_end else np.linalg.norm(rad)
             e = tree.edges[ej[k]]
             f = e.frame
             if _open_entry(tree, e.node_a) and np.dot(q[k] - f.points[0], f.tangents[0]) < 0:
@@ -873,7 +903,9 @@ def conversion_error(asset: Asset, mesh_path: str | Path | None = None, *, scale
 
     source -> Lumen: lumen-surface samples projected onto the tree, |r - R(s, theta)| (branch-blended R).
     Lumen -> source: Lumen wall points c(s) + R e(theta) to the nearest source surface sample, excluding
-    points that lie inside another edge's lumen (virtual wall across an ostium).
+    points that lie inside another edge's lumen (virtual wall across an ostium). It samples the
+    stored cross-section rings only: the rounded wall past a junction end, where contact is
+    measured from the end point, is covered by source -> Lumen, not here.
     ``task_edges`` restricts a second set of statistics to the edges a navigation task uses.
     """
     from scipy.spatial import cKDTree
@@ -934,8 +966,8 @@ def conversion_error(asset: Asset, mesh_path: str | Path | None = None, *, scale
            "definition": "source_to_lumen: source lumen-surface samples, |r - R| under the Newton tree-contact "
                          "kernel's projection (each edge's nearest foot, owned by the edge with most room; branch-blended R; samples past the "
                          "open entry end excluded, where Lumen applies no contact); tree_project_rule: the same under "
-                         "VascularTree.project (most room by radial distance, used for observations); lumen_to_source: Lumen wall points to the "
-                         "nearest source surface sample (virtual walls across ostia excluded); junction zone: "
+                         "VascularTree.project (most room by radial distance, used for observations); lumen_to_source: Lumen wall points (the "
+                         "stored cross-section rings) to the nearest source surface sample (virtual walls across ostia excluded); junction zone: "
                          "within the widest meeting vessel's radius of a branch point"}
     if task_edges:
         sel = np.isin(e_lum, sorted(task_edges))

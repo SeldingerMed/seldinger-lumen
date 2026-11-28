@@ -273,9 +273,13 @@ def _tapered_tree(n_s, n_th, R0=2.0, R1=4.0, L=80.0):
     return VascularTree(asset)
 
 
-def _wall_force(tree, p, n_s=None, n_th=None, qd=None, mu=0.0):
+def _wall_force(tree, p, n_s=None, n_th=None, qd=None, mu=0.0, mu_along=None, mu_across=None,
+                gamma=0.0):
     """The tree barrier's force on one node of radius 0.2 at p (kappa 2e3, d_hat 0.3), with
-    Newton spatial velocity ``qd`` (linear, angular) and friction ``mu`` both ways."""
+    Newton spatial velocity ``qd`` (linear, angular) and friction ``mu`` both ways (or
+    ``mu_along``/``mu_across`` with fibres at ``gamma`` radians from circumferential)."""
+    mu_al = mu if mu_along is None else mu_along
+    mu_ac = mu if mu_across is None else mu_across
     import warp as wp
 
     from lumen.newton.tube_barrier_kernel import accumulate_tree_barrier
@@ -304,7 +308,7 @@ def _wall_force(tree, p, n_s=None, n_th=None, qd=None, mu=0.0):
                       s._tree_vcount, s._tree_smax, s._tree_start_junc, s._tree_end_junc,
                       s._tree_n_edges, s._tree_R0, s._tree_w, s._tree_ns, s._tree_nth,
                       s._tree_n_per_env, s._tree_kappa, s._tree_d_hat, s._tree_mode,
-                      float(mu), float(mu), 0.0, 5e-3],
+                      float(mu_al), float(mu_ac), float(gamma), 5e-3],
               outputs=[bf, bh, load], device="cpu")
     return bf.numpy()[bid]
 
@@ -321,6 +325,51 @@ def test_tree_contact_friction_resists_sliding_not_spinning():
     spin = _wall_force(tree, p, qd=(0, 0, 0, 0, 0, 1.0), mu=0.5)
     assert slide[2] < -0.45 * normal                     # about mu * normal, against +z
     assert abs(spin[2]) < 1e-3 * normal
+
+
+def test_a_node_past_a_junction_end_in_the_wall_is_pushed_back():
+    """A node behind the start of a wider vessel at a junction, 0.24 mm outside both vessels'
+    walls, is owned by that vessel by its distance to the end point. The force is measured by
+    the same distance and pushes the node back toward the junction. Measured across the
+    owner's axis, it had 2.1 mm of room and felt no force at all."""
+    from test_tree import _elbow_tree
+
+    tree = _elbow_tree()
+    q = np.array([-2.8, 0.0, -0.5])
+    f = _wall_force(tree, q)
+    back = -q / np.linalg.norm(q)
+    assert float(np.dot(f, back)) > 100.0
+    assert np.linalg.norm(f - np.dot(f, back) * back) < 1e-3 * np.linalg.norm(f)
+    # inside the junction, more than d_hat from the wall: no force
+    assert np.linalg.norm(_wall_force(tree, np.array([-1.5, 0.0, -0.5]))) < 1e-9
+
+
+def test_friction_on_a_junction_end_cap_takes_the_vessel_direction_in_the_contact_plane():
+    """Past a junction end the wall normal is not across the vessel's axis. A node sliding
+    over that cap along the vessel, with fibres along the vessel (mu 0.1) and across (0.8),
+    feels 0.1: the along-vessel direction is the tangent laid into the contact plane. Taken
+    as the raw tangent, the slide read as mostly across and got 0.78."""
+    from test_tree import _elbow_tree
+
+    tree = _elbow_tree()
+    q = np.array([-2.8, 0.0, -0.5])
+    n = q / np.linalg.norm(q)
+    slide = np.array([1.0, 0.0, 0.0]) - n[0] * n
+    slide /= np.linalg.norm(slide)
+    still = _wall_force(tree, q)
+    f = _wall_force(tree, q, qd=(*slide, 0.0, 0.0, 0.0), mu_along=0.1, mu_across=0.8,
+                    gamma=np.pi / 2)
+    fric = f - still
+    assert float(np.dot(fric, slide)) < 0.0
+    assert np.linalg.norm(fric) / np.linalg.norm(still) == pytest.approx(0.1, rel=1e-3)
+
+
+def test_a_node_past_an_open_outlet_in_its_continued_tube_feels_no_wall():
+    """A node 4 mm past an open outlet, on its axis, has 1 mm of room in the tube the wall
+    continues as. A wide vessel's junction end 4 mm away does not take it over."""
+    from test_tree import _outlet_tree
+
+    assert np.linalg.norm(_wall_force(_outlet_tree(), np.array([0.0, 0.0, 4.0]))) < 1e-9
 
 
 @pytest.mark.parametrize("n_s", [None, 5])

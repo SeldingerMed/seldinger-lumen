@@ -27,6 +27,15 @@ All notable changes to this project are documented here. The format follows
   Newton's body velocity (linear, angular) as the node's slide, so with friction on, a spin
   about the vessel axis was resisted as a slide along it and a real slide was not resisted.
   Friction is off by default, so default runs are unchanged (#157).
+- Past the end of a vessel at a junction, a wire node's room is measured from the end point,
+  by the same distance the vessel was chosen as its owner by. It was measured across the
+  owner's axis as if the vessel went on past the junction, so a node could sit in the wall of
+  the vessel it came from and read 2 mm of room: the contact physics pushed it nowhere and
+  the wall check could disagree with it about a breach. The contact kernel, `project()` and
+  the kernel's NumPy copy (`contact_project`) change together. On the aneurysm case's left
+  middle cerebral artery route the wire went 0.63 mm into the wall at a junction and stalled
+  at 32% of the route; it now goes 70% without a breach. Wall contact at junctions changes,
+  so the benchmark suites move to `lumen-bench/7` and `lumen-bench/heldout/5`.
 - The wall the wire feels on a scanned vessel is the scanned wall. The contact kernel read
   the radius at the nearest of 40 samples along each vessel and 16 around it, so on a 400 mm
   aorta the wall stepped every 10 mm and differed from the measured lumen by up to 3.2 mm
@@ -40,8 +49,7 @@ All notable changes to this project are documented here. The format follows
   unless the sections either side lean the same way (features 1.5 mm or longer, such as
   stenoses, bulges and branch openings, and the tapering minimum of a stenosis are kept), reports
   the share as `rays_despiked_frac`, and the five shipped cases carry the despiked wall. On
-  nine real-case routes, wall breaches by the wire fell from 15 to 2 and the deepest from 0.65
-  to 0.44 mm; one more route reaches its target.
+  nine real-case routes, wall breaches by the wire fell from 15 to 3.
 - Which vessel holds a point near a junction is decided as the contact physics decides it:
   by the distance to the nearest point of each vessel's axis, so past a vessel's end, the
   distance to the end point, and at a sharp bend, the distance to the bend (it was measured

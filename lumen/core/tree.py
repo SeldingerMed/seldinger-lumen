@@ -196,9 +196,13 @@ class VascularTree:
         the nearest point of the axis, so past an edge's end, to the end point). Nearest-axis
         ownership got this wrong where a thin branch leaves a wide vessel: a point well inside
         the wide lumen could be nearer the thin axis and be judged against the thin wall.
-        Near a junction the blended R keeps the gap MAGNITUDE continuous. Also, like CenterlineFrame, a point past an
-        open vessel end clips to the tip (reported inside); the contact kernel culls
-        open ends, but tree.gap does not flag axial-beyond."""
+        Near a junction the blended R keeps the gap MAGNITUDE continuous. The gap is measured
+        across the owner's axis, except past an end of the owner that is a junction: there it
+        is measured from the end point, by the distance the owner was chosen by, as in the
+        kernel. Past an open outlet the wall continues as a tube, and the point is measured
+        across the continued axis, for ownership too. Like CenterlineFrame, a point past the
+        entry end clips to the tip; the contact kernel culls it, but tree.gap does not flag
+        axial-beyond."""
         p = np.asarray(p, float)
         if not np.isfinite(p).all():      # a diverged wire: report NaNs so the env's
             nan = float("nan")            # divergence guard sees them, rather than crashing
@@ -208,20 +212,44 @@ class VascularTree:
         for i, e in enumerate(self.edges):
             pr = e.frame.project(p)
             # the owner is chosen by the distance to the nearest point of each vessel's axis,
-            # as in the contact kernel, for every vessel: past an end that is the distance to
-            # the end point, and at a bend it keeps its part along the tangent (issue #153).
-            # The gap and the wall direction stay measured across the axis, as the kernel's
-            # force is.
-            d = pr.d
+            # as in the contact kernel: past a junction or the entry end that is the distance
+            # to the end point, and at a bend it keeps its part along the tangent (issue #153).
+            # Past an open outlet the wall continues as a tube, so there the distance is the
+            # part across the axis, as the kernel's force measures it.
+            d = pr.r if self._end_kind(i, pr)[0] == "open" else pr.d
             if d - self._R_bound[i] > best_need:
                 continue                       # cannot beat the current owner
             R = self.blended_R(i, pr.s, pr.theta)   # the radius the gap and the wall force use
             need = d - R
             if need < best_need:
                 best_i, best_pr, best_need, best_R = i, pr, need, R
+        r, e_r = best_pr.r, best_pr.e_r
+        kind, end = self._end_kind(best_i, best_pr)
+        if kind == "junction":
+            # past a junction end the point is measured from the end point, by the distance it
+            # was owned by, as in the contact kernel (the space there belongs to the vessels
+            # that meet, not to a tube continued past the end)
+            r = float(best_pr.d)
+            e_r = (p - end) / r if r > 0 else e_r
         return TreeProjection(edge_id=self.edges[best_i].id, edge_index=best_i,
-                              s=best_pr.s, theta=best_pr.theta, r=best_pr.r,
-                              e_r=best_pr.e_r, R=best_R, gap=best_R - best_pr.r)
+                              s=best_pr.s, theta=best_pr.theta, r=r,
+                              e_r=e_r, R=best_R, gap=best_R - r)
+
+    def _end_kind(self, i: int, pr) -> tuple[str | None, np.ndarray | None]:
+        """When projection ``pr``'s foot is clamped to an end of edge ``i``: what that end is
+        (``"junction"``, ``"entry"`` or ``"open"``, an open outlet) and its point; else
+        ``(None, None)``. The kernel's edge-end flags 2, 0 and 1."""
+        e = self.edges[i]
+        f = e.frame
+        if pr.edge_param <= 0.0 and pr.s <= 0.0:
+            node, point = e.node_a, f.points[0]
+        elif pr.edge_param >= 1.0 and pr.s >= f.length - 1e-9 * max(1.0, f.length):
+            node, point = e.node_b, f.points[-1]
+        else:
+            return None, None
+        if self.is_junction(node):
+            return "junction", point
+        return ("entry" if is_open_entry(self, node) else "open"), point
 
     def project_edge_s(self, points) -> tuple[np.ndarray, np.ndarray]:
         """Vectorized nearest tree edge and local arc-length for many points.
