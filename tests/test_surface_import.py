@@ -188,6 +188,27 @@ def test_despike_keeps_a_stenosis_a_bulge_and_a_branch_opening_with_their_corner
     np.testing.assert_array_equal(out, R)
 
 
+def test_import_sizes_the_despike_window_in_millimetres(monkeypatch):
+    """half_s counts sections; import passes 1 mm / step_mm, so the window stays 2 mm long and
+    a 1.5 mm feature is kept at a finer step too."""
+    seen, real = [], pi.despike
+
+    def spy(R, **kw):
+        seen.append(kw.get("half_s"))
+        return real(R, **kw)
+
+    monkeypatch.setattr(pi, "despike", spy)
+    T = _tube([0, 0, 0], [0, 40, 0], 3.0, n_theta=64)
+    side = pi.lumen_side(T, "solid")
+    for step, half in ((0.5, 2), (0.25, 4)):
+        seen.clear()
+        pi.import_triangles(T, side, voxel_mm=0.4, root_mm=[0, 1.0, 0], step_mm=step)
+        assert seen and set(seen) == {half}
+    R = np.full((60, 32), 4.0)
+    R[20:26, :] = 1.5                               # 1.5 mm long at a 0.25 mm step
+    assert not real(R, half_s=4)[1].any()
+
+
 def test_the_shipped_cases_carry_the_despiked_wall():
     """Before despiking, 0.5 to 1.4% of the shipped radii were blips more than 0.3 mm from the
     median of their ray over 2 mm (a notch of 1.1 mm on the right subclavian of head-neck-cta,

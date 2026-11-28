@@ -611,10 +611,11 @@ def despike(R: np.ndarray, tol_mm: float = 0.3, half_s: int = 2) -> tuple[np.nda
     resolves, and the wire meets a wall where there is none or a pocket that is not there.
 
     Each sample is compared with the median of its own ray over the 2 x ``half_s`` + 1
-    sections around it (2 mm at the 0.5 mm import step). A sample further than ``tol_mm``
+    sections around it. ``half_s`` counts sections; import passes 1 mm / ``step_mm``, so the
+    window is 2 mm along the vessel at any step (five sections at the default 0.5 mm). A sample further than ``tol_mm``
     from it is replaced by it; every other sample is kept as measured. Anything at least
-    ``half_s`` + 1 sections long (1.5 mm), however wide around the vessel, is kept with its
-    corners: a stenosis, a bulge, a branch opening."""
+    ``half_s`` + 1 sections long (1.5 mm at the import's window), however wide around the
+    vessel, is kept with its corners: a stenosis, a bulge, a branch opening."""
     R = np.asarray(R, float)
     n_s = R.shape[0]
     if n_s < 3:
@@ -724,7 +725,8 @@ def import_triangles(tris: np.ndarray, side: np.ndarray, *, voxel_mm: float = 0.
         p[0], p[-1] = nodes[a], nodes[b]
         th, R, _ = cross_section(rays, p)
         R, esc = fill_ostia(R)
-        R, spikes = despike(R)
+        # the window is 2 mm along the vessel whatever the section step
+        R, spikes = despike(R, half_s=max(1, int(round(1.0 / step_mm))))
         n_clipped += int(esc.sum())
         n_spikes += int((spikes & ~esc).sum())
         n_rays += R.size
