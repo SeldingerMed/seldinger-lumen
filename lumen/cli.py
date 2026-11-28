@@ -1176,9 +1176,10 @@ def view_main(argv=None, prog=None) -> None:
             parser.error(str(exc))
         print(f"Driving a wire to {args.target} ...", flush=True)
         try:
-            # real anatomy gets the wire an operator would use on the route, as cases.make_env
-            # and lumen.scan.make_env give it; generated anatomy keeps the microwire
-            wire = "micro" if anatomy.source.get("kind") == "generated" else "auto"
+            # a shipped case or an imported scan gets the wire an operator would use on the
+            # route, as cases.make_env and lumen.scan.make_env give it; generated anatomy and
+            # a plain asset file (which may be generated anatomy saved) keep the microwire
+            wire = "auto" if anatomy.source.get("kind") in ("case", "import") else "micro"
             env = TreeNavEnv(anatomy.asset, target_node=node, max_steps=args.steps, wire=wire,
                              **record.ENV_DEFAULTS)
             replay = record.record(env, steps=args.steps, anatomy=args.anatomy, target=args.target)
