@@ -137,8 +137,10 @@ class TreeNavEnv:
         the next junction (``_tip_aim``), as an operator does before reaching it; a wire that
         is only pushed then enters it. Off (the default), the tip starts in one fixed direction
         whatever the target, so a policy or an experiment has to choose the branch by turning
-        the wire. On the arch the probing ``FollowPolicy`` reaches the left subclavian from the
-        fixed start and not from the aimed one, so aiming is no help to a policy that turns.
+        the wire. On the arch the probing ``FollowPolicy`` turns its tip into the left subclavian
+        from the fixed start and not from the aimed one, so aiming is no help to a policy that
+        turns (arriving at the end of that branch is another matter: it turns on microns, see
+        ``test_wire_stays_in_vessel``).
 
         ``support_gap_mm`` is how close the microcatheter behind the wire may come to the
         wire's tip, measured along the route: the pushed end stops there, so a tip that

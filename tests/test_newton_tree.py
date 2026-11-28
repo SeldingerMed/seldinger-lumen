@@ -386,6 +386,55 @@ def test_the_contact_kernel_feels_the_wall_between_its_samples(n_s):
     assert abs(f[1]) < 1e-3 and abs(f[2]) < 1e-3
 
 
+def _stepped_tree(n_s, s=(0.0, 29.0, 30.0, 80.0), R=(4.0, 4.0, 3.0, 3.0)):
+    """An 80 mm vessel of radius 4 mm whose wall steps in to 3 mm between s = 29 and 30 mm
+    (a carotid narrowing past its bulb), or the wall given by ``s``/``R``."""
+    from lumen.assets.schema import Asset, DeviceSpawn, Frame, Node
+    from lumen.core.lumen_field import LumenField
+
+    pts = _straight_vessel(M=81, L=80.0)
+    lf = LumenField(np.asarray(s, float), np.array([0.0]), np.asarray(R, float)[:, None])
+    edge = procedural._edge_from_polyline("e0", "in", "out", pts, lf)
+    asset = Asset(frame=Frame(), nodes=[Node("in", tuple(pts[0])), Node("out", tuple(pts[-1]))],
+                  edges=[edge], device_spawn=DeviceSpawn(node_id="in"))
+    return VascularTree(asset)
+
+
+def test_the_baked_wall_never_stands_outside_the_scanned_wall_between_its_samples():
+    """Samples 20 mm apart (at 20 and 40 mm) straddle a 1 mm step from 4 to 3 mm. Read
+    linearly between them, the wall at 30 mm was 3.5 mm, half a millimetre outside the
+    scanned 3.0 mm, and a node in the narrow part 0.1 mm from the real wall felt nothing.
+    Baked (both samples lowered by the 0.5 mm overshoot) the wall at 31 mm reads 2.95 mm, and
+    the node there with 0.05 mm of clearance is pushed back with kappa * (0.3 - 0.05)."""
+    from lumen.newton.tube_vbd import _wall_samples_inside
+
+    tree = _stepped_tree(5)
+    th = np.array([-np.pi])
+    S = np.linspace(0.0, 80.0, 5)
+    g = _wall_samples_inside(tree, 0, 5, th)[:, 0]
+    d = np.linspace(0.0, 80.0, 801)
+    assert np.all(np.interp(d, S, g) <= tree.blended_R_grid(0, d, th)[:, 0] + 1e-9)
+    f = _wall_force(tree, np.array([2.7, 0.0, 31.0]), n_s=5, n_th=16)
+    assert f[0] == pytest.approx(-2e3 * (0.3 - 0.05), rel=0.02)
+    # a wall that changes linearly is read exactly
+    taper = _tapered_tree(5, 1)
+    np.testing.assert_allclose(_wall_samples_inside(taper, 0, 5, th)[:, 0],
+                               taper.blended_R_grid(0, S, th)[:, 0], atol=1e-9)
+
+
+def test_the_bake_checks_the_scanned_wall_at_its_own_knots():
+    """A narrowing whose deepest point (2.5 mm at s = 29.95) falls between two 0.1 mm check
+    points is still kept inside: the bake checks the lumen field's own sections too."""
+    from lumen.newton.tube_vbd import _wall_samples_inside
+
+    tree = _stepped_tree(5, s=(0.0, 29.0, 29.95, 31.0, 80.0), R=(4.0, 4.0, 2.5, 3.0, 3.0))
+    th = np.array([-np.pi])
+    S = np.linspace(0.0, 80.0, 5)
+    g = _wall_samples_inside(tree, 0, 5, th)[:, 0]
+    d = np.r_[np.linspace(0.0, 80.0, 801), 29.95]
+    assert np.all(np.interp(d, S, g) <= tree.blended_R_grid(0, d, th)[:, 0] + 1e-9)
+
+
 def test_the_wall_is_sampled_finely_along_a_long_vessel():
     """By default the baked wall has a sample at least every 2 mm along the longest vessel,
     and the lumen fields' own angles."""

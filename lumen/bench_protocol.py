@@ -13,7 +13,7 @@ from lumen.bench_stats import summarize_metrics, validate_statistics
 from lumen.bench import BenchTask, evaluate_task
 
 
-SCALED_SUITE_VERSION = "lumen-bench/heldout/5"   # 2-5: tree navigation dynamics changed
+SCALED_SUITE_VERSION = "lumen-bench/heldout/6"   # 2-6: tree navigation dynamics changed
 DEFAULT_EPISODES_PER_TASK = 100
 SUMMARY_METRICS = (
     "success_rate",

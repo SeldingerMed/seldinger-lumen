@@ -31,10 +31,9 @@ SHARP_SIDE = pytest.mark.xfail(strict=False, reason=(
     "trunk. Getting in needs the microcatheter advanced into the branch, not modelled yet."))
 
 
-@pytest.mark.parametrize("anatomy,target", [
-    ("tortuous", "right_out"), pytest.param("tortuous", "side_out", marks=SHARP_SIDE),
-    ("arch", "brachio_out"), ("arch", "carotid_out"), ("arch", "subclavian_out")])
-def test_a_steered_wire_reaches_each_branch_without_going_through_the_wall(anatomy, target):
+def _follow(anatomy, target):
+    """Drive the wire to ``target`` with the probing FollowPolicy for up to 400 steps; return
+    the last step's info and the deepest wall penetration on the way."""
     from lumen.viewer.record import FollowPolicy
 
     _solver()
@@ -49,8 +48,30 @@ def test_a_steered_wire_reaches_each_branch_without_going_through_the_wall(anato
         worst = max(worst, info["max_pen"])
         if term:
             break
+    return info, worst
+
+
+@pytest.mark.parametrize("anatomy,target", [
+    ("tortuous", "right_out"), pytest.param("tortuous", "side_out", marks=SHARP_SIDE),
+    ("arch", "brachio_out"), ("arch", "carotid_out")])
+def test_a_steered_wire_reaches_each_branch_without_going_through_the_wall(anatomy, target):
+    info, worst = _follow(anatomy, target)
     assert info["success"]
     assert worst < 1.5
+
+
+def test_a_wire_prolapsing_at_the_arch_left_subclavian_stays_in_the_vessel():
+    """The arch's left subclavian and descending aorta leave one junction 39 degrees apart and
+    share an 11 mm funnel. With the microcatheter held 20 mm behind the tip it stays in the
+    funnel, and each push loops the bare wire down the descending aorta round the carina; the
+    tip creeps about 1 mm a try. Whether it arrives within 400 steps turns on microns (walls
+    2-10 um narrower reach, 5-10 um wider do not), so arrival is not asserted here: getting in
+    reliably needs the microcatheter advanced into the branch, not modelled yet. However the
+    wire loops, it stays in the vessel."""
+    info, worst = _follow("arch", "subclavian_out")
+    assert not info.get("diverged", False)     # a blown-up episode reports no penetration
+    assert worst < 1.5
+    assert info["furthest_mm"] > 50.0          # into the branch: past its carina at 49 mm
 
 
 def test_a_wide_vessel_owns_a_point_near_a_thin_branch():
