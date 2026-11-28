@@ -362,6 +362,75 @@ def test_past_a_junction_end_the_room_is_measured_from_the_end_point():
     assert abs(tree.project(np.array((10.0, 0.0, 1.5))).gap - 1.1) < 1e-6
 
 
+def _outlet_tree():
+    """A 1 mm outlet O runs up z to an open end at the origin; a 2.6 mm vessel J leaves a
+    junction at (4, 0, 4) along x; a 0.5 mm connector joins O's start to J's start. The wire
+    enters at J's far end."""
+    from lumen.assets.schema import Asset, DeviceSpawn, Frame, Node
+    from lumen.core.lumen_field import LumenField
+
+    def edge(eid, a, b, pts, R):
+        pts = np.asarray(pts, float)
+        length = float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+        return procedural._edge_from_polyline(eid, a, b, pts,
+                                              LumenField.cylinder(length, R, n=len(pts)))
+
+    O = [(0.0, 0.0, z) for z in np.linspace(-20.0, 0.0, 41)]
+    X = [tuple(v) for v in np.linspace((0.0, 0.0, -20.0), (4.0, 0.0, 4.0), 41)]
+    Jv = [(x, 0.0, 4.0) for x in np.linspace(4.0, 24.0, 41)]
+    asset = Asset(frame=Frame(), nodes=[Node("s", O[0]), Node("out", O[-1]), Node("jj", Jv[0]),
+                                        Node("far", Jv[-1])],
+                  edges=[edge("O", "s", "out", O, 1.0), edge("X", "s", "jj", X, 0.5),
+                         edge("J", "jj", "far", Jv, 2.6)],
+                  device_spawn=DeviceSpawn(node_id="far"))
+    return VascularTree(asset, blend_len=0.0)
+
+
+def test_past_an_open_outlet_the_owner_is_chosen_by_the_room_in_the_continued_tube():
+    """Past an open outlet the wall continues as a tube along its axis. A point 4 mm past it on
+    the axis has 1 mm of room there, more than the 1.4 mm breach it would read in the wide
+    vessel whose junction end is 4 mm away; project() and the kernel's rule both give it to
+    the outlet."""
+    tree = _outlet_tree()
+    q = (0.0, 0.0, 4.0)
+    pr = tree.project(np.array(q))
+    assert pr.edge_id == "O" and pr.gap == pytest.approx(1.0)
+    owner, room = _contact_owner(tree, q)
+    assert tree.edges[owner].id == "O" and room == pytest.approx(1.0)
+
+
+def test_the_kernel_copy_and_project_agree_on_a_scanned_case():
+    """contact_project (the kernel's rule in NumPy) and project() give every point near a
+    scanned case's walls the same distance and radius, and the same vessel unless two tie, the
+    radius read in the frame of the segment the foot is on (the copy once re-projected and
+    could land on another)."""
+    from lumen import cases
+    from lumen.assets.surface_import import contact_project
+
+    tree = VascularTree(cases.load("head-cta-aneurysm")[0])
+    rng = np.random.default_rng(3)
+    pts = []
+    for e in tree.edges:
+        f = e.frame
+        for k in rng.integers(0, len(f.points), 8):
+            d = rng.normal(size=3)
+            pts.append(f.points[k] + d / np.linalg.norm(d) * rng.uniform(0.5, 6.0))
+    Q = np.asarray(pts)
+    c = contact_project(tree, Q)
+
+    def need(i, q):        # project()'s room deficit for q in vessel i
+        p = tree.edges[i].frame.project(q)
+        d = p.r if tree._end_kind(i, p)[0] == "open" else p.d
+        return d - tree.blended_R(i, p.s, p.theta)
+
+    for k, q in enumerate(Q):
+        pr = tree.project(q)
+        assert pr.r == pytest.approx(c["r"][k], abs=1e-6)
+        assert pr.R == pytest.approx(c["R"][k], abs=1e-6)
+        if pr.edge_index != c["edge"][k]:  # only a tie: two vessels' ends at one junction
+            assert need(pr.edge_index, q) == pytest.approx(need(int(c["edge"][k]), q), abs=1e-9)
+
+
 def test_the_wall_sampled_on_a_grid_equals_the_wall_point_by_point():
     """blended_R_grid (what the contact baker samples) is blended_R on every pair, caps and
     junction bulges included, on every shipped case and the synthetic trees."""

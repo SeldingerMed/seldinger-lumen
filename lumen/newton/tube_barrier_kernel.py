@@ -270,7 +270,8 @@ def accumulate_tree_barrier(
 ):
     """Tree variant of the tube barrier: each wire node finds, on every edge, the nearest point
     of its axis, and is owned by the edge where it has the most room there (radius minus
-    distance from the axis), then reads that edge's blended rigid radius block. Owning by room rather than by nearest axis matters where
+    the distance that edge's contact rule measures: to the foot, or across the axis past an
+    open outlet), then reads that edge's blended rigid radius block. Owning by room rather than by nearest axis matters where
     a thin branch leaves a wide vessel: a node inside the wide lumen can be nearer the thin
     branch's axis, and judging it against the thin wall would push it the wrong way. The §3.5.2
     branch blending is pre-baked into R0_grid at build time, so the kernel stays
@@ -320,8 +321,15 @@ def accumulate_tree_barrier(
         m2 = wp.cross(tang, m1)
         theta = wp.atan2(wp.dot(radial, m2), wp.dot(radial, m1))
         s = cum_s[ej] + eu * (cum_s[ej + 1] - cum_s[ej])
+        # the distance each vessel's own contact rule measures: to the foot, except past an
+        # open outlet (flag 1), where the wall continues as a tube and only the part across
+        # the axis counts
+        dist = wp.sqrt(ed2)
+        if (ej == v0 and eu <= 0.0 and edge_start_junc[e] == 1) or (
+                ej == v0 + nv - 2 and eu >= 1.0 and edge_end_junc[e] == 1):
+            dist = wp.length(radial)
         # negative room: distance past the local wall (smaller = more inside)
-        need = wp.sqrt(ed2) - _grid_R(R0_grid, w_field, (env * n_edges + e) * edge_cells,
+        need = dist - _grid_R(R0_grid, w_field, (env * n_edges + e) * edge_cells,
                                       n_s, n_th, s / wp.max(edge_smax[e], 1.0e-9),
                                       (theta + wp.pi) / (2.0 * wp.pi))
         if need < best:
@@ -376,8 +384,14 @@ def accumulate_tree_barrier(
             v_lin = wp.spatial_top(body_qd[bid])         # linear velocity, as above
             v_t = v_lin - wp.dot(v_lin, er) * er
             vt_mag = wp.length(v_t)
-            circ = wp.normalize(wp.cross(tang, er))
-            fiber = wp.cos(gamma_fric) * circ + wp.sin(gamma_fric) * tang
+            # the wall's along-vessel direction in the contact plane: the tangent itself, except
+            # on a junction end cap, where the normal is not across the axis
+            t_w = tang - wp.dot(tang, er) * er
+            if wp.length(t_w) < 1.0e-6:
+                t_w = m1 - wp.dot(m1, er) * er
+            t_w = wp.normalize(t_w)
+            circ = wp.normalize(wp.cross(t_w, er))
+            fiber = wp.cos(gamma_fric) * circ + wp.sin(gamma_fric) * t_w
             tdir = v_t / vt_mag if vt_mag > 1.0e-9 else circ
             ca = wp.dot(tdir, fiber)
             mu = mu_across + (mu_along - mu_across) * ca * ca
