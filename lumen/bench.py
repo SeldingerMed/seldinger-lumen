@@ -48,8 +48,9 @@ from lumen.envs.registration import make_nav_stenotic, make_nav_tube, make_tree_
 # The version moves whenever tree navigation's dynamics change (4: wall stiffness, the feed
 # limit at the wall, ownership by room; 5: feed dynamics; 6: ownership near junctions and
 # bends as in the contact kernel; 7: the room past a junction end is measured from the end
-# point). Scores and replays from an earlier version are refused.
-SUITE_VERSION = "lumen-bench/7"
+# point; 8: the contact wall never stands outside the scanned wall between its samples).
+# Scores and replays from an earlier version are refused.
+SUITE_VERSION = "lumen-bench/8"
 REPLAY_PROTOCOL_VERSION = "lumen-bench-replay/1"
 SAFETY_MAX_PEN = 0.3
 STAT_METRICS = (

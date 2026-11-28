@@ -36,6 +36,14 @@ All notable changes to this project are documented here. The format follows
   middle cerebral artery route the wire went 0.63 mm into the wall at a junction and stalled
   at 32% of the route; it now goes 70% without a breach. Wall contact at junctions changes,
   so the benchmark suites move to `lumen-bench/7` and `lumen-bench/heldout/5`.
+- The contact wall never stands outside the scanned wall between its samples. The kernel
+  reads the wall linearly between samples up to 2 mm apart along a vessel, and where the
+  scanned wall steps in faster than that (a carotid narrowing past its bulb) the reading
+  stood up to 1.85 mm outside it: a wire could rest in the step with no force while the wall
+  check reported it 0.3 mm into the wall. Each stretch between samples is now checked every
+  0.1 mm and its samples lowered by whatever the reading stood outside; a taper is read
+  exactly as before. On the shipped cases the wall moves in by 0.01 to 0.04 mm on average, on generated anatomy
+  by up to 0.19 mm; the benchmark suites move to `lumen-bench/8` and `lumen-bench/heldout/6`.
 - The wall the wire feels on a scanned vessel is the scanned wall. The contact kernel read
   the radius at the nearest of 40 samples along each vessel and 16 around it, so on a 400 mm
   aorta the wall stepped every 10 mm and differed from the measured lumen by up to 3.2 mm
