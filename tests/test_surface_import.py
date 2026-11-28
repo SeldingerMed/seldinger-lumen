@@ -165,3 +165,41 @@ def test_wall_fit_skips_only_points_past_the_entry_end():
     tree = VascularTree(procedural.straight_tube(40.0, 2.0, n=20))       # wire enters at z = 0
     out = contact_project(tree, np.array([[1.0, 0.0, -3.0], [1.0, 0.0, 43.0], [1.0, 0.0, 20.0]]))
     assert out["culled"].tolist() == [True, False, False]
+
+
+def test_despike_replaces_a_blip_along_the_vessel_and_keeps_the_rest_as_measured():
+    rng = np.random.default_rng(0)
+    R = 5.0 + 0.05 * rng.standard_normal((40, 32))
+    R[20, 7:9] = 3.9                                # a 1.1 mm notch half a millimetre long
+    R[11, 30] = 9.0                                 # a ray that ran into a neighbour
+    out, bad = pi.despike(R)
+    assert bad[20, 7] and bad[20, 8] and bad[11, 30] and bad.sum() == 3
+    assert np.all(np.abs(out[bad] - 5.0) < 0.1)
+    np.testing.assert_array_equal(out[~bad], R[~bad])
+
+
+def test_despike_keeps_a_stenosis_a_bulge_and_a_branch_opening_with_their_corners():
+    R = np.full((60, 32), 4.0)
+    R[20:24, :] = 1.5                               # a 2 mm long, 63% stenosis (0.5 mm sections)
+    R[40:46, 5:9] = 9.0                             # a branch opening 3 mm long, four rays wide
+    R[50:53, 12:15] = 6.0                           # a bulge 1.5 mm long, three rays wide
+    out, bad = pi.despike(R)
+    assert not bad.any()
+    np.testing.assert_array_equal(out, R)
+
+
+def test_the_shipped_cases_carry_the_despiked_wall():
+    """Before despiking, 0.5 to 1.4% of the shipped radii were blips more than 0.3 mm from the
+    median of their ray over 2 mm (a notch of 1.1 mm on the right subclavian of head-neck-cta,
+    where the wire was judged through the wall). Despiked, a second pass finds almost none."""
+    import gzip
+
+    root = Path(pi.__file__).resolve().parents[1] / "cases"
+    for d in sorted(root.glob("*/asset.json.gz")):
+        raw = json.loads(gzip.decompress(d.read_bytes()))
+        n = total = 0
+        for e in raw["edges"]:
+            R = np.asarray(e["R"], float)
+            n += int(pi.despike(R)[1].sum())
+            total += R.size
+        assert n / total < 0.002, (d.parent.name, n / total)

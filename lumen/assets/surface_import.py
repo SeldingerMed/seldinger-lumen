@@ -602,6 +602,32 @@ def fill_ostia(R: np.ndarray, factor: float = 1.25, far: float = 40.0) -> tuple[
     return R, esc
 
 
+def despike(R: np.ndarray, tol_mm: float = 0.3, half_s: int = 2) -> tuple[np.ndarray, np.ndarray]:
+    """Replace blips along the vessel by the median of their ray. Returns (R, replaced mask).
+
+    A ray that grazes a gap in the segmented surface, or a neighbouring vessel, reads a radius
+    the sections either side of it do not share: on the shipped scans up to 11 mm off. Such a
+    sample makes a notch or a pocket half a millimetre long in the wall, shorter than the scan
+    resolves, and the wire meets a wall where there is none or a pocket that is not there.
+
+    Each sample is compared with the median of its own ray over the 2 x ``half_s`` + 1
+    sections around it (2 mm at the 0.5 mm import step). A sample further than ``tol_mm``
+    from it is replaced by it; every other sample is kept as measured. Anything at least
+    ``half_s`` + 1 sections long (1.5 mm), however wide around the vessel, is kept with its
+    corners: a stenosis, a bulge, a branch opening."""
+    R = np.asarray(R, float)
+    n_s = R.shape[0]
+    if n_s < 3:
+        return R.copy(), np.zeros(R.shape, bool)
+    along = np.stack([R[np.clip(np.arange(n_s) + di, 0, n_s - 1)]
+                      for di in range(-half_s, half_s + 1)])
+    med = np.median(along, axis=0)
+    bad = np.abs(R - med) > tol_mm
+    out = R.copy()
+    out[bad] = med[bad]
+    return out, bad
+
+
 def recentre(rays: Rays, poly: np.ndarray, iters: int = 3, keep_ends_mm: float = 0.0) -> np.ndarray:
     p = poly.copy()
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
@@ -692,13 +718,15 @@ def import_triangles(tris: np.ndarray, side: np.ndarray, *, voxel_mm: float = 0.
     site_dist = {}
     for nm, xyz in (sites or {}).items():
         site_dist[nm] = _split_at(edges, nodes, nm, np.asarray(xyz, float))
-    out_edges, n_clipped, n_rays = [], 0, 0
+    out_edges, n_clipped, n_spikes, n_rays = [], 0, 0, 0
     for k, (a, b, p) in enumerate(edges):
         p = p.copy()
         p[0], p[-1] = nodes[a], nodes[b]
         th, R, _ = cross_section(rays, p)
         R, esc = fill_ostia(R)
+        R, spikes = despike(R)
         n_clipped += int(esc.sum())
+        n_spikes += int((spikes & ~esc).sum())
         n_rays += R.size
         s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
         out_edges.append(Edge(id=f"e{k}", node_a=a, node_b=b, centerline_mm=p.tolist(), s_grid=s.tolist(),
@@ -710,7 +738,8 @@ def import_triangles(tris: np.ndarray, side: np.ndarray, *, voxel_mm: float = 0.
               "step_mm": step_mm, "n_theta": N_THETA, "faces": int(len(tris)),
               "lumen_faces": int((side != 0).sum()), "voxelization": vox, "skeleton": sk.info,
               "edges": len(out_edges), "nodes": len(nodes), "site_to_centerline_mm": site_dist,
-              "rays_filled_at_ostia_frac": n_clipped / max(n_rays, 1), "seconds": round(time.time() - t0, 1)}
+              "rays_filled_at_ostia_frac": n_clipped / max(n_rays, 1),
+              "rays_despiked_frac": n_spikes / max(n_rays, 1), "seconds": round(time.time() - t0, 1)}
     return asset, report
 
 
