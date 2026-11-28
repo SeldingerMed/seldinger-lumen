@@ -612,18 +612,32 @@ def despike(R: np.ndarray, tol_mm: float = 0.3, half_s: int = 2) -> tuple[np.nda
 
     Each sample is compared with the median of its own ray over the 2 x ``half_s`` + 1
     sections around it. ``half_s`` counts sections; import passes 1 mm / ``step_mm``, so the
-    window is 2 mm along the vessel at any step (five sections at the default 0.5 mm). A sample further than ``tol_mm``
-    from it is replaced by it; every other sample is kept as measured. Anything at least
-    ``half_s`` + 1 sections long (1.5 mm at the import's window), however wide around the
-    vessel, is kept with its corners: a stenosis, a bulge, a branch opening."""
+    window is 2 mm along the vessel at any step (five sections at the default 0.5 mm). A
+    sample further than ``tol_mm`` from that median is replaced by it, unless both sections
+    next to it lean the same way from the window's ends: then it is the deepest point of a
+    real narrowing or widening (a stenosis that tapers to its minimum), not a blip. Every
+    other sample is kept as measured. Anything at least ``half_s`` + 1 sections long (1.5 mm
+    at the import's window), however wide around the vessel, is kept with its corners: a
+    stenosis, a bulge, a branch opening. The end sections of a vessel compare against a
+    window that repeats the end, so they are replaced less readily, where a vessel meets a
+    junction and its radius really changes."""
     R = np.asarray(R, float)
     n_s = R.shape[0]
     if n_s < 3:
         return R.copy(), np.zeros(R.shape, bool)
-    along = np.stack([R[np.clip(np.arange(n_s) + di, 0, n_s - 1)]
-                      for di in range(-half_s, half_s + 1)])
-    med = np.median(along, axis=0)
-    bad = np.abs(R - med) > tol_mm
+    idx = np.arange(n_s)
+    row = lambda d: R[np.clip(idx + d, 0, n_s - 1)]
+    med = np.median(np.stack([row(d) for d in range(-half_s, half_s + 1)]), axis=0)
+    dev = R - med
+    cand = np.abs(dev) > tol_mm
+    # a tapering feature: the sections either side lean from the window's two ends the same
+    # way as the sample, each by more than half the tolerance
+    ends = 0.5 * (row(-half_s) + row(half_s))
+    lean_m, lean_p = row(-1) - ends, row(1) - ends
+    side = np.sign(dev)
+    tapered = ((np.sign(lean_m) == side) & (np.sign(lean_p) == side)
+               & (np.abs(lean_m) > 0.5 * tol_mm) & (np.abs(lean_p) > 0.5 * tol_mm))
+    bad = cand & ~tapered
     out = R.copy()
     out[bad] = med[bad]
     return out, bad

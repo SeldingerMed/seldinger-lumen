@@ -209,18 +209,31 @@ def test_import_sizes_the_despike_window_in_millimetres(monkeypatch):
     assert not real(R, half_s=4)[1].any()
 
 
-def test_the_shipped_cases_carry_the_despiked_wall():
-    """Before despiking, 0.5 to 1.4% of the shipped radii were blips more than 0.3 mm from the
-    median of their ray over 2 mm (a notch of 1.1 mm on the right subclavian of head-neck-cta,
-    where the wire was judged through the wall). Despiked, a second pass finds almost none."""
-    import gzip
+def test_despike_keeps_the_deepest_point_of_a_tapering_stenosis():
+    """A narrowing that tapers to its minimum over three sections (5, 3.5, 2, 3.5, 5 mm) keeps
+    its 2 mm minimum: the sections either side lean the same way, so it is not a blip."""
+    R = np.tile(np.array([5, 5, 5, 3.5, 2.0, 3.5, 5, 5, 5])[:, None], (1, 16))
+    out, bad = pi.despike(R)
+    assert not bad.any() and out.min() == 2.0
+    W = R.copy()
+    W[4] = 8.0                                      # a pocket at the same place is not tapered
+    assert pi.despike(W)[1][4].all()
 
-    root = Path(pi.__file__).resolve().parents[1] / "cases"
-    for d in sorted(root.glob("*/asset.json.gz")):
-        raw = json.loads(gzip.decompress(d.read_bytes()))
+
+def test_the_shipped_cases_carry_the_despiked_wall():
+    """Every catalogued case carries the despiked wall: before despiking 0.3 to 0.9% of the
+    shipped radii were blips more than 0.3 mm from the median of their ray over 2 mm (a notch
+    of 1.1 mm on the right subclavian of head-neck-cta, where the wire was judged through the
+    wall). Despiked, a second pass finds almost none."""
+    from lumen import cases
+
+    names = cases.names()
+    assert names
+    for name in names:
+        asset = cases.load(name)[0]
         n = total = 0
-        for e in raw["edges"]:
-            R = np.asarray(e["R"], float)
+        for e in asset.edges:
+            R = np.asarray(e.R, float)
             n += int(pi.despike(R)[1].sum())
             total += R.size
-        assert n / total < 0.002, (d.parent.name, n / total)
+        assert n / total < 0.002, (name, n / total)

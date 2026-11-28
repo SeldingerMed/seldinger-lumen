@@ -33,7 +33,13 @@ runs on your machine. The scan is never uploaded.
    model's coarser grid. Where a model missed a short stretch of a vessel and the scan shows
    contrast running across the gap, the stretch is filled in.
 5. **Build the tree.** The vessel surface becomes a branching tree with a fitted wall, which is
-   what the solver uses. `report.json` lists every stretch that was filled in or joined.
+   what the solver uses. The wall is measured every half millimetre along each vessel by rays
+   cast round its axis. A ray that grazes a gap in the surface reads a radius the sections either
+   side of it do not share; such a reading, more than 0.3 mm from the median of its ray over
+   2 mm, is replaced by that median, unless the sections next to it lean the same way (the
+   tapering minimum of a stenosis is kept). `report.json` lists every stretch that was filled in
+   or joined, and in `conversion.rays_despiked_frac` the share of all wall readings replaced
+   this way (readings already filled in at a branch opening are not counted again).
 
 ## The first time: Lumen asks before installing a model
 
