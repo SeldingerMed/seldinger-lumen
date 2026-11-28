@@ -69,6 +69,7 @@ def test_a_wire_prolapsing_at_the_arch_left_subclavian_stays_in_the_vessel():
     reliably needs the microcatheter advanced into the branch, not modelled yet. However the
     wire loops, it stays in the vessel."""
     info, worst = _follow("arch", "subclavian_out")
+    assert not info.get("diverged", False)     # a blown-up episode reports no penetration
     assert worst < 1.5
     assert info["furthest_mm"] > 50.0          # into the branch: past its carina at 49 mm
 
