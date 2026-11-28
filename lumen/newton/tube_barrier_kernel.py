@@ -191,7 +191,9 @@ def accumulate_tube_barrier(
         wp.atomic_add(wall_load, cell, fn)
         # --- anisotropic, fiber-aligned friction, implicit (doc §3.5.5) ---
         if mu_across > 0.0 or mu_along > 0.0:
-            v_lin = wp.spatial_bottom(body_qd[bid])         # device node linear velocity
+            # Newton's body_qd is (linear, angular): the first three entries are the
+            # node's linear velocity, the sliding the wall resists
+            v_lin = wp.spatial_top(body_qd[bid])
             v_t = v_lin - wp.dot(v_lin, er) * er            # wall-tangential component
             vt_mag = wp.length(v_t)
             # fiber-aligned mu (min along fibers); default to a circumferential
@@ -364,7 +366,7 @@ def accumulate_tree_barrier(
         fn = -bp
         wp.atomic_add(wall_load, cell, fn)
         if mu_across > 0.0 or mu_along > 0.0:
-            v_lin = wp.spatial_bottom(body_qd[bid])
+            v_lin = wp.spatial_top(body_qd[bid])         # linear velocity, as above
             v_t = v_lin - wp.dot(v_lin, er) * er
             vt_mag = wp.length(v_t)
             circ = wp.normalize(wp.cross(tang, er))

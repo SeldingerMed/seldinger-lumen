@@ -273,8 +273,9 @@ def _tapered_tree(n_s, n_th, R0=2.0, R1=4.0, L=80.0):
     return VascularTree(asset)
 
 
-def _wall_force(tree, p, n_s=None, n_th=None):
-    """The tree barrier's force on one node of radius 0.2 at p (kappa 2e3, d_hat 0.3)."""
+def _wall_force(tree, p, n_s=None, n_th=None, qd=None, mu=0.0):
+    """The tree barrier's force on one node of radius 0.2 at p (kappa 2e3, d_hat 0.3), with
+    Newton spatial velocity ``qd`` (linear, angular) and friction ``mu`` both ways."""
     import warp as wp
 
     from lumen.newton.tube_barrier_kernel import accumulate_tree_barrier
@@ -293,15 +294,33 @@ def _wall_force(tree, p, n_s=None, n_th=None):
     bh = wp.zeros(len(q), dtype=wp.mat33, device="cpu")
     load = wp.zeros_like(s._tree_wall_load)
     cg = wp.array(np.array([bid], np.int32), dtype=wp.int32, device="cpu")
+    v = sim.state_0.body_qd.numpy() * 0.0
+    if qd is not None:
+        v[bid] = qd
+    bqd = wp.array(v, dtype=wp.spatial_vector, device="cpu")
     wp.launch(accumulate_tree_barrier, dim=1,
-              inputs=[cg, s._tree_wire_mask, s._tree_body_radius, bq, sim.state_0.body_qd,
+              inputs=[cg, s._tree_wire_mask, s._tree_body_radius, bq, bqd,
                       s._tree_P, s._tree_Tg, s._tree_M1, s._tree_cum_s, s._tree_vstart,
                       s._tree_vcount, s._tree_smax, s._tree_start_junc, s._tree_end_junc,
                       s._tree_n_edges, s._tree_R0, s._tree_w, s._tree_ns, s._tree_nth,
                       s._tree_n_per_env, s._tree_kappa, s._tree_d_hat, s._tree_mode,
-                      0.0, 0.0, 0.0, 5e-3],
+                      float(mu), float(mu), 0.0, 5e-3],
               outputs=[bf, bh, load], device="cpu")
     return bf.numpy()[bid]
+
+
+def test_tree_contact_friction_resists_sliding_not_spinning():
+    """Newton's body_qd is (linear, angular). On a scanned case's tree contact a node pressed
+    into the wall and sliding along the vessel feels friction against the slide; spinning in
+    place it feels none along the vessel (the kernel used to read the spin as the slide)."""
+    tree = _tapered_tree(41, 16, R0=2.0, R1=2.0)
+    p = np.array([1.7, 0.0, 40.0])                       # 0.1 mm into the barrier band
+    normal = abs(_wall_force(tree, p, qd=(0, 0, 0, 0, 0, 0), mu=0.5)[0])
+    assert normal > 50.0
+    slide = _wall_force(tree, p, qd=(0, 0, 1.0, 0, 0, 0), mu=0.5)
+    spin = _wall_force(tree, p, qd=(0, 0, 0, 0, 0, 1.0), mu=0.5)
+    assert slide[2] < -0.45 * normal                     # about mu * normal, against +z
+    assert abs(spin[2]) < 1e-3 * normal
 
 
 @pytest.mark.parametrize("n_s", [None, 5])
