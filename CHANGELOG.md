@@ -167,10 +167,6 @@ All notable changes to this project are documented here. The format follows
 - Wall-load peaks, pressure peaks, and load impulses now accumulate across every
   converged public-step substep on device before diagnostic synchronization.
 ### Fixed
-- Wall friction resists the wire's sliding. Both contact kernels read the angular half of
-  Newton's body velocity (linear, angular) as the node's slide, so with friction on, a spin
-  about the vessel axis was resisted as a slide along it and a real slide was not resisted.
-  Friction is off by default, so default runs are unchanged (#157).
 - Contact load was double-counted by the HGO wall and the clot; the wall now skips
   clot cells.
 - Stent-retriever fragmentation now scales with the timestep via the damage law.
