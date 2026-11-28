@@ -292,8 +292,9 @@ def accumulate_tree_barrier(
     # O(n_edges × verts) scan, no spatial cull. Per edge, the foot is the nearest point on its
     # axis (plain distance: a wider section further along the same edge must not take over a
     # node sitting in a stenosis). The edges are then compared by room at their feet, with the
-    # same blended R(s, theta) the force below uses, so VascularTree.project and this kernel
-    # pick the same owner from the same radius.
+    # same baked R(s, theta) the force below uses. VascularTree.project compares rooms under
+    # the scanned R; the baked wall is the same or a little inside it (tube_vbd's
+    # _wall_samples_inside), so the two pick the same owner unless two rooms differ by less.
     for e in range(n_edges):
         v0 = edge_vstart[e]
         nv = edge_vcount[e]

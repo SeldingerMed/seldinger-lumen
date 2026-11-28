@@ -966,7 +966,7 @@ def conversion_error(asset: Asset, mesh_path: str | Path | None = None, *, scale
            "definition": "source_to_lumen: source lumen-surface samples, |r - R| under the Newton tree-contact "
                          "kernel's projection (each edge's nearest foot, owned by the edge with most room; branch-blended R; samples past the "
                          "open entry end excluded, where Lumen applies no contact); tree_project_rule: the same under "
-                         "VascularTree.project (the kernel's ownership rule, used for observations); lumen_to_source: Lumen wall points (the "
+                         "VascularTree.project (the kernel's ownership rule on the scanned R; the kernel's own wall is baked up to a step's overshoot inside it; used for observations); lumen_to_source: Lumen wall points (the "
                          "stored cross-section rings) to the nearest source surface sample (virtual walls across ostia excluded); junction zone: "
                          "within the widest meeting vessel's radius of a branch point"}
     if task_edges:
