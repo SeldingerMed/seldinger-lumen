@@ -61,6 +61,18 @@ def test_a_shipped_case_drives_like_an_import():
     assert np.isfinite(info["dist"])
 
 
+def test_a_shipped_case_picks_the_wire_an_operator_would_use():
+    """An iliac route is crossed on a 0.035 inch wire; an intracranial one on the microwire."""
+    _solver()
+    iliac = cases.make_env("aorta-cta", "left iliac artery", max_steps=3, settle_steps=0)
+    assert iliac.wire == "0.035"
+    mca = cases.make_env("head-tof-mra", "right middle cerebral artery", max_steps=3,
+                         settle_steps=0)
+    assert mca.wire == "micro"
+    assert cases.make_env("aorta-cta", "left iliac artery", max_steps=3, settle_steps=0,
+                          wire="micro").wire == "micro"
+
+
 # ------------------------------------------------------------------ meshes
 def test_compact_surface_round_trips_within_storage_precision(tmp_path):
     rng = np.random.default_rng(0)
@@ -152,6 +164,7 @@ def test_a_recorded_run_replays_and_reloads(tmp_path):
     env = TreeNavEnv(a.asset, target_node="carotid_out", max_steps=12)
     run = record.record(env, steps=12, anatomy="arch", target="carotid")
     assert run["frames"][0]["step"] == 0 and len(run["frames"]) == 13
+    assert run["wire"] == "micro" and run["device_radius_mm"] == 0.2
     assert np.asarray(run["frames"][-1]["nodes"]).shape[1] == 3
     p = record.save(run, tmp_path / "run.json")
     again = record.load(p)
@@ -203,6 +216,26 @@ def test_run_without_the_solver_is_a_clear_error_not_a_traceback(monkeypatch, ca
         view_main(["arch", "--run", "--target", "carotid", "--steps", "2"])
     assert exc.value.code == 2
     assert "--run needs the solver" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("anatomy,target,wire", [
+    ("arch", "carotid", "micro"), ("aorta-cta", "left iliac artery", "auto")])
+def test_a_viewer_run_on_real_anatomy_gets_the_wire_an_operator_would_use(
+        monkeypatch, anatomy, target, wire):
+    import lumen.envs.tree_nav as tree_nav
+    from lumen.cli import view_main
+
+    seen = {}
+
+    class _Env:
+        def __init__(self, *a, **k):
+            seen.update(k)
+            raise ModuleNotFoundError("stop here")
+
+    monkeypatch.setattr(tree_nav, "TreeNavEnv", _Env)
+    with pytest.raises(SystemExit):
+        view_main([anatomy, "--run", "--target", target, "--steps", "2"])
+    assert seen["wire"] == wire
 
 
 def test_a_damaged_replay_is_refused(tmp_path):

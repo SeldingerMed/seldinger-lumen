@@ -121,6 +121,7 @@ def record(env, policy=None, steps: int = 400, *, anatomy: str = "", target: str
             "target_node": getattr(env, "target_node", None),
             "dt_s": 5e-3 * getattr(env, "substeps", 4),
             "device_radius_mm": float(getattr(env, "device_radius_mm", 0.2)),
+            "wire": str(getattr(env, "wire", "micro")),
             "route": np.round(np.asarray(env.route_frame.points, float), 2).tolist(),
             "frames": frames, "outcome": outcome}
 

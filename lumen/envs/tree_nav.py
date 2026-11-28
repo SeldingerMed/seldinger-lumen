@@ -78,19 +78,40 @@ def guide_start(tree: VascularTree, route: list[int], start_node: str, guide_rad
 # A tip pressed into the wall by up to the contact margin is still in the vessel.
 WALL_TOL_MM = 0.5
 
+# Guidewires: radius in mm and bending stiffness per 2 mm joint. The rod solver's bending
+# stiffness is per joint and in its own units, so the two are calibrated against each other,
+# not to newton-metres: a wire's bending stiffness scales with its diameter to the fourth
+# power, and a 0.035 inch wire (with its tapered core) is about twenty times as stiff as a
+# 0.016 inch microwire. In a vessel many times its width a microwire bows under a push and
+# its tip slides along the wall; an operator crosses the aorta, the iliacs and the arch
+# vessels on a 0.035 inch wire and keeps the microwire for the arteries beyond.
+WIRES = {"micro": (0.2, 50.0), "0.035": (0.45, 900.0)}
+# ``wire="auto"`` takes the 0.035 inch wire when every vessel of the route is at least this
+# wide (mean lumen radius, as ``guide_start`` measures it), else the microwire.
+WIDE_ROUTE_MIN_R_MM = 3.0
+
+
+def pick_wire(tree: VascularTree, route: list[int]) -> str:
+    """The wire an operator would navigate ``route`` on: ``"0.035"`` when every route vessel
+    is at least ``WIDE_ROUTE_MIN_R_MM`` wide, else ``"micro"``."""
+    if route and min(float(np.mean(tree.edges[i].lf.R)) for i in route) >= WIDE_ROUTE_MIN_R_MM:
+        return "0.035"
+    return "micro"
+
 
 class TreeNavEnv:
     def __init__(self, asset, target_node=None, target_frac=1.0, max_insertion=2.0,
                  max_twist=1.0, substeps=4, max_steps=60, success_tol=2.5,
                  safety_max_pen=0.3, blend_len=4.0, terminate_on_unsafe: bool = False,
-                 device=None, device_radius_mm=0.2, density: float | None = None,
+                 device=None, device_radius_mm: float | None = None, density: float | None = None,
                  feed_stop_pen_mm: float | None = 0.2, wall_stiffness: float = 6.0e3,
                  wire_nodes: int | None = None, guide_radius_mm: float | None = None,
                  substep_ms: float = 2.5, bend_damping: float = 0.05, tip_deg: float = 45.0,
                  support_gap_mm: float = 20.0, contain_tol_mm: float | None = 0.3,
                  settle_steps: int = 10, quasi_static: bool = True,
                  vbd_iterations: int | None = None, aim_tip: bool = False,
-                 start_node: str | None = None):
+                 start_node: str | None = None, wire: str = "micro",
+                 bend_stiffness: float | None = None):
         """``density`` is the wire's mass per cubic millimetre in the solver's units (None
         gives 1e-2, see below). ``feed_stop_pen_mm`` stops feeding, for the rest of a step,
         once any part of the wire presses that far into the wall. The pushed end is driven
@@ -146,7 +167,12 @@ class TreeNavEnv:
         wire's tip, measured along the route: the pushed end stops there, so a tip that
         is caught and falls back is not fed further into a coil. ``contain_tol_mm`` puts back
         any node that went that far through the wall (None: off). ``settle_steps`` lets the
-        wire relax into the vessel, with no input, before the first episode."""
+        wire relax into the vessel, with no input, before the first episode.
+
+        ``wire`` is the guidewire, a key of ``WIRES`` (``"micro"``, the default, or
+        ``"0.035"``) or ``"auto"`` for the one an operator would use on the route
+        (``pick_wire``). ``device_radius_mm`` and ``bend_stiffness`` override the wire's
+        radius and bending stiffness."""
         terminate_on_unsafe = validate_boolean(
             terminate_on_unsafe,
             "terminate_on_unsafe",
@@ -197,7 +223,16 @@ class TreeNavEnv:
         self.safety_max_pen = float(safety_max_pen)
         self.terminate_on_unsafe = terminate_on_unsafe
         self.device = device or detect_device()
-        self.device_radius_mm = float(device_radius_mm)
+        if wire == "auto":
+            wire = pick_wire(self.tree, self.route)
+        if wire not in WIRES:
+            raise ValueError(f"wire must be 'auto' or one of {sorted(WIRES)}, not {wire!r}")
+        self.wire = wire
+        self.device_radius_mm = float(WIRES[wire][0] if device_radius_mm is None
+                                      else device_radius_mm)
+        self.bend_stiffness = float(WIRES[wire][1] if bend_stiffness is None else bend_stiffness)
+        if not (np.isfinite(self.bend_stiffness) and self.bend_stiffness > 0):
+            raise ValueError("bend_stiffness must be finite and positive")
         self.density = 1.0e-2 if density is None else float(density)
         if not (np.isfinite(self.density) and self.density > 0):
             raise ValueError("density must be finite and positive")
@@ -465,7 +500,8 @@ class TreeNavEnv:
                                           bend_damping=self.bend_damping,
                                           device=self.device, tree=self.tree,
                                           route_centerline=np.asarray(self.route_frame.points),
-                                          density=self.density)
+                                          density=self.density,
+                                          bend_stiffness=self.bend_stiffness)
             self._settle()
         self.sim.reset()
         self.steps = 0
