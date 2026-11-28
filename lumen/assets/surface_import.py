@@ -602,6 +602,60 @@ def fill_ostia(R: np.ndarray, factor: float = 1.25, far: float = 40.0) -> tuple[
     return R, esc
 
 
+def despike_half_window(s, window_mm: float = 2.0) -> int:
+    """The despike half-window, in sections, that spans ``window_mm`` along a vessel whose
+    sections sit at arc lengths ``s``. Sections end up closer than the import's ``step_mm``
+    (smoothing and re-centring shorten the path; about 0.34 mm at the default 0.5), so the
+    window is sized from the final spacing."""
+    d = np.diff(np.asarray(s, float))
+    d = d[d > 0]
+    if len(d) == 0:
+        return 1
+    return max(1, int(round(0.5 * window_mm / float(np.median(d)))))
+
+
+def despike(R: np.ndarray, tol_mm: float = 0.3, half_s: int = 2) -> tuple[np.ndarray, np.ndarray]:
+    """Replace blips along the vessel by the median of their ray. Returns (R, replaced mask).
+
+    A ray that grazes a gap in the segmented surface, or a neighbouring vessel, reads a radius
+    the sections either side of it do not share: on the shipped scans up to 11 mm off. Such a
+    sample makes a notch or a pocket half a millimetre long in the wall, shorter than the scan
+    resolves, and the wire meets a wall where there is none or a pocket that is not there.
+
+    Each sample is compared with the median of its own ray over the 2 x ``half_s`` + 1
+    sections around it. ``half_s`` counts sections; import passes ``despike_half_window`` of
+    the edge's final arc lengths, so the window is 2 mm along the vessel at any step (seven
+    sections at the default import step, whose sections end about 0.34 mm apart). A
+    sample further than ``tol_mm`` from that median is replaced by it, unless both sections
+    next to it lean the same way from the window's ends: then it is the deepest point of a
+    real narrowing or widening (a stenosis that tapers to its minimum), not a blip. Every
+    other sample is kept as measured. Anything at least ``half_s`` + 1 sections long (1.5 mm
+    at the import's window), however wide around the vessel, is kept with its corners: a
+    stenosis, a bulge, a branch opening. The end sections of a vessel compare against a
+    window that repeats the end, so they are replaced less readily, where a vessel meets a
+    junction and its radius really changes."""
+    R = np.asarray(R, float)
+    n_s = R.shape[0]
+    if n_s < 3:
+        return R.copy(), np.zeros(R.shape, bool)
+    idx = np.arange(n_s)
+    row = lambda d: R[np.clip(idx + d, 0, n_s - 1)]
+    med = np.median(np.stack([row(d) for d in range(-half_s, half_s + 1)]), axis=0)
+    dev = R - med
+    cand = np.abs(dev) > tol_mm
+    # a tapering feature: the sections either side lean from the window's two ends the same
+    # way as the sample, each by more than half the tolerance
+    ends = 0.5 * (row(-half_s) + row(half_s))
+    lean_m, lean_p = row(-1) - ends, row(1) - ends
+    side = np.sign(dev)
+    tapered = ((np.sign(lean_m) == side) & (np.sign(lean_p) == side)
+               & (np.abs(lean_m) > 0.5 * tol_mm) & (np.abs(lean_p) > 0.5 * tol_mm))
+    bad = cand & ~tapered
+    out = R.copy()
+    out[bad] = med[bad]
+    return out, bad
+
+
 def recentre(rays: Rays, poly: np.ndarray, iters: int = 3, keep_ends_mm: float = 0.0) -> np.ndarray:
     p = poly.copy()
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
@@ -692,15 +746,17 @@ def import_triangles(tris: np.ndarray, side: np.ndarray, *, voxel_mm: float = 0.
     site_dist = {}
     for nm, xyz in (sites or {}).items():
         site_dist[nm] = _split_at(edges, nodes, nm, np.asarray(xyz, float))
-    out_edges, n_clipped, n_rays = [], 0, 0
+    out_edges, n_clipped, n_spikes, n_rays = [], 0, 0, 0
     for k, (a, b, p) in enumerate(edges):
         p = p.copy()
         p[0], p[-1] = nodes[a], nodes[b]
         th, R, _ = cross_section(rays, p)
         R, esc = fill_ostia(R)
-        n_clipped += int(esc.sum())
-        n_rays += R.size
         s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
+        R, spikes = despike(R, half_s=despike_half_window(s))
+        n_clipped += int(esc.sum())
+        n_spikes += int((spikes & ~esc).sum())
+        n_rays += R.size
         out_edges.append(Edge(id=f"e{k}", node_a=a, node_b=b, centerline_mm=p.tolist(), s_grid=s.tolist(),
                               theta_grid=th.tolist(), R=R.tolist()))
     asset = Asset(frame=Frame(name="world_mm", spacing_mm=(1.0, 1.0, 1.0), origin_mm=(0.0, 0.0, 0.0)),
@@ -710,7 +766,8 @@ def import_triangles(tris: np.ndarray, side: np.ndarray, *, voxel_mm: float = 0.
               "step_mm": step_mm, "n_theta": N_THETA, "faces": int(len(tris)),
               "lumen_faces": int((side != 0).sum()), "voxelization": vox, "skeleton": sk.info,
               "edges": len(out_edges), "nodes": len(nodes), "site_to_centerline_mm": site_dist,
-              "rays_filled_at_ostia_frac": n_clipped / max(n_rays, 1), "seconds": round(time.time() - t0, 1)}
+              "rays_filled_at_ostia_frac": n_clipped / max(n_rays, 1),
+              "rays_despiked_frac": n_spikes / max(n_rays, 1), "seconds": round(time.time() - t0, 1)}
     return asset, report
 
 

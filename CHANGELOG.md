@@ -29,6 +29,15 @@ All notable changes to this project are documented here. The format follows
   (95th percentile 1.1 mm). The wall is now sampled at least every 2 mm, at the lumen field's
   own angles, and read between samples; on the shipped cases the 95th percentile difference
   is 0.03 to 0.10 mm.
+- Scanned walls no longer carry half-millimetre notches and pockets. A ray that grazes a gap
+  in the segmented surface reads a radius the sections either side of it do not share; on the
+  shipped scans 0.4 to 1.0% of radius samples were such blips, up to 11 mm off. Import now
+  replaces a sample more than 0.3 mm from the median of its ray over 2 mm by that median,
+  unless the sections either side lean the same way (features 1.5 mm or longer, such as
+  stenoses, bulges and branch openings, and the tapering minimum of a stenosis are kept), reports
+  the share as `rays_despiked_frac`, and the five shipped cases carry the despiked wall. On
+  nine real-case routes, wall breaches by the wire fell from 15 to 2 and the deepest from 0.65
+  to 0.44 mm; one more route reaches its target.
 - Which vessel holds a point near a junction is decided as the contact physics decides it:
   by the distance to the nearest point of each vessel's axis, so past a vessel's end, the
   distance to the end point, and at a sharp bend, the distance to the bend (it was measured

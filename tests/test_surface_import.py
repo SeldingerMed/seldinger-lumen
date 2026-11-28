@@ -165,3 +165,78 @@ def test_wall_fit_skips_only_points_past_the_entry_end():
     tree = VascularTree(procedural.straight_tube(40.0, 2.0, n=20))       # wire enters at z = 0
     out = contact_project(tree, np.array([[1.0, 0.0, -3.0], [1.0, 0.0, 43.0], [1.0, 0.0, 20.0]]))
     assert out["culled"].tolist() == [True, False, False]
+
+
+def test_despike_replaces_a_blip_along_the_vessel_and_keeps_the_rest_as_measured():
+    rng = np.random.default_rng(0)
+    R = 5.0 + 0.05 * rng.standard_normal((40, 32))
+    R[20, 7:9] = 3.9                                # a 1.1 mm notch half a millimetre long
+    R[11, 30] = 9.0                                 # a ray that ran into a neighbour
+    out, bad = pi.despike(R)
+    assert bad[20, 7] and bad[20, 8] and bad[11, 30] and bad.sum() == 3
+    assert np.all(np.abs(out[bad] - 5.0) < 0.1)
+    np.testing.assert_array_equal(out[~bad], R[~bad])
+
+
+def test_despike_keeps_a_stenosis_a_bulge_and_a_branch_opening_with_their_corners():
+    R = np.full((60, 32), 4.0)
+    R[20:24, :] = 1.5                               # a 2 mm long, 63% stenosis (0.5 mm sections)
+    R[40:46, 5:9] = 9.0                             # a branch opening 3 mm long, four rays wide
+    R[50:53, 12:15] = 6.0                           # a bulge 1.5 mm long, three rays wide
+    out, bad = pi.despike(R)
+    assert not bad.any()
+    np.testing.assert_array_equal(out, R)
+
+
+def test_import_sizes_the_despike_window_in_millimetres(monkeypatch):
+    """half_s counts sections; import sizes it from each edge's final section spacing, so the
+    window spans about 2 mm at any import step, and a 1.5 mm feature is kept at a fine step."""
+    seen, real = [], pi.despike
+
+    def spy(R, **kw):
+        seen.append(kw.get("half_s"))
+        return real(R, **kw)
+
+    monkeypatch.setattr(pi, "despike", spy)
+    T = _tube([0, 0, 0], [0, 40, 0], 3.0, n_theta=64)
+    side = pi.lumen_side(T, "solid")
+    for step in (0.5, 0.25):
+        seen.clear()
+        asset, _ = pi.import_triangles(T, side, voxel_mm=0.4, root_mm=[0, 1.0, 0], step_mm=step)
+        ds = np.median(np.concatenate([np.diff(e.s_grid) for e in asset.edges]))
+        assert seen and all(1.5 <= 2 * h * ds <= 2.5 for h in seen), (step, seen, ds)
+    assert pi.despike_half_window(np.arange(0, 20, 0.34)) == 3
+    assert pi.despike_half_window(np.arange(0, 20, 1.0)) == 1
+    R = np.full((60, 32), 4.0)
+    R[20:26, :] = 1.5                               # 1.5 mm long at a 0.25 mm step
+    assert not real(R, half_s=4)[1].any()
+
+
+def test_despike_keeps_the_deepest_point_of_a_tapering_stenosis():
+    """A narrowing that tapers to its minimum over three sections (5, 3.5, 2, 3.5, 5 mm) keeps
+    its 2 mm minimum: the sections either side lean the same way, so it is not a blip."""
+    R = np.tile(np.array([5, 5, 5, 3.5, 2.0, 3.5, 5, 5, 5])[:, None], (1, 16))
+    out, bad = pi.despike(R)
+    assert not bad.any() and out.min() == 2.0
+    W = R.copy()
+    W[4] = 8.0                                      # a pocket at the same place is not tapered
+    assert pi.despike(W)[1][4].all()
+
+
+def test_the_shipped_cases_carry_the_despiked_wall():
+    """Every catalogued case carries the despiked wall: before despiking 0.3 to 0.9% of the
+    shipped radii were blips more than 0.3 mm from the median of their ray over 2 mm (a notch
+    of 1.1 mm on the right subclavian of head-neck-cta, where the wire was judged through the
+    wall). Despiked, a second pass finds almost none."""
+    from lumen import cases
+
+    names = cases.names()
+    assert names
+    for name in names:
+        asset = cases.load(name)[0]
+        n = total = 0
+        for e in asset.edges:
+            R = np.asarray(e.R, float)
+            n += int(pi.despike(R, half_s=pi.despike_half_window(e.s_grid))[1].sum())
+            total += R.size
+        assert n / total < 0.002, (name, n / total)
